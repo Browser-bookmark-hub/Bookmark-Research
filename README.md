@@ -9,7 +9,7 @@ Start with the **[installation guide](docs/installation.md)** for repository or 
 ## Install in Codex
 
 ```sh
-codex plugin marketplace add kwenxu/Bookmark-Research --ref main
+codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref main
 codex plugin add bookmark-research@bookmark-research
 ```
 

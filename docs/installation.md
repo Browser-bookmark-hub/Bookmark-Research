@@ -7,7 +7,7 @@ Bookmark Research supports **Codex, Claude Code, Pi, and DSH** through a shared 
 The repository includes a Codex marketplace, so you can install without manually cloning it or creating a manifest:
 
 ```sh
-codex plugin marketplace add kwenxu/Bookmark-Research --ref main
+codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref main
 codex plugin add bookmark-research@bookmark-research
 codex plugin list
 ```
@@ -23,12 +23,12 @@ These commands follow the [OpenAI plugin packaging documentation](https://develo
 For the other client adapters, clone this repository:
 
 ```sh
-git clone https://github.com/kwenxu/Bookmark-Research.git
+git clone https://github.com/Browser-bookmark-hub/Bookmark-Research.git
 cd Bookmark-Research
 python3 src/cli.py doctor
 ```
 
-Alternatively, extract `bookmark-research-0.1.0.zip` from the repository's [Releases](https://github.com/kwenxu/Bookmark-Research/releases) to a permanent directory. Open a terminal in the extracted root and run `python3 src/cli.py doctor`; skip the clone commands. Preserve hidden directories such as `.codex-plugin/` and `.agents/`.
+Alternatively, extract `bookmark-research-0.1.0.zip` from the repository's [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) to a permanent directory. Open a terminal in the extracted root and run `python3 src/cli.py doctor`; skip the clone commands. Preserve hidden directories such as `.codex-plugin/` and `.agents/`.
 
 The ZIP includes the runtime, Skill, manifests, exporter, documentation, and license. Developer tests are excluded and are not needed to install or use the plugin. After extraction, follow the setup for your client below.
 
@@ -39,7 +39,7 @@ Copy this prompt into the client you want to use:
 ```text
 Read this plugin's README and installation guide, then help me install it
 for the client I am using. I will provide my Bookmark Canvas data package afterward.
-https://github.com/kwenxu/Bookmark-Research/blob/main/README.md
+https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/main/README.md
 ```
 
 If the source or ZIP is already on your computer, replace the URL with the absolute path to its README. The agent needs access to that directory to run setup. If your Codex environment includes `$plugin-creator`, it can help with registration and installation.
