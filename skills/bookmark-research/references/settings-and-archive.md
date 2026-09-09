@@ -2,6 +2,8 @@
 
 用户可直接在对话中改配置，CLI 与 MCP 使用同一套实现。当前没有独立图形设置页。
 
+搜索 provider 可选 `exa`、`parallel`、`tavily`，默认前两者；fetch 默认 Exa。Tavily 有 `TAVILY_API_KEY` 时使用 Bearer，否则发送 keyless header；公共访问取决于当时限额，不能保证免密执行。密钥只从进程环境读取。
+
 ## 配置入口
 
 `get_settings` 返回有效设置及 `config_path`，只读不创建文件。`update_settings` 接收 `changes`，按字段合并并持久保存；后续调用立即读取新设置，不需重启 MCP。例如用户要求以后仅用 Exa 并打开归档：
@@ -36,6 +38,8 @@
 
 `fetch_web` 自动保存它自己收到的实际 provider 响应。搜索命中本身不触发抓取或存档，宿主另外配置的 Exa／GitHub MCP 响应也不会被本插件自动截获。
 
+认证、传输或工具契约失败且没有取得实际响应时，返回 `status:"error"`、`error_kind` 和 `usage`，不包含 `result`，也不生成虚构归档。已经取得响应但没有提取出正文时，仍保留实际 `result` 与逐页状态。MCP 将完整调用失败标为 `isError:true`；部分成功保留可用结果。
+
 ```text
 knowledge/
   sources/
@@ -53,3 +57,5 @@ knowledge/
 - 再读同一 URL 会追加新快照，不覆盖旧档案；这只是按调用保存，不是后台版本监控。
 
 报告来源清单可引用 `archive.manifest_path` 和各页 `body_path`。这些档案不会自动加入书签 SQLite，也不会自动生成跨来源 Wiki。外部工具结果如需留存，由当前任务另外保存其实际返回内容并标明来源；本版没有独立的外部响应导入工具。
+
+深度研究使用独立的 `research/` 目录保存状态和证据。`research_fetch` 始终保存已取得的研究响应和正文，普通 fetch 的 archive 开关不影响它；任务恢复和引用校验需要这些快照。会话详情与分页见 [深度研究流程](deep-research.md)。

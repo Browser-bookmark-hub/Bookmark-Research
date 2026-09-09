@@ -4,6 +4,8 @@
 
 建议复用一个核心：`skills/bookmark-research/SKILL.md` 描述工作流，`src/cli.py` 提供固定 CLI 与 stdio MCP，SQLite 保存持久索引。客户端包装不承担另一套书签解析、搜索或正文版本逻辑。
 
+2026-09-10 的 0.2.0 更新增加了 Codex 原生干净导出、安装 CLI、Tavily 和持久研究工具。下文保留早期客户端文档核验的时间边界；当前实现与测试结果见 [0.2.0 验证记录](validation-0.2.0.md)。
+
 | 目标 | 真实入口 | Skill／MCP 如何接入 | 本项目的最小路线 |
 | --- | --- | --- | --- |
 | OpenAI Codex 插件 | `.codex-plugin/plugin.json` | manifest 指向 skills、MCP 配置等组件 | 原生 Codex 包；具体安装与验证按本项目 README |
@@ -24,9 +26,9 @@ python3 /absolute/path/to/bookmark-research/src/cli.py --db /absolute/path/to/pl
 
 省略 `--db` 时，CLI 使用 `BOOKMARK_RESEARCH_DATA_DIR/index.sqlite3`；未设置时使用 `${XDG_DATA_HOME}/bookmark-research/index.sqlite3`，其中 `XDG_DATA_HOME` 默认是 `~/.local/share`。索引不放在插件安装缓存或原始书签包内。多个载体若要访问同一库，应明确指向同一个数据库路径；只保留相同插件名称并不会共享数据。
 
-Codex 的 stdio MCP 需要显式允许转发自定义环境变量（[官方说明](https://developers.openai.com/codex/mcp#stdio-servers)）。本插件原生 manifest 的 `env_vars` 列出 `BOOKMARK_RESEARCH_DATA_DIR`、`BOOKMARK_RESEARCH_CONFIG`、`XDG_DATA_HOME`、`XDG_CONFIG_HOME`、`EXA_API_KEY`、`PARALLEL_API_KEY`；只在启动进程中设置变量而未透传时，MCP 可能仍读取默认目录。已使用全新临时目录核验空来源列表和虚构数据导入。
+Codex 的 stdio MCP 需要显式允许转发自定义环境变量（[官方说明](https://developers.openai.com/codex/mcp#stdio-servers)）。本插件原生 manifest 的 `env_vars` 列出 `BOOKMARK_RESEARCH_DATA_DIR`、`BOOKMARK_RESEARCH_CONFIG`、`XDG_DATA_HOME`、`XDG_CONFIG_HOME`、`EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`；只在启动进程中设置变量而未透传时，MCP 可能仍读取默认目录。已使用全新临时目录核验空来源列表和虚构数据导入。
 
-本项目四种导出均保留上述 CLI 行为，**不强制传入 `--db` 或 `${PLUGIN_DATA}`**。需要共库时，在各载体实际启动 MCP／CLI 子进程的环境中设置相同的 `BOOKMARK_RESEARCH_DATA_DIR`，或修改启动参数，显式指定同一 `--db` 路径。客户端可能过滤环境变量，不能仅凭外部终端已设置就断言子进程一定继承。
+本项目五种导出均保留上述 CLI 行为，**不强制传入 `--db` 或 `${PLUGIN_DATA}`**。需要共库时，在各载体实际启动 MCP／CLI 子进程的环境中设置相同的 `BOOKMARK_RESEARCH_DATA_DIR`，或修改启动参数，显式指定同一 `--db` 路径。客户端可能过滤环境变量，不能仅凭外部终端已设置就断言子进程一定继承。
 
 Agent Plugins 标准的 `PLUGIN_DATA` 是**每个客户端管理的、属于该安装实例的数据目录**，规范要求升级时保留，但没有保证不同客户端的目录相同。如果使用者选择把数据库放入该目录，它可以跨该插件的升级保存，却不自动与 CLI 默认库或另一载体的库共享。[H01]
 
@@ -41,7 +43,7 @@ Pi 的包声明可只包含共享 Skill：
 ```json
 {
   "name": "bookmark-research",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "keywords": ["pi-package"],
   "pi": {
     "skills": ["./skills"]
@@ -154,7 +156,7 @@ bookmark-research-agent-plugins/
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bookmark-research",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Query Bookmark Canvas packages through reusable skills and MCP tools."
 }
 ```
@@ -228,6 +230,7 @@ Claude 当前文档的 manifest 路径是 `.claude-plugin/plugin.json`；有 man
 在仓库工作区根目录运行：
 
 ```sh
+python3 scripts/export_bundle.py --format codex --output /private/tmp/bookmark-research-codex
 python3 scripts/export_bundle.py --format agent-plugin --output /private/tmp/bookmark-research-standard
 python3 scripts/export_bundle.py --format claude --output /private/tmp/bookmark-research-claude
 python3 scripts/export_bundle.py --format pi --output /private/tmp/bookmark-research-pi
@@ -244,4 +247,4 @@ python3 scripts/export_bundle.py --format dsh --output /private/tmp/bookmark-res
 python3 -B -m unittest discover -s tests -p test_export_bundle.py -v
 ```
 
-测试检查四种入口文件的形状，在移除源 fixture 后从独立工作目录运行导出 CLI，并验证 provider 配置、stdio MCP 初始化与工具发现、继承指定的数据目录、缓存过滤及不覆盖已有内容。它验证的是导出产物与共享运行时，不能替代 Pi／DSH／Claude 客户端的实际加载测试。
+测试检查五种入口文件的形状，在移除源 fixture 后从独立工作目录运行导出 CLI，并验证 provider 配置、stdio MCP 初始化与工具发现、继承指定的数据目录、缓存过滤及不覆盖已有内容。四种跨客户端导出排除 Codex 显示元数据，Codex 导出保留它。它验证的是导出产物与共享运行时，不能替代 Pi／DSH／Claude 客户端的实际加载测试。

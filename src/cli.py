@@ -41,8 +41,8 @@ def _parser():
     configure.add_argument("--input", help="Partial settings JSON file, or '-' for stdin")
     configure.add_argument("--archive", choices=("true", "false"))
     configure.add_argument("--archive-dir")
-    configure.add_argument("--search-provider", action="append", choices=("exa", "parallel"))
-    configure.add_argument("--fetch-provider", choices=("exa", "parallel"))
+    configure.add_argument("--search-provider", action="append", choices=("exa", "parallel", "tavily"))
+    configure.add_argument("--fetch-provider", choices=("exa", "parallel", "tavily"))
     configure.add_argument("--max-characters", type=int)
     sync = commands.add_parser("sync", help="Register/import a JSON/.canvas package")
     sync.add_argument("package")
@@ -77,7 +77,7 @@ def _parser():
     web.add_argument("--timeout", type=int)
     fetch = commands.add_parser("fetch-web")
     fetch.add_argument("urls", nargs="+")
-    fetch.add_argument("--provider", choices=("exa", "parallel"))
+    fetch.add_argument("--provider", choices=("exa", "parallel", "tavily"))
     fetch.add_argument("--timeout", type=int)
     fetch.add_argument("--max-characters", type=int)
     archival = fetch.add_mutually_exclusive_group()
@@ -85,6 +85,30 @@ def _parser():
     archival.add_argument("--no-archive", dest="archive", action="store_false")
     merge = commands.add_parser("merge-results", help="Fuse normalized batches from existing MCPs")
     merge.add_argument("input", help="JSON input file, or '-' for stdin")
+    research = commands.add_parser("research", help="Durable host-led deep research, evidence and reports")
+    research.add_argument("--directory", help="Research root outside source packages and plugin; default in the data directory")
+    research_commands = research.add_subparsers(dest="research_command", required=True)
+    begin = research_commands.add_parser("start", help="Save a brief, questions and budgets without contacting providers")
+    begin.add_argument("--input", required=True, help="JSON {brief,questions:[{id,question}],budget?,providers?,scope?,source_ids?}")
+    inspect = research_commands.add_parser("status", help="List sessions or inspect progress without network calls")
+    inspect.add_argument("research_id", nargs="?")
+    inspect.add_argument("--section", choices=("questions", "claims", "sources", "operations", "conflicts", "bookmark_context", "events"))
+    inspect.add_argument("--offset", type=int, default=0)
+    inspect.add_argument("--limit", type=int, default=20)
+    for name in ("search", "fetch", "record"):
+        step = research_commands.add_parser(name)
+        step.add_argument("research_id")
+        step.add_argument("--input", required=True, help="Action JSON or '-' for stdin; research_id comes from the positional argument")
+    source = research_commands.add_parser("source", help="Read and verify saved source text")
+    source.add_argument("research_id")
+    source.add_argument("source_id")
+    source.add_argument("--offset", type=int, default=0)
+    source.add_argument("--limit", type=int, default=12000)
+    finish = research_commands.add_parser("finish", help="Validate evidence and write report.md plus sources.json")
+    finish.add_argument("research_id")
+    finish.add_argument("--summary", required=True)
+    finish.add_argument("--status", choices=("completed", "incomplete", "cancelled"), default="completed")
+    finish.add_argument("--limitation", action="append")
     commands.add_parser("serve", help="Run the stdio MCP tool server")
     return parser
 
@@ -97,7 +121,36 @@ def main(argv=None):
             from mcp_server import serve
             serve(str(_database(args.db)), settings=settings)
             return 0
-        if args.command == "config":
+        if args.command == "research":
+            from research import ResearchSessions
+            sessions = ResearchSessions(directory=args.directory, settings=settings, db_path=_database(args.db))
+            action = args.research_command
+            if action in ("start", "search", "fetch", "record"):
+                payload = _read_json(args.input)
+                if not isinstance(payload, dict):
+                    raise ValueError("Research input must be an object")
+                allowed = {"start": {"brief", "questions", "budget", "providers", "scope", "source_ids", "bookmark_refs"},
+                           "search": {"operation_id", "queries", "providers", "limit_per_target"},
+                           "fetch": {"operation_id", "question_id", "urls", "provider", "max_characters"}}
+                required = {"start": {"brief", "questions"}, "search": {"operation_id", "queries"},
+                            "fetch": {"operation_id", "question_id", "urls"}}
+                if action != "record" and (set(payload) - allowed[action] or required[action] - set(payload)):
+                    raise ValueError("Research input has missing or unknown fields for " + action)
+                if action == "start":
+                    result = sessions.start(**payload)
+                elif action == "search":
+                    result = sessions.search(args.research_id, **payload)
+                elif action == "fetch":
+                    result = sessions.fetch(args.research_id, **payload)
+                else:
+                    result = sessions.record(args.research_id, payload)
+            elif action == "status":
+                result = sessions.status(args.research_id, args.section, args.offset, args.limit)
+            elif action == "source":
+                result = sessions.source(args.research_id, args.source_id, args.offset, args.limit)
+            else:
+                result = sessions.finish(args.research_id, args.summary, args.status, args.limitation)
+        elif args.command == "config":
             if args.config_command == "show":
                 result = settings.describe()
             else:
@@ -167,6 +220,10 @@ def main(argv=None):
         if args.command == "providers" and args.probe and result["successful_provider_count"] == 0:
             return 1
         if args.command == "search-web" and result.get("successful_provider_count") == 0:
+            return 1
+        if args.command == "fetch-web" and result.get("status") == "error":
+            return 1
+        if args.command == "research" and result.get("status") == "error":
             return 1
         return 0
     except (ValueError, OSError, RuntimeError, sqlite3.Error) as error:

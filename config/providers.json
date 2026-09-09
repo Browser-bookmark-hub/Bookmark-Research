@@ -14,6 +14,14 @@
       "optional_header_env": {
         "x-api-key": "EXA_API_KEY"
       },
+      "authentication": "Anonymous rate-limited search/extraction, or optional EXA_API_KEY header. This plugin does not implement OAuth.",
+      "native_research": {
+        "url": "https://mcp.exa.ai/mcp?tools=agent_run",
+        "tools": ["agent_run"],
+        "authentication_required": true,
+        "mode": "host_native_mcp",
+        "note": "Opt-in Exa Agent; resumable with runId. Not part of the default search/extraction catalog."
+      },
       "docs": "https://exa.ai/docs/reference/exa-mcp"
     },
     "parallel": {
@@ -27,6 +35,15 @@
       ],
       "direct_client": true,
       "optional_bearer_env": "PARALLEL_API_KEY",
+      "authentication": "Anonymous rate-limited search/extraction, or optional PARALLEL_API_KEY Bearer header. OAuth endpoint is host-managed.",
+      "native_research": {
+        "url": "https://task-mcp.parallel.ai/mcp",
+        "tools": ["createDeepResearch", "createTaskGroup", "getStatus", "getResultMarkdown"],
+        "authentication_required": true,
+        "mode": "host_native_mcp",
+        "docs": "https://docs.parallel.ai/integrations/mcp/task-mcp",
+        "note": "A separate authenticated asynchronous Task MCP; Search MCP capability probes do not contact it."
+      },
       "docs": "https://docs.parallel.ai/integrations/mcp/search-mcp"
     },
     "tavily": {
@@ -40,8 +57,20 @@
         "tavily_extract",
         "tavily-extract"
       ],
-      "direct_client": false,
-      "authentication": "Use the host's OAuth MCP client; merge its results with merge-results.",
+      "direct_client": true,
+      "optional_bearer_env": "TAVILY_API_KEY",
+      "keyless_headers": {
+        "X-Tavily-Access-Mode": "keyless"
+      },
+      "authentication": "Optional TAVILY_API_KEY Bearer header; otherwise explicitly selects keyless search/extraction. OAuth is host-managed.",
+      "keyless_docs": "https://docs.tavily.com/documentation/keyless",
+      "native_research": {
+        "url": "https://mcp.tavily.com/mcp/",
+        "tools": ["tavily_research", "tavily-research"],
+        "authentication_required": true,
+        "mode": "host_native_mcp",
+        "note": "May be advertised to keyless clients but requires an API key to execute. The aggregator routes search and extraction only."
+      },
       "docs": "https://docs.tavily.com/documentation/mcp"
     }
   },

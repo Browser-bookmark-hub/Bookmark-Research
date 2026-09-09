@@ -1,0 +1,11 @@
+{
+  "format": "bookmark-canvas-section",
+  "schemaVersion": 2,
+  "sectionType": "permanent",
+  "slot": "B",
+  "copyId": "copy-b",
+  "fileRole": "copy-anchor",
+  "anchorOnly": true,
+  "descriptionMd": "A second view of the same primary tree; do not double-count.",
+  "inheritFrom": "永久栏目/A书签树（永久栏目）.json"
+}

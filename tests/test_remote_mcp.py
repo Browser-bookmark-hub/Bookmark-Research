@@ -3,6 +3,7 @@
 from email.message import Message
 import io
 import json
+import socket
 from pathlib import Path
 import sys
 import unittest
@@ -11,7 +12,7 @@ import urllib.error
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from remote_mcp import McpHttpClient
+from remote_mcp import McpError, McpHttpClient
 
 
 class FakeResponse:
@@ -269,13 +270,126 @@ class McpHttpTransportTests(unittest.TestCase):
                         self.client().request("tools/list")
                 self.assertNotIn(secret, str(caught.exception))
 
-    def test_tool_catalog_rejects_invalid_shape_and_pagination(self):
-        for catalog in ({"tools": {}}, {"tools": [], "nextCursor": "more"}):
+    def test_tool_catalog_rejects_invalid_shape_or_cursor(self):
+        for catalog in ({"tools": {}}, {"tools": [], "nextCursor": 1},
+                        {"tools": [{"name": "search"}, {"name": "search"}]}):
             with self.subTest(catalog=catalog):
                 replies = initialized_responses(response(catalog, request_id=2))
                 with patch("remote_mcp.urllib.request.urlopen", side_effect=replies):
                     with self.assertRaises(RuntimeError):
                         self.client().list_tools()
+
+    def test_tool_catalog_follows_pages_and_accounts_for_metadata(self):
+        replies = initialized_responses(response({"tools": [{"name": "search"}], "nextCursor": "page-2"}, request_id=2))
+        replies.append(response({"tools": [{"name": "extract"}]}, request_id=3))
+        client = self.client()
+        with patch("remote_mcp.urllib.request.urlopen", side_effect=replies) as opened:
+            self.assertEqual([tool["name"] for tool in client.list_tools()], ["search", "extract"])
+        self.assertEqual(json.loads(opened.call_args_list[-1].args[0].data)["params"], {"cursor": "page-2"})
+        self.assertEqual(client.snapshot_usage(), {"http_requests": 4, "initialize_requests": 1,
+                         "list_requests": 2, "tool_calls": 0, "session_recoveries": 0})
+
+    def test_repeated_cursor_and_catalog_limits_stop_metadata_work(self):
+        client = self.client()
+        client.initialized = True
+        replies = [response({"tools": [], "nextCursor": "same"}),
+                   response({"tools": [], "nextCursor": "same"}, request_id=2)]
+        with patch("remote_mcp.urllib.request.urlopen", side_effect=replies) as opened:
+            with self.assertRaisesRegex(McpError, "repeated"):
+                client.list_tools()
+        self.assertEqual(opened.call_count, 2)
+        client = self.client()
+        client.initialized = True
+        with patch.object(client, "MAX_TOOL_PAGES", 1), patch("remote_mcp.urllib.request.urlopen",
+                return_value=response({"tools": [], "nextCursor": "more"})):
+            with self.assertRaisesRegex(McpError, "pagination limit"):
+                client.list_tools()
+        client = self.client()
+        client.initialized = True
+        with patch.object(client, "MAX_TOOLS", 1), patch("remote_mcp.urllib.request.urlopen",
+                return_value=response({"tools": [{"name": "a"}, {"name": "b"}]})):
+            with self.assertRaisesRegex(McpError, "size limit"):
+                client.list_tools()
+
+    def test_expired_session_restarts_entire_catalog_once(self):
+        client = self.client()
+        client.initialized, client.session_id = True, "old"
+        replies = [response({"tools": [{"name": "stale"}], "nextCursor": "page-2"}),
+                   urllib.error.HTTPError(client.url, 404, "expired", {}, io.BytesIO()),
+                   response({"protocolVersion": "2025-03-26"}, request_id=3, headers={"Mcp-Session-Id": "new"}),
+                   FakeResponse(status=202), response({"tools": [{"name": "current"}]}, request_id=4)]
+        with patch("remote_mcp.urllib.request.urlopen", side_effect=replies):
+            self.assertEqual(client.list_tools(), [{"name": "current"}])
+        self.assertEqual(client.session_id, "new")
+        self.assertEqual(client.snapshot_usage()["session_recoveries"], 1)
+        self.assertEqual(client.snapshot_usage()["list_requests"], 3)
+        self.assertEqual(client.snapshot_usage()["tool_calls"], 0)
+
+    def test_expired_tool_call_is_not_replayed_and_next_action_reinitializes(self):
+        client = self.client()
+        client.initialized, client.session_id = True, "old"
+        first = urllib.error.HTTPError(client.url, 404, "expired", {}, io.BytesIO())
+        with patch("remote_mcp.urllib.request.urlopen", side_effect=first) as opened:
+            with self.assertRaises(McpError) as caught:
+                client.call_tool("search", {"query": "first"})
+        self.assertEqual(caught.exception.kind, "session_expired")
+        self.assertEqual(opened.call_count, 1)
+        self.assertFalse(client.initialized)
+        self.assertIsNone(client.session_id)
+        replies = [response({"protocolVersion": "2025-03-26"}, request_id=2), FakeResponse(status=202),
+                   response({"content": []}, request_id=3)]
+        with patch("remote_mcp.urllib.request.urlopen", side_effect=replies):
+            client.call_tool("search", {"query": "second"})
+        self.assertEqual(client.snapshot_usage()["tool_calls"], 2)
+        self.assertEqual(client.snapshot_usage()["initialize_requests"], 1)
+
+    def test_http_failure_classes_and_retry_after_never_trigger_tool_retry(self):
+        for code, kind, retryable in ((401, "authentication_required", False), (402, "quota_exhausted", False),
+                (403, "authentication_required", False), (404, "http_error", False),
+                (429, "rate_limited", True), (503, "transient_http", True)):
+            with self.subTest(code=code):
+                client = self.client()
+                client.initialized = True
+                failure = urllib.error.HTTPError(client.url, code, "reflected-secret", {"Retry-After": "7"}, io.BytesIO())
+                with patch("remote_mcp.urllib.request.urlopen", side_effect=failure) as opened:
+                    with self.assertRaises(McpError) as caught:
+                        client.call_tool("search", {"query": "test"})
+                self.assertEqual(caught.exception.kind, kind)
+                self.assertEqual(caught.exception.retryable, retryable)
+                self.assertEqual(caught.exception.retry_after, 7)
+                self.assertEqual(opened.call_count, 1)
+                self.assertEqual(client.snapshot_usage()["tool_calls"], 1)
+                self.assertNotIn("reflected-secret", json.dumps(caught.exception.details()))
+
+    def test_tool_change_notification_invalidates_catalog_version(self):
+        client = self.client()
+        initial_version = client.catalog_version
+        payload = (b'data: {"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n\n'
+                   b'data: {"jsonrpc":"2.0","id":1,"result":{"content":[]}}\n\n')
+        with patch("remote_mcp.urllib.request.urlopen", return_value=FakeResponse(payload, "text/event-stream")):
+            client.request("tools/call", {"name": "search", "arguments": {}})
+        self.assertEqual(client.catalog_version, initial_version + 1)
+
+    def test_socket_timeouts_are_classified_on_supported_python_versions(self):
+        for failure in (socket.timeout("private"), urllib.error.URLError(socket.timeout("private"))):
+            with self.subTest(failure=type(failure).__name__):
+                client = self.client()
+                client.initialized = True
+                with patch("remote_mcp.urllib.request.urlopen", side_effect=failure):
+                    with self.assertRaises(McpError) as caught:
+                        client.call_tool("search", {"query": "test"})
+                self.assertEqual(caught.exception.kind, "timeout")
+                self.assertEqual(client.snapshot_usage()["tool_calls"], 1)
+                self.assertNotIn("private", str(caught.exception))
+
+    def test_invalid_session_header_is_not_forwarded(self):
+        for session in ("with space", "control\x01", "非ASCII", "x" * 4097):
+            with self.subTest(session=session[:20]):
+                reply = response({"protocolVersion": "2025-03-26"}, headers={"Mcp-Session-Id": session})
+                with patch("remote_mcp.urllib.request.urlopen", return_value=reply) as opened:
+                    with self.assertRaisesRegex(McpError, "invalid session"):
+                        self.client().initialize()
+                self.assertEqual(opened.call_count, 1)
 
     def test_tool_level_errors_are_not_reported_as_successful_results(self):
         replies = initialized_responses(response({"isError": True, "content": [{"type": "text", "text": "provider failure"}]}, request_id=2))

@@ -1,6 +1,6 @@
 ---
 name: bookmark-research
-description: "分析书签画布 JSON/.canvas 数据包中的书签、文件夹、卡片及关系，并结合 Exa/Parallel 对多个目标进行网页搜索、来源核验和研究。用于书签库查询与研究报告，不提供可导入数据包的生成或编辑流程。"
+description: "分析书签画布 JSON/.canvas 的书签与关系，聚合 Exa、Parallel、Tavily 搜索，并以可恢复任务、正文证据和矛盾核验完成深度研究。用于书签查询、网页核验和研究报告，不生成或回写可导入画布包。"
 ---
 
 # 书签聚合研究
@@ -15,7 +15,7 @@ description: "分析书签画布 JSON/.canvas 数据包中的书签、文件夹�
 
 ## 调用入口
 
-本插件注册一个 `bookmark-research` MCP，提供本地查询、网页搜索与读取，以及 `get_settings` / `update_settings` 配置工具。不同载体会给工具名加前缀，按实际工具列表调用；GitHub 专项工具的选择见下文。
+本插件注册一个 `bookmark-research` MCP，提供本地查询、聚合搜索／读取、`research_*` 研究会话及配置工具。不同载体会给工具名加前缀，按实际工具列表调用；GitHub 专项工具的选择见下文。
 
 如果载体没有加载此 MCP，使用同包 CLI。插件根目录是本 `SKILL.md` 所在目录的 `../..`，入口为 `<插件根目录>/src/cli.py`。使用实际绝对路径，不依赖当前工作目录。命令和结果格式见 [references/cli.md](references/cli.md)。这份固定程序负责查询，不要为每个问题重写脚本或重建数据库。
 
@@ -31,11 +31,11 @@ JSON/.canvas 是事实来源；SQLite 只存派生查询索引。输出笔记、
 
 ## 网页问题
 
-- **有明确 URL / 快速查证**：直接 `fetch_web` 读取相关页面。需要发现 URL 时才 `search_web`。已知 URL 不等于禁止推理，也不保证服务会实时访问原站。
+- **快速查证**：明确 URL 用 `fetch_web`，需要发现来源时用一轮 `search_web` 后读取关键页面。Non-reasoning 描述模型的搜索方式，不能仅凭是否有 URL 判断推理能力；不保证服务会实时访问原站。
 - **Agentic search**：由当前模型拆目标、组织查询、查看结果、读取关键页面，再针对缺口补查。独立目标可以并行；后一步依赖前一步发现时顺序执行。
-- **Deep research**：扩展上面的循环，先给出研究范围和适合任务的时间或调用预算，再围绕证据缺口与矛盾迭代。满足研究问题或达到预算时交付结论和未解决项。这是模型工作流，不是额外伪造的 provider API，也不要求先建 RAG。
+- **Deep research**：需要持续、多轮调查、比较或可继续的研究时，读 [深度研究流程](references/deep-research.md)。使用 `research_start` 保存问题与预算，再通过 `research_search`／`research_fetch` 围绕证据缺口迭代；保存正文引用、回答、矛盾及解决依据。当前模型负责规划与综合，运行时负责记账、恢复、证据检查及报告。只创建任务或收集搜索摘要不能算完成。
 
-联网前读 [研究与服务接入规则](references/research-workflow.md)，按实际可用工具和用户范围执行。聚合默认接通 Exa + Parallel；Tavily 通过载体另外接入后才能合并实际结果。仅查询本地时无需读取这份联网参考或探测远程服务。
+联网前读 [研究与服务接入规则](references/research-workflow.md)，按实际可用工具和用户范围执行。默认 Exa + Parallel，可按需选择 Tavily；配置与工具发现不证明实际调用已获授权。仅查询本地时无需读取联网参考或探测远程服务。
 
 涉及 GitHub 仓库、issue、代码或 Git 同步时，读 [GitHub 与同步边界](references/github-and-sync.md)。插件没有内置 GitHub MCP；优先使用宿主实际具备且适用于任务的 GitHub 工具，公开网页也可用 `fetch_web` 读取。
 
@@ -46,3 +46,5 @@ JSON/.canvas 是事实来源；SQLite 只存派生查询索引。输出笔记、
 ## 交付与留存
 
 简单查询直接答复；研究报告保留引用与实际覆盖范围。`fetch_web` 默认自动保存实际响应、能识别出的正文和来源记录，引用返回的 `archive` 路径；检查其中的失败、缺失与完整性标记。`search_web` 不自动抓取命中的全部 URL。正文存档还不是 LLM Wiki 或 RAG，本插件尚不提供跨来源 Wiki 编写与向量检索。
+
+深度研究用 `research_finish` 生成 `report.md` 与 `sources.json`。全部问题有带引用的回答、已处理矛盾时才选 `completed`；预算耗尽或证据不足时选 `incomplete` 并列出缺口。正文原句匹配只能证明文本存在，仍需模型判断它是否支持结论。会话状态保存在数据目录的 `research/` 中；用户要求继续时用 `research_status` 找回，读取已有证据后从缺口继续。

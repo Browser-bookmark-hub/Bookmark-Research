@@ -1,0 +1,12 @@
+{
+  "format": "bookmark-canvas-section",
+  "schemaVersion": 2,
+  "sectionType": "temporary",
+  "id": "followup-card",
+  "label": "A-1-1",
+  "title": "Follow-up evidence",
+  "tempKind": "regular",
+  "items": [
+    {"id": "update-doc", "sectionId": "followup-card", "type": "bookmark", "title": "Current API update", "url": "https://docs.example.test/update"}
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "kind": "synthetic_test_data",
+  "expected_counts": {"bookmarks": 7, "unique_urls": 6, "folders": 3, "sections": 4, "nodes": 6, "edges": 2, "memberships": 2},
+  "queries": [
+    {"targets": ["https://docs.example.test/search"], "total": 2},
+    {"section": "B", "total": 3},
+    {"group_id": "investigation-group", "total": 4},
+    {"folder_id": "research-folder", "total": 3}
+  ],
+  "brief": {
+    "brief": "Determine retrieval capabilities and extraction limitations from synthetic evidence",
+    "scope": "Offline contract fixture; no claims about real providers or products",
+    "questions": [
+      {"id": "q1", "question": "What retrieval tools are available?"},
+      {"id": "q2", "question": "Does fetching guarantee complete content?"}
+    ],
+    "providers": ["exa", "parallel"],
+    "budget": {"max_search_calls": 4, "max_fetch_calls": 3, "max_rounds": 2}
+  },
+  "pages": {
+    "https://docs.example.test/search": {"title": "Synthetic retrieval documentation", "text": "The example service exposes search and fetch tools.\nA tool listing describes available capabilities."},
+    "https://docs.example.test/limits": {"title": "Synthetic extraction limits", "text": "Fetched text may contain only excerpts.\nA successful fetch does not guarantee a complete page."},
+    "https://docs.example.test/update": {"title": "Synthetic follow-up note", "text": "This follow-up repeats the extraction limitation: fetched text may contain only excerpts.\nSearch and fetch remain the documented retrieval tools."},
+    "https://docs.example.test/unavailable": {"error": "Synthetic unavailable source"}
+  },
+  "search_results": {
+    "q1": ["https://docs.example.test/search"],
+    "q2": ["https://docs.example.test/limits", "https://docs.example.test/unavailable"]
+  }
+}

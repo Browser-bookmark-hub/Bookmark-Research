@@ -75,7 +75,9 @@ class McpServerTests(unittest.TestCase):
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
         self.assertEqual({tool["name"] for tool in listing}, {
             "sync_package", "search_bookmarks", "get_context", "index_status",
-            "search_web", "fetch_web", "search_providers", "get_settings", "update_settings"})
+            "search_web", "fetch_web", "search_providers", "get_settings", "update_settings",
+            "research_start", "research_status", "research_search", "research_fetch",
+            "research_source", "research_record", "research_finish"})
         self.assertTrue(all(tool["inputSchema"]["additionalProperties"] is False for tool in listing))
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server._providers)
@@ -267,6 +269,144 @@ class McpServerTests(unittest.TestCase):
         # provider can perform network work or return a less useful tool error.
         self.assertEqual(provider.search.call_count, 2)
         self.assertEqual(provider.fetch.call_count, 2)
+
+    def test_research_lifecycle_through_advertised_mcp_tools(self):
+        from research import ResearchSessions
+        self.ready()
+        engine = mock.Mock()
+        engine.fetch.return_value = {"provider": "tavily", "urls": ["https://example.test/docs"],
+            "tool": "tavily_extract", "request_arguments": {"urls": ["https://example.test/docs"]},
+            "requested_max_characters": 12000, "retrieved_at": "2026-09-10T00:00:00Z",
+            "result": {"structuredContent": {"results": [
+                {"url": "https://example.test/docs", "title": "Docs", "raw_content": "Only search and extract are supported here."}]}}}
+        self.server._research_sessions = ResearchSessions(self.base / "research", settings=self.settings, engine=engine)
+        started = decode_tool(self.call("research_start", {"brief": "Check supported capabilities", "providers": ["tavily"],
+            "questions": [{"id": "q1", "question": "What is supported?"}]}))
+        research_id = started["research_id"]
+        self.assertFalse(self.db_path.exists())
+        self.assertEqual(started["status"], "active")
+        failed = self.call("research_finish", {"research_id": research_id, "summary": "No evidence yet"})
+        self.assertTrue(failed["result"]["isError"])
+        fetched = decode_tool(self.call("research_fetch", {"research_id": research_id, "operation_id": "read-1",
+            "question_id": "q1", "urls": ["https://example.test/docs"]}))
+        self.assertEqual(fetched["sources"][0]["id"], "s1")
+        read = decode_tool(self.call("research_source", {"research_id": research_id, "source_id": "s1"}))
+        self.assertEqual(read["text"], "Only search and extract are supported here.")
+        claim = self.call("research_record", {"research_id": research_id, "entry": {"kind": "claim", "question_id": "q1",
+            "statement": "Search and extract are available.", "citations": [{"source_id": "s1", "quote": read["text"]}]}})
+        self.assertFalse(claim["result"]["isError"])
+        answer = self.call("research_record", {"research_id": research_id, "entry": {"kind": "answer", "question_id": "q1",
+            "answer": "Search and extract.", "claim_ids": ["c1"]}})
+        self.assertFalse(answer["result"]["isError"])
+        finished = decode_tool(self.call("research_finish", {"research_id": research_id, "summary": "Capabilities checked."}))
+        self.assertEqual(finished["status"], "completed")
+        self.assertTrue(Path(finished["artifacts"]["report"]).is_file())
+        state = decode_tool(self.call("research_status", {"research_id": research_id}))
+        self.assertEqual(state["usage"]["fetch_calls"], 1)
+        self.assertFalse(self.db_path.exists())
+
+    def test_classified_provider_failures_set_mcp_error_flag(self):
+        self.ready()
+        self.server._providers = mock.Mock()
+        self.server._research_sessions = mock.Mock()
+        cases = [
+            ("fetch_web", self.server._providers.fetch, {"urls": ["https://example.test/docs"]}),
+            ("research_fetch", self.server._research_sessions.fetch,
+             {"research_id": "r-1234567890abcdef", "operation_id": "read", "question_id": "q1",
+              "urls": ["https://example.test/docs"]}),
+            ("research_search", self.server._research_sessions.search,
+             {"research_id": "r-1234567890abcdef", "operation_id": "find",
+              "queries": [{"question_id": "q1", "query": "docs"}]}),
+        ]
+        for name, method, arguments in cases:
+            for status in ("error", "partial"):
+                with self.subTest(tool=name, status=status):
+                    method.return_value = {"status": status, "error_kind": "authentication", "usage": {"tool_calls": 0}}
+                    response = self.call(name, arguments)
+                    self.assertEqual(response["result"]["isError"], status == "error")
+                    self.assertEqual(decode_tool(response), method.return_value)
+        for successes in (0, 1):
+            self.server._providers.search.return_value = {"successful_provider_count": successes, "batches": []}
+            response = self.call("search_web", {"targets": [{"target": "docs", "query": "official docs"}]})
+            self.assertEqual(response["result"]["isError"], successes == 0)
+
+    def test_large_research_status_pages_and_finish_preserve_full_evidence(self):
+        from mcp_server import MAX_RESULT_CHARS
+        from research import ResearchSessions
+        self.ready()
+        quote = "Synthetic long citation: " + "x" * 3972
+        self.assertLessEqual(len(quote), 4000)
+        engine = mock.Mock()
+        engine.fetch.return_value = {"provider": "exa", "urls": ["https://example.test/long"],
+            "tool": "web_fetch_exa", "request_arguments": {"urls": ["https://example.test/long"]},
+            "requested_max_characters": 12000, "retrieved_at": "2026-09-10T00:00:00Z",
+            "result": {"structuredContent": {"results": [
+                {"url": "https://example.test/long", "title": "Synthetic long source", "text": quote}]}}}
+        sessions = ResearchSessions(self.base / "research", settings=self.settings, engine=engine)
+        self.server._research_sessions = sessions
+        research_id = sessions.start("Large evidence report", [{"id": "q1", "question": "What was saved?"}])["research_id"]
+        sessions.fetch(research_id, "read", "q1", ["https://example.test/long"])
+        for number in range(45):
+            sessions.record(research_id, {"kind": "claim", "question_id": "q1", "statement": "Finding %s" % number,
+                "citations": [{"source_id": "s1", "quote": quote} for _ in range(12)]})
+        sessions.record(research_id, {"kind": "answer", "question_id": "q1", "answer": "Evidence retained.", "claim_ids": ["c45"]})
+        full_state = (sessions.directory / research_id / "state.json").read_text()
+        self.assertGreater(len(full_state), MAX_RESULT_CHARS)
+
+        response = self.call("research_status", {"research_id": research_id})
+        self.assertFalse(response["result"]["isError"])
+        overview = decode_tool(response)
+        self.assertEqual(overview["counts"]["claims"], 45)
+        self.assertEqual(len(overview["claims"]), 20)
+        self.assertTrue(overview["claims"][0]["citations"][0]["quote_truncated"])
+        claims, offset = [], 0
+        while offset is not None:
+            response = self.call("research_status", {"research_id": research_id, "section": "claims", "offset": offset, "limit": 20})
+            self.assertFalse(response["result"]["isError"])
+            page = decode_tool(response)
+            claims.extend(page["items"])
+            if page["next_offset"] is not None:
+                self.assertGreater(page["next_offset"], offset)
+            offset = page["next_offset"]
+        self.assertEqual([claim["id"] for claim in claims], ["c%s" % number for number in range(1, 46)])
+        self.assertTrue(all(citation["quote"] == quote for claim in claims for citation in claim["citations"]))
+
+        response = self.call("research_finish", {"research_id": research_id, "summary": "All saved citations are available."})
+        self.assertFalse(response["result"]["isError"])
+        finished = decode_tool(response)
+        self.assertEqual(finished["status"], "completed")
+        manifest = json.loads(Path(finished["artifacts"]["sources"]).read_text())
+        self.assertEqual(manifest["claims"], claims)
+        report = Path(finished["artifacts"]["report"]).read_text()
+        self.assertIn("### Claim c45", report)
+        self.assertIn(quote, report)
+
+    def test_incomplete_research_resumes_through_advertised_record_tool(self):
+        from research import ResearchSessions
+        self.ready()
+        self.server._research_sessions = ResearchSessions(self.base / "research", settings=self.settings)
+        started = decode_tool(self.call("research_start", {"brief": "Resume a report", "questions": [{"id": "q1", "question": "What is missing?"}]}))
+        research_id = started["research_id"]
+        self.call("research_finish", {"research_id": research_id, "summary": "No evidence yet.", "status": "incomplete"})
+        response = self.call("research_record", {"research_id": research_id,
+            "entry": {"kind": "resume", "text": "Continue from the saved question."}})
+        self.assertFalse(response["result"]["isError"])
+        resumed = decode_tool(response)
+        self.assertTrue(Path(resumed["recorded"]["previous_artifacts"]["report"]).is_file())
+        self.assertEqual(decode_tool(self.call("research_status", {"research_id": research_id}))["status"], "active")
+
+    def test_research_invalid_schema_is_rejected_before_writes(self):
+        self.ready()
+        invalid = [
+            ("research_start", {"brief": "Test", "questions": []}),
+            ("research_start", {"brief": "Test", "questions": [{"id": "q", "question": "Q?"}], "budget": {"max_fetch_calls": True}}),
+            ("research_fetch", {"research_id": "r-1234567890abcdef", "question_id": "q", "urls": ["https://example.test"]}),
+            ("research_record", {"research_id": "r-1234567890abcdef", "entry": {"kind": "exec", "command": "false"}}),
+        ]
+        for name, arguments in invalid:
+            with self.subTest(name=name):
+                self.assertEqual(self.call(name, arguments)["error"]["code"], -32602)
+        self.assertIsNone(self.server._research_sessions)
 
     def test_line_transport_only_emits_json_and_recovers_from_parse_errors(self):
         messages = [initialize(), {"jsonrpc": "2.0", "method": "notifications/initialized"},

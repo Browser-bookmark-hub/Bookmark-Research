@@ -1,0 +1,235 @@
+{
+  "observed_at": "2026-09-09T17:13:09.894511+00:00",
+  "conditions": {
+    "credentials": "cleared in smoke process",
+    "archive": false,
+    "search_limit": 2,
+    "requested_fetch_characters": 2500,
+    "native_research_invoked": false,
+    "automatic_tool_retries": 0
+  },
+  "probes": [
+    {
+      "provider": "exa",
+      "status": "ok",
+      "capabilities": {
+        "search": {
+          "status": "supported",
+          "tool": "web_search_exa",
+          "execution_verified": false
+        },
+        "fetch": {
+          "status": "supported",
+          "tool": "web_fetch_exa",
+          "execution_verified": false
+        }
+      },
+      "usage": {
+        "tool_calls": 0,
+        "http_requests": 3,
+        "initialize_requests": 1,
+        "list_requests": 1,
+        "session_recoveries": 0,
+        "cache_hits": 0
+      }
+    },
+    {
+      "provider": "parallel",
+      "status": "ok",
+      "capabilities": {
+        "search": {
+          "status": "supported",
+          "tool": "web_search",
+          "execution_verified": false
+        },
+        "fetch": {
+          "status": "supported",
+          "tool": "web_fetch",
+          "execution_verified": false
+        }
+      },
+      "usage": {
+        "tool_calls": 0,
+        "http_requests": 3,
+        "initialize_requests": 1,
+        "list_requests": 1,
+        "session_recoveries": 0,
+        "cache_hits": 0
+      }
+    },
+    {
+      "provider": "tavily",
+      "status": "ok",
+      "capabilities": {
+        "search": {
+          "status": "supported",
+          "tool": "tavily_search",
+          "execution_verified": false
+        },
+        "fetch": {
+          "status": "supported",
+          "tool": "tavily_extract",
+          "execution_verified": false
+        }
+      },
+      "usage": {
+        "tool_calls": 0,
+        "http_requests": 3,
+        "initialize_requests": 1,
+        "list_requests": 1,
+        "session_recoveries": 0,
+        "cache_hits": 0
+      }
+    }
+  ],
+  "searches": [
+    {
+      "provider": "exa",
+      "status": "error",
+      "error_kind": "connection_error",
+      "usage": {
+        "tool_calls": 1,
+        "http_requests": 1,
+        "initialize_requests": 0,
+        "list_requests": 0,
+        "session_recoveries": 0,
+        "cache_hits": 1
+      },
+      "tool": "web_search_exa",
+      "urls": []
+    },
+    {
+      "provider": "parallel",
+      "status": "ok",
+      "usage": {
+        "tool_calls": 1,
+        "http_requests": 1,
+        "initialize_requests": 0,
+        "list_requests": 0,
+        "session_recoveries": 0,
+        "cache_hits": 1
+      },
+      "tool": "web_search",
+      "urls": [
+        "https://github.com/tavily-ai/tavily-mcp/blob/main/README.md",
+        "https://docs.parallel.ai/integrations/mcp/search-mcp.md"
+      ]
+    },
+    {
+      "provider": "tavily",
+      "status": "ok",
+      "usage": {
+        "tool_calls": 1,
+        "http_requests": 1,
+        "initialize_requests": 0,
+        "list_requests": 0,
+        "session_recoveries": 0,
+        "cache_hits": 1
+      },
+      "tool": "tavily_search",
+      "urls": [
+        "https://docs.tavily.com/agents",
+        "https://www.scalekit.com/connectors/tavilymcp"
+      ]
+    }
+  ],
+  "fetches": [
+    {
+      "provider": "exa",
+      "status": "ok",
+      "usage": {
+        "tool_calls": 1,
+        "http_requests": 1,
+        "initialize_requests": 0,
+        "list_requests": 0,
+        "session_recoveries": 0,
+        "cache_hits": 1
+      },
+      "tool": "web_fetch_exa",
+      "per_url": [
+        {
+          "url": "https://exa.ai/docs/reference/exa-mcp",
+          "status": "ok",
+          "extraction_status": "extracted",
+          "content_kind": "provider_extracted_text",
+          "characters": 2500,
+          "complete_page_verified": false
+        }
+      ],
+      "character_limit_applied": true,
+      "successful_url_count": 1
+    },
+    {
+      "provider": "parallel",
+      "status": "ok",
+      "usage": {
+        "tool_calls": 1,
+        "http_requests": 1,
+        "initialize_requests": 0,
+        "list_requests": 0,
+        "session_recoveries": 0,
+        "cache_hits": 1
+      },
+      "tool": "web_fetch",
+      "per_url": [
+        {
+          "url": "https://docs.parallel.ai/integrations/mcp/search-mcp",
+          "status": "ok",
+          "extraction_status": "extracted",
+          "content_kind": "provider_excerpts",
+          "characters": 35192,
+          "complete_page_verified": false
+        }
+      ],
+      "character_limit_applied": false,
+      "successful_url_count": 1
+    },
+    {
+      "provider": "tavily",
+      "status": "ok",
+      "usage": {
+        "tool_calls": 1,
+        "http_requests": 1,
+        "initialize_requests": 0,
+        "list_requests": 0,
+        "session_recoveries": 0,
+        "cache_hits": 1
+      },
+      "tool": "tavily_extract",
+      "per_url": [
+        {
+          "url": "https://docs.tavily.com/documentation/keyless",
+          "status": "ok",
+          "extraction_status": "extracted",
+          "content_kind": "provider_extracted_text",
+          "characters": 6692,
+          "complete_page_verified": false
+        }
+      ],
+      "character_limit_applied": false,
+      "successful_url_count": 1
+    }
+  ],
+  "tool_calls": 6,
+  "passed": false,
+  "follow_up_checks": [
+    {
+      "provider": "exa",
+      "status": "ok",
+      "usage": {
+        "tool_calls": 1,
+        "http_requests": 4,
+        "initialize_requests": 1,
+        "list_requests": 1,
+        "session_recoveries": 0,
+        "cache_hits": 0
+      },
+      "tool": "web_search_exa",
+      "observed_at": "2026-09-09T17:18:53.126629+00:00",
+      "purpose": "One explicit Exa search check after the completed smoke recorded a connection error",
+      "urls": [
+        "https://exa.ai/docs/reference/exa-mcp"
+      ]
+    }
+  ]
+}

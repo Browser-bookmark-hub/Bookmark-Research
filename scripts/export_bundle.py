@@ -12,18 +12,19 @@ from pathlib import Path
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
-FORMATS = ("agent-plugin", "claude", "pi", "dsh")
+FORMATS = ("codex", "agent-plugin", "claude", "pi", "dsh")
 NAME = "bookmark-research"
-VERSION = "0.1.0"
-DESCRIPTION = "Query Bookmark Canvas packages through reusable skills and MCP tools."
 SCHEMA_ROOT = "https://agent-plugins.org/schemas/1.0.0/"
 SHARED_ROOTS = ("src", "config", "skills")
 REQUIRED_FILES = (
+    "LICENSE",
     "src/archive.py",
     "src/bookmark_index.py",
     "src/cli.py",
     "src/mcp_server.py",
     "src/remote_mcp.py",
+    "src/provider_adapters.py",
+    "src/research.py",
     "src/search_results.py",
     "src/settings.py",
     "src/web_search.py",
@@ -33,12 +34,35 @@ REQUIRED_FILES = (
 EXCLUDED_DIRECTORIES = {
     "__pycache__", "node_modules", "tests", "test", "build", "dist", "target",
     "cache", "caches", "coverage", "htmlcov", "venv",
+    "data", "knowledge", "reports", "archives",
 }
 EXCLUDED_SUFFIXES = {".pyc", ".pyo", ".log", ".tmp", ".swp", ".swo", ".canvas"}
 DATABASE_NAME = re.compile(r"\.(?:db|db3|sqlite|sqlite3|s3db)(?:$|[.-])", re.IGNORECASE)
+VERSION_PATTERN = re.compile(
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?")
 
 
-def _copy_plan(source_root):
+def read_plugin_manifest(source_root=SOURCE_ROOT):
+    """Use the native manifest as the version source for every distribution."""
+    source_root = Path(source_root)
+    path = source_root / ".codex-plugin/plugin.json"
+    if path.is_symlink() or path.parent.is_symlink():
+        raise ValueError("Source symlinks are not exported: .codex-plugin/plugin.json")
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict) or manifest.get("name") != NAME:
+        raise ValueError("Expected the bookmark-research native plugin manifest")
+    if not isinstance(manifest.get("description"), str) or not manifest["description"].strip():
+        raise ValueError("The native plugin description must be nonempty")
+    version = manifest.get("version")
+    if not isinstance(version, str) or not VERSION_PATTERN.fullmatch(version):
+        raise ValueError("The native plugin version must be a semantic version")
+    return manifest
+
+
+def _copy_plan(source_root, include_codex_metadata=False):
     """Enumerate only shared roots; reject links rather than following external files."""
     files = []
 
@@ -47,7 +71,8 @@ def _copy_plan(source_root):
         if path.name.startswith(".") or path.name.casefold() in EXCLUDED_DIRECTORIES:
             return
         # Codex presentation metadata is not needed by any of these exports.
-        if relative.parts[0] == "skills" and relative.parts[-2:] == ("agents", "openai.yaml"):
+        codex_metadata = relative.parts[0] == "skills" and relative.parts[-2:] == ("agents", "openai.yaml")
+        if codex_metadata and not include_codex_metadata:
             return
         if DATABASE_NAME.search(path.name) or path.suffix.casefold() in EXCLUDED_SUFFIXES:
             return
@@ -62,6 +87,10 @@ def _copy_plan(source_root):
         elif path.is_file():
             if relative.parts[0] == "src" and path.suffix != ".py":
                 return
+            # Skills contain only Markdown references and optional native UI
+            # metadata. In particular, a user-provided JSON canvas is not code.
+            if relative.parts[0] == "skills" and path.suffix != ".md" and not codex_metadata:
+                return
             with path.open("rb") as stream:
                 if stream.read(16) == b"SQLite format 3\x00":
                     return
@@ -71,6 +100,7 @@ def _copy_plan(source_root):
 
     for root in SHARED_ROOTS:
         visit(source_root / root)
+    visit(source_root / "LICENSE")
     present = {path.as_posix() for path in files}
     missing = set(REQUIRED_FILES) - present
     if missing:
@@ -100,6 +130,7 @@ def _readme(format_name, output):
 This directory includes the shared Skill, Python CLI, stdio MCP server, and public
 provider configuration. It requires Python 3.9+ and the standard library;
 `doctor` checks whether the local SQLite build supports FTS5.
+The repository's [license](LICENSE) is included with the source files.
 
 Supply your own Bookmark Canvas package through `sync`. A fresh data directory
 has no registered sources; existing indexes remain part of your local data.
@@ -136,7 +167,24 @@ exclude existing indexes, caches, tests, and build artifacts. They do not read
 API key values from the environment; supply provider credentials at runtime.
 
 """
-    if format_name == "agent-plugin":
+    if format_name == "codex":
+        instructions = """## Codex
+
+This clean bundle contains the native `.codex-plugin/plugin.json` and a local
+`.agents/plugins/marketplace.json`. Keep this directory at a stable path.
+
+```sh
+codex plugin marketplace add '/absolute/path/to/this-bundle'
+codex plugin add bookmark-research@bookmark-research
+```
+
+If that marketplace name already points elsewhere, choose the source you intend
+to keep before installing. Start a new Codex thread after installation or update.
+Do not put user data in the installed cache.
+
+Reference: https://developers.openai.com/codex/cli/reference#codex-plugin
+"""
+    elif format_name == "agent-plugin":
         instructions = """## Agent Plugins 1.0.0
 
 The entry files are root `plugin.json` and `mcp.json`, with the Skill under
@@ -214,9 +262,17 @@ Reference: https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/
     return introduction + instructions
 
 
-def _write_adapter(stage, format_name, output):
-    metadata = {"name": NAME, "version": VERSION, "description": DESCRIPTION}
-    if format_name == "agent-plugin":
+def _write_adapter(stage, format_name, output, manifest):
+    metadata = {"name": NAME, "version": manifest["version"], "description": manifest["description"]}
+    if format_name == "codex":
+        _write_json(stage, ".codex-plugin/plugin.json", manifest)
+        _write_json(stage, ".agents/plugins/marketplace.json", {
+            "name": NAME, "interface": {"displayName": "Bookmark Research"},
+            "plugins": [{"name": NAME, "source": {"source": "local", "path": "./"},
+                         "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+                         "category": "Productivity"}],
+        })
+    elif format_name == "agent-plugin":
         _write_json(stage, "plugin.json", {"$schema": SCHEMA_ROOT + "plugin.schema.json", **metadata})
         _write_json(stage, "mcp.json", {
             "$schema": SCHEMA_ROOT + "mcp.schema.json",
@@ -265,7 +321,8 @@ def export_bundle(format_name, output, source_root=SOURCE_ROOT):
         shared = source_root / root
         if output == shared or shared in output.parents:
             raise ValueError("Output must not be inside a shared source root: " + root)
-    files = _copy_plan(source_root)
+    manifest = read_plugin_manifest(source_root)
+    files = _copy_plan(source_root, include_codex_metadata=format_name == "codex")
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".bookmark-research-export-", dir=output.parent) as temporary:
         stage = Path(temporary) / "bundle"
@@ -274,12 +331,12 @@ def export_bundle(format_name, output, source_root=SOURCE_ROOT):
             destination = stage / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_root / relative, destination)
-        _write_adapter(stage, format_name, output)
+        _write_adapter(stage, format_name, output, manifest)
         _check_destination(output)
         if output.exists():
             output.rmdir()  # Only an empty directory can be removed here.
         stage.rename(output)  # Renaming a directory cannot replace nonempty data.
-    return {"format": format_name, "output": str(output), "shared_files": len(files),
+    return {"format": format_name, "version": manifest["version"], "output": str(output), "shared_files": len(files),
             "installed": False}
 
 

@@ -1,0 +1,21 @@
+{
+  "format": "bookmark-canvas-section",
+  "schemaVersion": 2,
+  "sectionType": "temporary",
+  "id": "research-card",
+  "label": "A-1",
+  "title": "Research candidates",
+  "tempKind": "regular",
+  "descriptionMd": "Check capabilities and whether a fetch guarantees complete content.",
+  "items": [{
+    "id": "research-folder",
+    "sectionId": "research-card",
+    "type": "folder",
+    "title": "Investigation",
+    "children": [
+      {"id": "search-copy", "sectionId": "research-card", "type": "bookmark", "title": "Example Search in another context", "url": "https://docs.example.test/search"},
+      {"id": "limits-doc", "sectionId": "research-card", "type": "bookmark", "title": "Extraction limits", "url": "https://docs.example.test/limits"},
+      {"id": "unavailable-doc", "sectionId": "research-card", "type": "bookmark", "title": "Unavailable source", "url": "https://docs.example.test/unavailable"}
+    ]
+  }]
+}

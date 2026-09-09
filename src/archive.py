@@ -43,11 +43,11 @@ class SourceArchive:
         if isinstance(value.get("url"), str):
             return [value]
         rows = []
-        for key in ("results", "items", "pages", "data", "result", "errors"):
+        for key in ("results", "items", "pages", "data", "result", "errors", "failed_results"):
             if isinstance(value.get(key), (list, dict)):
                 children = SourceArchive._rows(value[key])
                 rows.extend(({**row, "error": row.get("error") or row.get("message") or "Provider reported failure"}
-                             if key == "errors" else row) for row in children)
+                             if key in ("errors", "failed_results") else row) for row in children)
         # Exa /contents reports per-URL outcomes separately from extracted results.
         statuses = value.get("statuses")
         if isinstance(statuses, list):
@@ -128,7 +128,7 @@ class SourceArchive:
                   or (type(status) is int and status >= 400))
         if failed:
             return None, "provider_error", "provider_extracted_text"
-        for field in ("markdown", "text", "full_content", "content"):
+        for field in ("markdown", "text", "full_content", "raw_content", "content"):
             body = row.get(field)
             if isinstance(body, str) and body.strip():
                 return body, "extracted", "provider_extracted_text"

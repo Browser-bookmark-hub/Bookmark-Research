@@ -102,7 +102,7 @@ Settings(config).update(json.loads(patch))
 
     def test_unknown_fields_bad_types_and_credentials_fail_without_writes(self):
         invalid = [{"api_key": "do-not-store"}, {"archive": {"enabled": "false"}},
-                   {"search": {"providers": ["tavily"]}}, {"search": {"providers": ["exa", "exa"]}},
+                   {"search": {"providers": ["unknown"]}}, {"search": {"providers": ["exa", "exa"]}},
                    {"fetch": {"max_characters": True}}, {"fetch": {"max_characters": 100001}},
                    {"timeout_seconds": 0}, {"schema_version": 2}, {"archive": {"directory": "relative/path"}},
                    {"wiki": {"enabled": True}}, {"search": []}]
@@ -110,6 +110,13 @@ Settings(config).update(json.loads(patch))
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.settings.update(changes)
         self.assertFalse(self.settings.path.exists())
+
+    def test_tavily_is_an_optional_search_and_fetch_provider(self):
+        self.settings.update({"search": {"providers": ["exa", "parallel", "tavily"]}, "fetch": {"provider": "tavily"}})
+        saved = self.settings.load()
+        self.assertEqual(saved["search"]["providers"], ["exa", "parallel", "tavily"])
+        self.assertEqual(saved["fetch"]["provider"], "tavily")
+        self.assertNotIn("TAVILY_API_KEY", self.settings.path.read_text())
 
     def test_canvas_plugin_and_symlink_destinations_are_rejected(self):
         package = self.base / "canvas"

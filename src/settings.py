@@ -83,11 +83,11 @@ class Settings:
             if type(number) is not int or not minimum <= number <= maximum:
                 raise ValueError("%s must be an integer between %s and %s" % (label, minimum, maximum))
         providers = value["search"]["providers"]
-        if (not isinstance(providers, list) or not 1 <= len(providers) <= 2
-                or any(p not in ("exa", "parallel") for p in providers) or len(set(providers)) != len(providers)):
-            raise ValueError("search.providers must select exa and/or parallel without duplicates")
-        if value["fetch"]["provider"] not in ("exa", "parallel"):
-            raise ValueError("fetch.provider must be exa or parallel")
+        if (not isinstance(providers, list) or not 1 <= len(providers) <= 3
+                or any(p not in ("exa", "parallel", "tavily") for p in providers) or len(set(providers)) != len(providers)):
+            raise ValueError("search.providers must select exa, parallel and/or tavily without duplicates")
+        if value["fetch"]["provider"] not in ("exa", "parallel", "tavily"):
+            raise ValueError("fetch.provider must be exa, parallel or tavily")
         if type(value["archive"]["enabled"]) is not bool:
             raise ValueError("archive.enabled must be a boolean")
         directory = value["archive"]["directory"]

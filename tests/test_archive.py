@@ -59,6 +59,17 @@ class ArchiveTests(unittest.TestCase):
         self.assertFalse(saved["pages"][0]["page_body_archived"])
         self.assertFalse((Path(saved["directory"]) / "pages").exists())
 
+    def test_tavily_extract_preserves_raw_content_and_failed_results(self):
+        urls = ["https://example.test/page", "https://example.test/failed"]
+        raw = {"content": [{"type": "text", "text": json.dumps({
+            "results": [{"url": urls[0], "raw_content": "# Actual Tavily extract\n\nSource text."}],
+            "failed_results": [{"url": urls[1], "error": "Not accessible"}]})}]}
+        saved = self.capture(raw, urls)
+        self.assertEqual(Path(saved["pages"][0]["body_path"]).read_text(), "# Actual Tavily extract\n\nSource text.")
+        self.assertEqual(saved["pages"][1]["extraction_status"], "provider_error")
+        self.assertIsNone(saved["pages"][1]["body_path"])
+        self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
+
     def test_literal_text_prefix_in_exa_article_is_preserved(self):
         raw = {"content": [{"type": "text", "text":
             "# Example\nURL: https://example.test/page\n\nText: an actual article prefix"}]}

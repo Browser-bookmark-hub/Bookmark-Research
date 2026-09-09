@@ -1,17 +1,23 @@
-# Bookmark Research
+# Bookmark Research 0.2.0
 
 [![Codex: Skill + MCP](https://img.shields.io/badge/Codex-Skill_%2B_MCP-111827)](#client-support) [![Claude Code: Skill + MCP](https://img.shields.io/badge/Claude_Code-Skill_%2B_MCP-D97757)](#client-support) [![Pi: Skill + CLI](https://img.shields.io/badge/Pi-Skill_%2B_CLI-7C3AED)](#client-support) [![DSH: MCP adapter](https://img.shields.io/badge/DSH-MCP_adapter-2563EB)](#client-support)
 
-Query your [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) data package in natural language, preserve its folder and card context, and research multiple targets through Exa and Parallel. **Codex, Claude Code, Pi, and DSH** share the same Skill and Python runtime, with a separate integration for each client.
+Query your [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) data package in natural language, preserve its folder and card context, and research multiple targets through Exa, Parallel, and optional Tavily. **Codex, Claude Code, Pi, and DSH** share the same Skill and Python runtime, with a separate integration for each client.
 
-Start with the **[installation guide](docs/installation.md)** for repository or standalone ZIP setup, commands for each client, a first query, and updates. You can follow the guide yourself or give this README to your agent. GitHub Releases are an optional download channel.
+**0.2.0** adds provider-specific MCP adapters, reusable sessions and capability discovery, durable deep research with retrieval budgets and checked quotations, and a CLI installer with update and verification commands. The agent still chooses each research step; saved tasks can be resumed in another session.
+
+Download the **[0.2.0 plugin ZIP](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-0.2.0.zip)** or the **[test pack](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-test-pack-0.2.0.zip)** from the [GitHub Release](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/tag/v0.2.0). Start with the **[installation guide](docs/installation.md)** for setup, commands for each client, a first query, and updates. The [design research](docs/research-0.2.0.md) records the supplied research links and first-party sources; the [validation guide](docs/validation-0.2.0.md) provides reproducible checks.
 
 ## Install in Codex
 
+From a **0.2.0 checkout or extracted ZIP**:
+
 ```sh
-codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref main
-codex plugin add bookmark-research@bookmark-research
+python3 scripts/install.py install
+python3 scripts/install.py verify
 ```
+
+For updates, run `python3 scripts/install.py update`. Start a new Codex thread after installation to load the updated Skill and tools. The installer delegates to Codex's native plugin CLI; `--dry-run` shows its plan. [Native commands and Git sources](docs/installation.md#使用-codex-原生命令) are also documented, including how to choose an existing tag or commit.
 
 For **Claude Code, Pi, DSH**, or a downloaded ZIP, follow the [installation guide](docs/installation.md). The repository includes the Codex marketplace at [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
 
@@ -20,10 +26,11 @@ For **Claude Code, Pi, DSH**, or a downloaded ZIP, follow the [installation guid
 | Component | Included entry | Purpose |
 | --- | --- | --- |
 | **Skill** | [`skills/bookmark-research/SKILL.md`](skills/bookmark-research/SKILL.md) | Guides package reading, local queries, source verification, and research reports |
-| **MCP server** | [`src/mcp_server.py`](src/mcp_server.py), started with `python3 src/cli.py serve` | One local `bookmark-research` server with [nine tools](#mcp-tools) |
+| **MCP server** | [`src/mcp_server.py`](src/mcp_server.py), started with `python3 src/cli.py serve` | One local `bookmark-research` server with [16 tools](#mcp-tools) |
 | **Python CLI** | [`src/cli.py`](src/cli.py) | Runs the same queries and research workflows directly, including from Pi |
-| **Web providers** | [`config/providers.json`](config/providers.json) | Exa and Parallel connections used inside the MCP server or CLI |
-| **Client integrations** | Native Codex manifest and [`scripts/export_bundle.py`](scripts/export_bundle.py) | Packages or adapters for Codex, Claude Code, Pi, and DSH |
+| **Web providers** | [`config/providers.json`](config/providers.json) and [`src/provider_adapters.py`](src/provider_adapters.py) | Exa, Parallel and optional Tavily behind one MCP; schema checks, session reuse and visible partial failures |
+| **Deep research** | [`src/research.py`](src/research.py) | Persistent brief, selected bookmark context, budgets, evidence, claims, conflicts and reports |
+| **Client integrations** | Native Codex manifest, [`scripts/install.py`](scripts/install.py) and [`scripts/export_bundle.py`](scripts/export_bundle.py) | Install/update/verify in Codex; separate packages or adapters for other clients |
 
 The runtime requires Python 3.9+ and SQLite with FTS5; `doctor` checks these requirements. It uses the Python standard library and does not require a separate database service.
 
@@ -31,7 +38,7 @@ The runtime requires Python 3.9+ and SQLite with FTS5; `doctor` checks these req
 
 | Client | Skill | MCP / CLI | Plugin or package entry | Verification |
 | --- | --- | --- | --- | --- |
-| **Codex** | Included | MCP | ✓ Native [`.codex-plugin/plugin.json`](.codex-plugin/plugin.json) | Actual MCP calls verified in Codex CLI 0.153.4 |
+| **Codex** | Included | MCP | ✓ Native [`.codex-plugin/plugin.json`](.codex-plugin/plugin.json) | Install/update/verify and installed stdio tools checked using Codex CLI 0.153.4; see [validation](docs/validation-0.2.0.md) |
 | **Claude Code** | Included | MCP | ✓ `--format claude`: `.claude-plugin/plugin.json` + `.mcp.json` | Export and shared runtime checked; client loading pending |
 | **Pi** | Included through `pi.skills` | CLI | ✓ `--format pi`: Skill package with `package.json` | Export and shared runtime checked; client loading pending |
 | **DSH / DeepSeek Harness** | Configure Skill discovery separately | MCP through the official client | ✓ `--format dsh`: local `cordis.patch.yml` adapter | Export and shared runtime checked; client loading pending |
@@ -56,8 +63,12 @@ flowchart LR
   J[JSON and .canvas] -->|Initial import, then incremental sync| Q
   M --> E[Exa MCP]
   M --> P[Parallel MCP]
+  M --> T[Optional Tavily MCP]
   E --> R[Merge per target and retain sources]
   P --> R
+  T --> R
+  R --> D[Host chooses search and read steps]
+  D --> L[Saved questions, evidence and report]
 ```
 
 ## Try it
@@ -66,7 +77,9 @@ In a session with the Skill loaded, ask:
 
 > Analyze the bookmark package I provide. Search for the companies on my list and show which cards and folders contain them. Then use Exa and Parallel to find their official product information, combine the web results, and retain the sources.
 
-For local queries, say "Search my bookmarks only; stay offline." For research, ask the agent to read key pages, investigate gaps, and save a report. The Skill and current model guide research depth.
+For local queries, say "Search my bookmarks only; stay offline." For research, ask the agent to read key pages, investigate gaps, and save a report. For a longer investigation:
+
+> Use the bookmarks in my selected group to compare these services. Save the selected bookmark context, break the comparison into research questions, investigate gaps and conflicting claims, and leave a report with traceable quotations and unresolved items. Preserve the task so I can continue later.
 
 You can also run the same CLI from this directory without installing a client plugin. Replace the package path, `my-canvas` source name, and fictional company names:
 
@@ -87,14 +100,30 @@ See the [CLI reference (Chinese)](skills/bookmark-research/references/cli.md) fo
 | Local search | Titles, URLs, tags, notes, and folder paths; filters by card, group, or subfolder; independent pagination per target |
 | Canvas context | `descriptionMd`, `slot`, `label`, shared trees for copy cards, ancestor paths, geometric group membership, and connection direction |
 | SQLite sync | File hashes, stable IDs, section and canvas-entry renames, changed records, transactional rollback for invalid packages; retained records from partial exports are reported |
-| Web search | Parallel Exa + Parallel queries, URL merging within each research target, RRF ranking, retained provider provenance, and visible partial failures |
+| Web search | Concurrent providers, URL merging within each target, RRF ranking, provenance, schema checks, cached tool discovery, classified errors and per-call usage |
 | URL reading and archiving | Actual provider responses, recognized Markdown text, and source manifests; repeated reads add snapshots |
 | Settings | View or change default providers, fetch length, and archiving through conversation; changes persist and take effect immediately |
-| Skill workflows | Quick queries, iterative search, and extended research with references to saved evidence |
+| Deep research | Durable sessions, selected bookmark context, enforced search/fetch budgets, idempotent operations, quoted claims, source review, conflicts, retractions and reports |
 
 Local search uses literal matching and SQL structure filters. It has no semantic retrieval or public BM25 ranking, although FTS5 tables are maintained. The model organizes company names and aliases into queries; bookmark counts are not company-entity counts.
 
-RAG is future work. This version has no embeddings, vector database, background page monitoring, or cross-session memory. Search results do not trigger a full-library crawl. Content read through `fetch_web` is archived by default; those archives are not a cross-source LLM Wiki.
+RAG is future work. This version has no embeddings, vector database, background page monitoring, or general conversational memory. Explicit research sessions can be reloaded by ID. Search results do not trigger a full-library crawl. Content read through `fetch_web` is archived by default; those archives are not a cross-source LLM Wiki.
+
+## Three research modes
+
+| Need | Workflow | Output |
+| --- | --- | --- |
+| Quick lookup | Read a known URL, or search once to discover it | A concise sourced answer |
+| Agentic search | The host model plans queries, reads pages and follows evidence gaps | An answer based on iterative retrieval |
+| Deep research | Save a brief and questions, execute bounded rounds, review sources and conflicting claims, synthesize | A resumable task with `context.json`, `report.md`, `sources.json` and evidence snapshots |
+
+These modes follow the distinction in [OpenAI's web search guide](https://developers.openai.com/api/docs/guides/tools-web-search). Having a URL does not determine whether a model reasons. The plugin provides a host-led workflow; provider-native services such as Exa Agent or Parallel Task MCP are separate interfaces with separate authentication and lifecycle contracts.
+
+Read the [deep research guide](skills/bookmark-research/references/deep-research.md) for MCP inputs and CLI examples. `research_start` persists the plan without network access. `research_search` and `research_fetch` reserve a retrieval budget before calling providers; repeating the same `operation_id` returns its recorded outcome. `research_source` reads saved text, and `research_record` associates exact quotations with findings and answers. A rejected source or retracted supporting claim reopens affected questions. `research_finish` refuses completion while questions or conflicts remain unresolved; `incomplete` produces a report with the remaining gaps.
+
+Quotations and hashes prove what text was saved. The model must still check that the provider returned the right page and that its content supports the claim. A successful fetch may contain excerpts, stale text, or a mismatched page. Source review and retrieval failures remain visible in the report.
+
+Active tasks can continue directly. After exporting an `incomplete` report, use `research_record` with `kind:"resume"` and a reason; prior reports are preserved, and retrieval budgets and operation IDs carry forward. Completed and cancelled tasks remain closed. Status returns bounded previews; use section pagination for complete records.
 
 ## Duplicate bookmarks, context, and result merging
 
@@ -112,7 +141,7 @@ Ask "Show the plugin settings," "Use only Exa for future searches," "Save page t
 
 The default configuration file is `~/.config/bookmark-research/settings.json`, created on the first update. Page archives default to `~/.local/share/bookmark-research/knowledge/`; XDG and plugin data-directory environment variables are respected. You can choose your own absolute paths. These files live outside the plugin and canvas package, so plugin updates do not replace them.
 
-Each fetch creates a snapshot directory: `response.json` stores the actual MCP response; `manifest.json` records URLs, provider, fetch time, response and text hashes, and status; `pages/<URL-hash>.md` stores successfully recognized text. Publication dates and authors are recorded separately. Failures are kept out of page text. Conflicting responses for the same URL are retained and marked. Missing content is not fabricated, excerpts and unknown completeness are identified, and archive errors are returned with the fetch result. Later reads add snapshots without overwriting earlier ones.
+With archiving enabled, received fetch responses create a snapshot directory: `response.json` stores the actual MCP response; `manifest.json` records URLs, provider, fetch time, response and text hashes, and status; `pages/<URL-hash>.md` stores successfully recognized text. Transport failures without a response return a classified error and no `result` or invented archive. Publication dates and authors are recorded separately. Conflicting responses for the same URL are retained and marked. Excerpts and unknown completeness are identified, and archive errors are returned with the fetch result. Later reads add snapshots without overwriting earlier ones.
 
 ```sh
 python3 src/cli.py config show
@@ -135,10 +164,17 @@ The [shared Skill](skills/bookmark-research/SKILL.md) guides the agent's workflo
 | `search_bookmarks` | Query bookmarks for multiple targets while retaining item context |
 | `get_context` | Read section, card, group, connection, and item-ancestor context |
 | `search_providers` | List configured web providers |
-| `search_web` | Search through Exa / Parallel and merge results per target |
+| `search_web` | Search through Exa / Parallel / Tavily and merge results per target |
 | `fetch_web` | Read known URLs and optionally archive responses and page text |
 | `get_settings` | Read current settings and storage paths |
 | `update_settings` | Update persistent settings |
+| `research_start` | Save a brief, questions, retrieval budget and optional bookmark references |
+| `research_status` | List saved tasks, inspect bounded progress and paginate full records |
+| `research_search` | Run and record a bounded search round with an idempotency key |
+| `research_fetch` | Fetch selected URLs into the task's evidence archive |
+| `research_source` | Read saved source text with hash verification and pagination |
+| `research_record` | Save evidence and corrections, or explicitly resume an incomplete report |
+| `research_finish` | Validate coverage and write a completed, incomplete or cancelled report |
 
 ### Web providers
 
@@ -146,10 +182,12 @@ The [shared Skill](skills/bookmark-research/SKILL.md) guides the agent's workflo
 | --- | --- |
 | **Exa** | Built into the MCP server and CLI for search and URL reading |
 | **Parallel** | Built into the MCP server and CLI for search and URL reading |
-| **Tavily** | Optional host integration; results from a separately configured provider can be combined with `merge-results`. Automatic Tavily aggregation is not implemented. |
+| **Tavily** | Optional built-in search/extract adapter; `TAVILY_API_KEY` uses Bearer, otherwise explicit keyless mode |
 | **GitHub** | Use the host's existing GitHub MCP or `gh` for repository-specific tasks. No GitHub MCP is bundled; public pages can also be read through Exa / Parallel. |
 
-Exa and Parallel run through the plugin's own MCP or CLI; you do not need to register two additional host MCP servers. Their public endpoints have been tested with real searches. Anonymous access and quotas depend on each service's current policy. When credentials are required, supply `EXA_API_KEY` / `PARALLEL_API_KEY` in the environment that launches the process. Local queries work without web providers.
+All three providers run through the plugin's own MCP or CLI; additional host MCP registrations are unnecessary for these search and fetch tools. Defaults remain Exa and Parallel. Anonymous/keyless access and quotas depend on each service's policy; pass credentials through `EXA_API_KEY`, `PARALLEL_API_KEY`, or `TAVILY_API_KEY` in the launching environment. Local queries work offline.
+
+`search_providers` describes configuration without network access; `probe:true` discovers actual tools and compatible schemas, without proving permission to execute them. Each MCP process reuses provider sessions and a bounded tool catalog. Tool calls are not automatically replayed after errors. See [MCP architecture and observed service behavior](docs/mcp-aggregation-0.2.0.md), including the initial Exa connection failure and its explicit follow-up verification.
 
 ### Package rules and AGENTS.md
 
@@ -165,11 +203,12 @@ The Skill currently produces answers and research reports. It does not generate 
 
 This directory is the **Codex native plugin**, with its manifest at `.codex-plugin/plugin.json`. In Codex 0.153.4, the MCP configuration explicitly uses `cwd: "."` and runs `python3 src/cli.py serve` from the installed plugin directory. That native entry does not expand `${PLUGIN_ROOT}`; the Agent Plugins and Claude exports use their own path conventions.
 
-The Codex manifest forwards these environment variable names through `env_vars`: `BOOKMARK_RESEARCH_DATA_DIR`, `BOOKMARK_RESEARCH_CONFIG`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `EXA_API_KEY`, and `PARALLEL_API_KEY`. Actual paths and credentials come from the user's runtime environment.
+The Codex manifest forwards these environment variable names through `env_vars`: `BOOKMARK_RESEARCH_DATA_DIR`, `BOOKMARK_RESEARCH_CONFIG`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `EXA_API_KEY`, `PARALLEL_API_KEY`, and `TAVILY_API_KEY`. Actual paths and credentials come from the user's runtime environment.
 
 Run the relevant command **from this directory** to generate another format:
 
 ```sh
+python3 scripts/export_bundle.py --format codex --output exports/codex/bookmark-research
 python3 scripts/export_bundle.py --format claude --output exports/claude/bookmark-research
 python3 scripts/export_bundle.py --format pi --output exports/pi/bookmark-research
 python3 scripts/export_bundle.py --format dsh --output exports/dsh/bookmark-research
@@ -187,18 +226,22 @@ See the [client support table](#client-support) for verification status and [com
 
 ## Development verification
 
-The full repository's `tests/` directory contains automated checks for importing, context retention, synchronization, and web protocols. Users do not need to run these tests to install or use the plugin. Standalone ZIPs and client exports exclude developer tests; the runtime uses `src/`.
+The repository includes a synthetic [canvas test package](tests/fixtures/canvas) and behavioral tests for imports, provider contracts, research, installation and exports. Production ZIPs exclude developer tests; use the source checkout or the separate test pack for these commands. Tests do not contain the supplied personal bookmark packages.
 
 From this plugin directory **in a full repository checkout**, developers can run:
 
 ```sh
 python3 -m unittest discover -s tests -v
-python3 scripts/verify_live.py --output /absolute/path/outside-your-package
+python3 scripts/verify_fixture.py --output /tmp/bookmark-research-verification
+python3 scripts/build_zip.py --output dist/bookmark-research-0.2.0.zip
+python3 scripts/build_zip.py --include-tests --output dist/bookmark-research-test-pack-0.2.0.zip
 ```
 
-The first command uses fictional packages generated by the tests. It checks imports, incremental sync, protocols, exports, and result merging offline without reading anyone's bookmark library. The second command makes real web requests for two public topics, reads one official documentation page, and saves inspectable JSON evidence.
+The fixture verifier checks independent bookmark counts, copy-card semantics, scoped queries, unchanged source hashes, incremental sync, and a two-round research lifecycle with a failed page and resumed operation. To additionally validate your own package, append `--package /absolute/path/to/package`; this stays offline and writes derived files only to the new output directory.
 
-The local stdio server exposes a fixed set of tools rather than arbitrary SQL or shell execution. Its remote client covers selected providers' Streamable HTTP calls; it does not implement general OAuth, paginated tool discovery, reconnection, or a complete MCP client SDK.
+Network verification is explicit: `python3 tests/live_provider_smoke.py --run-live --output /tmp/provider-smoke.json` makes at most three searches and three fetches. The [validation record](docs/validation-0.2.0.md) separates offline coverage, actual provider calls, real data-package checks, and client verification boundaries.
+
+The local stdio server exposes fixed tools. Its remote client implements the selected providers' Streamable HTTP lifecycle, bounded paginated tool discovery and limited session recovery; it is not a general OAuth client or a complete MCP SDK.
 
 ## Origin and license
 

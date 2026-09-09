@@ -31,7 +31,7 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 
 `config show` / `config set` 对应 MCP `get_settings` / `update_settings`。`config set --input /path/to/changes.json`（或 `-` 从 stdin）支持合并部分配置。CLI 标志覆盖同次 JSON 输入中的对应字段。`fetch-web` 默认归档，`--archive` / `--no-archive` 只覆盖本次；后续调用的默认值用 `config set --archive true|false`。其他配置与目录优先级见 [配置与归档](settings-and-archive.md)。
 
-`providers` 只描述配置；`--probe` 才联网检查握手和工具列表。Exa/Parallel 公共端点是否可匿名使用取决于服务当前限额；可在启动进程前设置 `EXA_API_KEY` / `PARALLEL_API_KEY`。不要把密钥写进 manifest 或报告。
+`providers` 只描述配置；`--probe` 才联网检查握手和工具列表。Exa/Parallel 公共端点是否可匿名使用取决于服务当前限额；可在启动进程前设置 `EXA_API_KEY` / `PARALLEL_API_KEY`。可选 `--provider tavily`：存在 `TAVILY_API_KEY` 时使用 Bearer，否则发送明确 keyless header。工具列出不证明当前凭据能够执行。不要把密钥写进 manifest 或报告。
 
 独立目标标签与多轮查询可通过 `search-web --input /path/to/query.json` 传入：
 
@@ -47,7 +47,7 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 }
 ```
 
-上限为 12 个 target/query 对、每目标 20 个返回 URL；`fetch-web` 每次最多 8 个 URL。每轮默认最多并发 4 个 provider/query 任务。
+上限为 12 个 target/query 对、每目标 20 个返回 URL；`fetch-web` 每次最多 8 个 URL。provider 之间并行，同一 provider 的会话按序处理并复用工具目录。
 
 融合载体上其他 MCP 的**实际结果**：将结果规范成下面形状，调用 `merge-results /path/to/batches.json`。不要凭摘要补造 URL、排名或 provider 名。
 
@@ -66,3 +66,25 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 ```
 
 失败批次用 `status:"error"`、`results:[]`、`error` 描述；空成功结果则用 `status:"ok"`、`results:[]`。结果中的 `coverage`、`uncovered_targets`、`errors` 用于区分覆盖不足与调用失败。
+
+## 深度研究命令
+
+`research record <research-id> --input <entry.json>` 的 entry 可用 `{"kind":"resume","text":"继续调查已记录的缺口"}`，恢复已导出 incomplete 报告的任务；原报告和预算都会保留。
+
+当前模型负责决策和综合，CLI 保存状态并执行每个步骤。先读 [深度研究流程](deep-research.md)，其中含 brief、预算、引用和 record 各类型的完整参数约定。
+
+```sh
+python3 <root>/src/cli.py research start --input /path/to/brief.json
+python3 <root>/src/cli.py research status
+python3 <root>/src/cli.py research status <research-id>
+python3 <root>/src/cli.py research status <research-id> --section claims --offset 0 --limit 20
+python3 <root>/src/cli.py research search <research-id> --input /path/to/search-step.json
+python3 <root>/src/cli.py research fetch <research-id> --input /path/to/fetch-step.json
+python3 <root>/src/cli.py research source <research-id> s1 --offset 0 --limit 12000
+python3 <root>/src/cli.py research record <research-id> --input /path/to/entry.json
+python3 <root>/src/cli.py research finish <research-id> --summary '已核验的结论' --status completed
+```
+
+`--input -` 从 stdin 读 JSON。start 的 JSON 同 `research_start` 参数；search/fetch 的 JSON 使用对应 MCP 字段但省略位置参数已传的 `research_id`；record 的 JSON **仅包含 entry 对象**，例如 `{kind:"gap",question_id:"q1",text:"尚缺一手资料"}` 的标准 JSON 写法。finish 支持重复 `--limitation`；未完成使用 `--status incomplete`，取消用 `cancelled`。
+
+默认研究目录与 MCP 相同，位于数据目录 `research/`。CLI 可在 `research` 之后、动作之前传 `--directory /absolute/path/to/research`。换会话时保持该目录一致，按 `status` 返回的 ID 和正文继续。网络步骤要求 `operation_id`，重用同一 ID 读取结果不会重复提交。运行 `research start/status/source/record/finish` 不需要 API key 或网络。

@@ -1,0 +1,26 @@
+{
+  "format": "bookmark-canvas-section",
+  "schemaVersion": 3,
+  "sectionType": "permanent",
+  "slot": "A",
+  "title": "Synthetic research fixtures",
+  "descriptionMd": "Fictional URLs and text for offline validation only.",
+  "fileRole": "primary",
+  "identityMap": [
+    {"syncId": "search-doc", "note": "Private fixture note: never send to a provider", "tags": [{"color": "blue", "text": "reference"}]}
+  ],
+  "tree": {
+    "id": "root",
+    "title": "",
+    "children": [{
+      "id": "reference-folder",
+      "parentId": "root",
+      "title": "Reference",
+      "children": [
+        {"id": "search-doc", "parentId": "reference-folder", "title": "Example Search documentation", "url": "https://docs.example.test/search"},
+        {"id": "fetch-doc", "parentId": "reference-folder", "title": "Example Fetch documentation", "url": "https://docs.example.test/fetch"},
+        {"id": "research-doc", "parentId": "reference-folder", "title": "Example Research documentation", "url": "https://docs.example.test/research"}
+      ]
+    }]
+  }
+}

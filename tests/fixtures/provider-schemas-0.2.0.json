@@ -1,0 +1,361 @@
+{
+  "observed_at": "2026-09-09T17:13:09.894511+00:00",
+  "source": "live tools/list; descriptions/titles omitted",
+  "execution_authorization_implied": false,
+  "providers": [
+    {
+      "provider": "exa",
+      "endpoint": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa",
+      "docs": "https://exa.ai/docs/reference/exa-mcp",
+      "protocol": "2025-03-26",
+      "advertised_tool_names": [
+        "web_search_exa",
+        "web_fetch_exa"
+      ],
+      "catalog_sha256": "1b66ed08f28d8c967c51a20dc62b96926cc70f91b17415596c820c5c968d3b79",
+      "tools": [
+        {
+          "name": "web_search_exa",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1
+              },
+              "numResults": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          },
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "openWorldHint": true,
+            "idempotentHint": true
+          }
+        },
+        {
+          "name": "web_fetch_exa",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "urls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "maxCharacters": {
+                "type": "number",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "urls"
+            ],
+            "additionalProperties": false,
+            "$schema": "http://json-schema.org/draft-07/schema#"
+          },
+          "annotations": {
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "openWorldHint": true,
+            "idempotentHint": true
+          }
+        }
+      ]
+    },
+    {
+      "provider": "parallel",
+      "endpoint": "https://search.parallel.ai/mcp",
+      "docs": "https://docs.parallel.ai/integrations/mcp/search-mcp",
+      "protocol": "2025-03-26",
+      "advertised_tool_names": [
+        "web_search",
+        "web_fetch"
+      ],
+      "catalog_sha256": "6d24779ab8490995b8b3e1b98623ddb177aed4d8b0c339e30e22fd3828a296c9",
+      "tools": [
+        {
+          "name": "web_search",
+          "inputSchema": {
+            "properties": {
+              "objective": {
+                "type": "string"
+              },
+              "search_queries": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "session_id": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "model_name": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "required": [
+              "objective",
+              "search_queries"
+            ],
+            "type": "object"
+          },
+          "annotations": {
+            "title": "Web search",
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "openWorldHint": true
+          }
+        },
+        {
+          "name": "web_fetch",
+          "inputSchema": {
+            "properties": {
+              "urls": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "objective": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "search_queries": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "full_content": {
+                "default": false,
+                "type": "boolean"
+              },
+              "session_id": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "model_name": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "required": [
+              "urls"
+            ],
+            "type": "object"
+          },
+          "annotations": {
+            "title": "Web fetch",
+            "readOnlyHint": true,
+            "destructiveHint": false,
+            "openWorldHint": true
+          }
+        }
+      ]
+    },
+    {
+      "provider": "tavily",
+      "endpoint": "https://mcp.tavily.com/mcp/",
+      "docs": "https://docs.tavily.com/documentation/mcp",
+      "protocol": "2025-03-26",
+      "advertised_tool_names": [
+        "tavily_search",
+        "tavily_extract",
+        "tavily_crawl",
+        "tavily_map",
+        "tavily_research"
+      ],
+      "catalog_sha256": "d1522091478d6cebb7b8e1cfee435f313f8b3998908165a566e5134808be9a8b",
+      "tools": [
+        {
+          "name": "tavily_search",
+          "inputSchema": {
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "max_results": {
+                "default": 5,
+                "type": "integer"
+              },
+              "search_depth": {
+                "default": "basic",
+                "enum": [
+                  "basic",
+                  "advanced",
+                  "fast",
+                  "ultra-fast"
+                ],
+                "type": "string"
+              },
+              "topic": {
+                "const": "general",
+                "default": "general",
+                "type": "string"
+              },
+              "time_range": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "day",
+                      "week",
+                      "month",
+                      "year"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "include_images": {
+                "default": false,
+                "type": "boolean"
+              },
+              "include_image_descriptions": {
+                "default": false,
+                "type": "boolean"
+              },
+              "include_raw_content": {
+                "default": false,
+                "type": "boolean"
+              },
+              "include_domains": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "exclude_domains": {
+                "default": [],
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "country": {
+                "default": "",
+                "type": "string"
+              },
+              "include_favicon": {
+                "default": false,
+                "type": "boolean"
+              },
+              "start_date": {
+                "default": "",
+                "type": "string"
+              },
+              "end_date": {
+                "default": "",
+                "type": "string"
+              },
+              "exact_match": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "type": "object",
+            "additionalProperties": false
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          }
+        },
+        {
+          "name": "tavily_extract",
+          "inputSchema": {
+            "properties": {
+              "urls": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "extract_depth": {
+                "default": "basic",
+                "enum": [
+                  "basic",
+                  "advanced"
+                ],
+                "type": "string"
+              },
+              "include_images": {
+                "default": false,
+                "type": "boolean"
+              },
+              "format": {
+                "default": "markdown",
+                "enum": [
+                  "markdown",
+                  "text"
+                ],
+                "type": "string"
+              },
+              "include_favicon": {
+                "default": false,
+                "type": "boolean"
+              },
+              "query": {
+                "default": "",
+                "type": "string"
+              }
+            },
+            "required": [
+              "urls"
+            ],
+            "type": "object",
+            "additionalProperties": false
+          },
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,17 +1,20 @@
 """Exported manifests, independent runtime startup, and destination protection."""
 
 import json
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import export_bundle
+import build_zip
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +28,8 @@ class ExportBundleTests(unittest.TestCase):
         self.source = self.base / "source"
         for directory in export_bundle.SHARED_ROOTS:
             shutil.copytree(ROOT / directory, self.source / directory)
+        shutil.copytree(ROOT / ".codex-plugin", self.source / ".codex-plugin")
+        shutil.copy2(ROOT / "LICENSE", self.source / "LICENSE")
         self.outside = self.base / "outside"
         self.outside.mkdir()
         self.data = self.base / "shared-data"
@@ -53,6 +58,7 @@ class ExportBundleTests(unittest.TestCase):
 
     def test_each_format_has_its_own_manifest_and_shared_files(self):
         expected_roots = {
+            "codex": {".codex-plugin", ".agents"},
             "agent-plugin": {"plugin.json", "mcp.json"},
             "claude": {".claude-plugin", ".mcp.json"},
             "pi": {"package.json"},
@@ -62,11 +68,16 @@ class ExportBundleTests(unittest.TestCase):
             with self.subTest(format=format_name):
                 output = self.export(format_name)
                 self.assertEqual({p.name for p in output.iterdir()},
-                                 expected_roots[format_name] | {"src", "config", "skills", "README.md"})
+                                 expected_roots[format_name] | {"src", "config", "skills", "README.md", "LICENSE"})
                 for required in export_bundle.REQUIRED_FILES:
                     self.assertEqual((output / required).read_bytes(), (self.source / required).read_bytes())
-                self.assertFalse((output / "skills/bookmark-research/agents/openai.yaml").exists())
-                if format_name == "agent-plugin":
+                self.assertEqual((output / "skills/bookmark-research/agents/openai.yaml").exists(), format_name == "codex")
+                if format_name == "codex":
+                    manifest = self.read_json(output, ".codex-plugin/plugin.json")
+                    self.assertEqual(manifest, self.read_json(self.source, ".codex-plugin/plugin.json"))
+                    marketplace = self.read_json(output, ".agents/plugins/marketplace.json")
+                    self.assertEqual(marketplace["plugins"][0]["source"], {"source": "local", "path": "./"})
+                elif format_name == "agent-plugin":
                     manifest = self.read_json(output, "plugin.json")
                     self.assertEqual(set(manifest), {"$schema", "name", "version", "description"})
                     self.assertEqual(manifest["$schema"],
@@ -149,6 +160,8 @@ class ExportBundleTests(unittest.TestCase):
                      "config/index.sqlite3", "config/index.sqlite3-wal", "config/index.db.bak",
                      "config/settings.json", "config/credentials.json", "src/knowledge/sources/page.md",
                      "src/private-package.json", "skills/bookmark-research/data.canvas",
+                     "skills/bookmark-research/bookmarks.json", "skills/bookmark-research/credentials.json",
+                     "skills/bookmark-research/knowledge/sources/page.md", "skills/bookmark-research/data/page.md",
                      "skills/bookmark-research/cache/secret.md", "skills/bookmark-research/debug.log"]
         for relative in artifacts:
             path = self.source / relative
@@ -159,10 +172,13 @@ class ExportBundleTests(unittest.TestCase):
         support = self.source / "skills/bookmark-research/references/lookup.md"
         support.parent.mkdir(parents=True, exist_ok=True)
         support.write_text("Shared reference", encoding="utf-8")
-        output = self.export("agent-plugin")
+        with mock.patch.dict(os.environ, {"EXA_API_KEY": "environment-secret-marker",
+                                          "TAVILY_API_KEY": "environment-secret-marker"}):
+            output = self.export("agent-plugin")
         for path in output.rglob("*"):
             if path.is_file():
                 self.assertNotIn(b"private-data-marker", path.read_bytes())
+                self.assertNotIn(b"environment-secret-marker", path.read_bytes())
         self.assertTrue((output / support.relative_to(self.source)).is_file())
 
     def test_refuses_nonempty_file_and_symlink_outputs_without_changes(self):
@@ -205,11 +221,16 @@ class ExportBundleTests(unittest.TestCase):
         self.assertFalse(list(self.base.glob(".bookmark-research-export-*")))
 
     def test_missing_runtime_dependency_cannot_publish_a_broken_bundle(self):
-        (self.source / "src/settings.py").unlink()
-        output = self.base / "incomplete"
-        with self.assertRaisesRegex(ValueError, "src/settings.py"):
-            self.export("agent-plugin", output)
-        self.assertFalse(output.exists())
+        for relative in ("src/settings.py", "src/research.py", "src/provider_adapters.py"):
+            with self.subTest(relative=relative):
+                path = self.source / relative
+                original = path.read_bytes()
+                path.unlink()
+                output = self.base / "incomplete"
+                with self.assertRaisesRegex(ValueError, relative):
+                    self.export("agent-plugin", output)
+                self.assertFalse(output.exists())
+                path.write_bytes(original)
 
     def test_dsh_quotes_absolute_path_and_cli_entry_point(self):
         output = self.base / 'DSH 本机 "目录"'
@@ -227,6 +248,118 @@ class ExportBundleTests(unittest.TestCase):
         self.assertNotEqual(repeated.returncode, 0)
         self.assertIn("nonempty", json.loads(repeated.stderr)["error"])
         self.assertEqual((output / "cordis.patch.yml").read_text(encoding="utf-8"), patch)
+
+    def test_exports_read_version_from_native_manifest(self):
+        path = self.source / ".codex-plugin/plugin.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["version"] = "0.2.3+codex.example"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        for format_name, relative in (("codex", ".codex-plugin/plugin.json"),
+                                      ("agent-plugin", "plugin.json"),
+                                      ("claude", ".claude-plugin/plugin.json"), ("pi", "package.json")):
+            with self.subTest(format=format_name):
+                self.assertEqual(self.read_json(self.export(format_name), relative)["version"], manifest["version"])
+
+
+class DistributionTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="bookmark-zip-test-")
+        self.addCleanup(self.temp.cleanup)
+        self.base = Path(self.temp.name).resolve()
+        self.source = self.base / "source with spaces"
+        for directory in export_bundle.SHARED_ROOTS:
+            shutil.copytree(ROOT / directory, self.source / directory)
+        for name in build_zip.EXTRA_FILES:
+            destination = self.source / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / name, destination)
+
+    def test_reproducible_zip_has_integrity_manifest_and_standalone_installer(self):
+        for relative in (".env", "config/settings.json", "src/cache/private.py",
+                         "skills/bookmark-research/private.json", "tests/private.canvas"):
+            path = self.source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"private-data-marker")
+        first = build_zip.build_zip(self.base / "release one.zip", self.source)
+        second = build_zip.build_zip(self.base / "release two.zip", self.source)
+        self.assertEqual(first["sha256"], second["sha256"])
+        version = export_bundle.read_plugin_manifest(self.source)["version"]
+        self.assertEqual(first["archive_root"], "bookmark-research-" + version)
+        with zipfile.ZipFile(first["output"]) as archive:
+            prefix = first["archive_root"] + "/"
+            names = {name[len(prefix):] for name in archive.namelist()}
+            self.assertTrue({".codex-plugin/plugin.json", ".agents/plugins/marketplace.json",
+                             "scripts/install.py", "MANIFEST.sha256"} <= names)
+            checksums = archive.read(prefix + "MANIFEST.sha256").decode("utf-8").splitlines()
+            self.assertEqual(len(checksums), len(names) - 1)
+            for line in checksums:
+                digest, name = line.split("  ", 1)
+                self.assertEqual(hashlib.sha256(archive.read(prefix + name)).hexdigest(), digest)
+            for name in archive.namelist():
+                self.assertNotIn(b"private-data-marker", archive.read(name))
+            archive.extractall(self.base / "extracted directory")
+        source = self.base / "extracted directory" / first["archive_root"]
+        result = subprocess.run([sys.executable, "-B", str(source / "scripts/install.py"), "--help"],
+                                cwd=self.base, text=True, capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("install,update,verify", result.stdout)
+        result = subprocess.run([sys.executable, "-B", str(source / "scripts/export_bundle.py"),
+                                 "--format", "codex", "--output", str(self.base / "再导出 bookmark-research")],
+                                cwd=self.base, text=True, capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["version"], version)
+
+    def test_existing_output_and_source_links_are_preserved(self):
+        output = self.base / "existing.zip"
+        output.write_bytes(b"keep")
+        with self.assertRaisesRegex(ValueError, "existing output"):
+            build_zip.build_zip(output, self.source)
+        self.assertEqual(output.read_bytes(), b"keep")
+        script = self.source / "scripts/install.py"
+        script.unlink()
+        script.symlink_to(ROOT / "scripts/install.py")
+        with self.assertRaisesRegex(ValueError, "symlinks"):
+            build_zip.build_zip(self.base / "invalid.zip", self.source)
+        self.assertFalse((self.base / "invalid.zip").exists())
+
+    def test_failed_zip_build_does_not_publish_a_partial_archive(self):
+        output = self.base / "interrupted.zip"
+        with mock.patch.object(build_zip.zipfile.ZipFile, "writestr", side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                build_zip.build_zip(output, self.source)
+        self.assertFalse(output.exists())
+        self.assertFalse(list(self.base.glob(".bookmark-research-zip-*")))
+
+    def test_verification_pack_includes_fixtures_and_runs_offline_after_extraction(self):
+        shutil.copytree(ROOT / "tests", self.source / "tests")
+        shutil.copy2(ROOT / "scripts/verify_fixture.py", self.source / "scripts/verify_fixture.py")
+        marker = os.urandom(32)
+        secret = self.source / "tests/.env"
+        secret.write_bytes(marker)
+        cached = self.source / "tests/__pycache__/private.pyc"
+        cached.parent.mkdir(exist_ok=True)
+        cached.write_bytes(marker)
+        ordinary = build_zip.build_zip(self.base / "plugin.zip", self.source)
+        packed = build_zip.build_zip(self.base / "test pack.zip", self.source, include_tests=True)
+        self.assertFalse(ordinary["includes_tests"])
+        self.assertTrue(packed["includes_tests"])
+        with zipfile.ZipFile(ordinary["output"]) as archive:
+            self.assertFalse(any("/tests/" in name for name in archive.namelist()))
+        with zipfile.ZipFile(packed["output"]) as archive:
+            names = archive.namelist()
+            prefix = packed["archive_root"] + "/"
+            self.assertIn(prefix + "scripts/verify_fixture.py", names)
+            self.assertIn(prefix + "tests/test_research.py", names)
+            self.assertTrue(any(name.startswith(prefix + "tests/fixtures/canvas/") for name in names))
+            self.assertTrue(any(name.startswith(prefix + "tests/fixtures/research-scenario.json") for name in names))
+            for name in names:
+                self.assertFalse(marker in archive.read(name), name)
+            archive.extractall(self.base / "test pack extracted")
+        extracted = self.base / "test pack extracted" / packed["archive_root"]
+        result = subprocess.run([sys.executable, "-B", str(extracted / "scripts/verify_fixture.py"),
+                                 "--output", str(self.base / "offline validation")],
+                                cwd=self.base, text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == "__main__":

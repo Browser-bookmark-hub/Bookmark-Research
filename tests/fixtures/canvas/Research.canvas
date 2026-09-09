@@ -1,0 +1,14 @@
+{
+  "nodes": [
+    {"id": "primary-card", "type": "file", "file": "永久栏目/A书签树（永久栏目）.json", "x": 400, "y": 0, "width": 200, "height": 150},
+    {"id": "copy-card", "type": "file", "file": "永久栏目/B书签树（永久栏目）.json", "x": 400, "y": 200, "width": 200, "height": 150},
+    {"id": "investigation-group", "type": "group", "label": "Investigation", "x": 0, "y": 0, "width": 350, "height": 500},
+    {"id": "research-card", "type": "file", "file": "临时栏目/常规链式/A-1 Research.json", "x": 25, "y": 25, "width": 300, "height": 200},
+    {"id": "followup-card", "type": "file", "file": "临时栏目/常规链式/A-1-1 Follow-up.json", "x": 25, "y": 250, "width": 300, "height": 200},
+    {"id": "scope-note", "type": "text", "text": "Synthetic evidence; no network calls should target .test domains.", "x": 700, "y": 0, "width": 250, "height": 150}
+  ],
+  "edges": [
+    {"id": "select-to-investigate", "fromNode": "primary-card", "toNode": "research-card", "label": "selected for investigation"},
+    {"id": "follow-up", "fromNode": "research-card", "toNode": "followup-card", "label": "check limitations"}
+  ]
+}
