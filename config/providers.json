@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "providers": {
+    "exa": {
+      "label": "Exa",
+      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa",
+      "search_tools": [
+        "web_search_exa"
+      ],
+      "fetch_tools": [
+        "web_fetch_exa"
+      ],
+      "direct_client": true,
+      "optional_header_env": {
+        "x-api-key": "EXA_API_KEY"
+      },
+      "docs": "https://exa.ai/docs/reference/exa-mcp"
+    },
+    "parallel": {
+      "label": "Parallel",
+      "url": "https://search.parallel.ai/mcp",
+      "search_tools": [
+        "web_search"
+      ],
+      "fetch_tools": [
+        "web_fetch"
+      ],
+      "direct_client": true,
+      "optional_bearer_env": "PARALLEL_API_KEY",
+      "docs": "https://docs.parallel.ai/integrations/mcp/search-mcp"
+    },
+    "tavily": {
+      "label": "Tavily",
+      "url": "https://mcp.tavily.com/mcp/",
+      "search_tools": [
+        "tavily_search",
+        "tavily-search"
+      ],
+      "fetch_tools": [
+        "tavily_extract",
+        "tavily-extract"
+      ],
+      "direct_client": false,
+      "authentication": "Use the host's OAuth MCP client; merge its results with merge-results.",
+      "docs": "https://docs.tavily.com/documentation/mcp"
+    }
+  },
+  "default_providers": [
+    "exa",
+    "parallel"
+  ]
+}

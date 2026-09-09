@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "topic": "Bookmark Research cross-harness packaging compatibility",
+  "research_date": "2026-09-07",
+  "updated_on": "2026-09-08",
+  "source_policy": "Official product documentation, official repositories and Agent Plugins normative schemas only.",
+  "limitations": [
+    "Exa retrieval may return indexed content and does not establish a uniform live-origin timestamp.",
+    "Mutable repository branches are not pinned release artifacts.",
+    "This research subtask did not install clients. Codex 0.153.4 launch diagnostics were supplied by the project's local integration task; Claude Code, Pi and DeepSeek Harness client loading remains untested.",
+    "Exported configuration shape, shared runtime tests and target-client interoperability are separate checks."
+  ],
+  "sources": [
+    {
+      "id": "H01",
+      "title": "Agent Plugins Specification 1.0.0",
+      "url": "https://agent-plugins.org/specification",
+      "publisher": "Agent Plugins",
+      "revision": "1.0.0",
+      "supports": [
+        "Root plugin.json requires $schema and name; fixed skills/ and mcp.json discovery.",
+        "Client-specific manifest data and files use reverse-domain namespaces.",
+        "stdio executable, path containment, PLUGIN_ROOT and PLUGIN_DATA semantics.",
+        "The specification does not establish that a named existing client has adopted the format."
+      ],
+      "read_scope": "Full extracted specification; normative sections 4–11 inspected.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "H02",
+      "title": "Agent Plugins 1.0.0 plugin manifest JSON Schema",
+      "url": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "publisher": "Agent Plugins",
+      "revision": "1.0.0",
+      "supports": [
+        "Closed top-level manifest object.",
+        "Required $schema and name; metadata and extensions types."
+      ],
+      "read_scope": "Full extracted schema.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "H03",
+      "title": "Agent Plugins 1.0.0 MCP configuration JSON Schema",
+      "url": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "publisher": "Agent Plugins",
+      "revision": "1.0.0",
+      "supports": [
+        "Required root $schema and mcpServers.",
+        "stdio requires type and command; env may not define PLUGIN_ROOT or PLUGIN_DATA.",
+        "Runtime path containment is separate from JSON Schema validation."
+      ],
+      "read_scope": "Full extracted schema.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "H04",
+      "title": "Package your plugin",
+      "url": "https://developers.openai.com/plugins/build/plugins",
+      "publisher": "OpenAI",
+      "revision": "Current documentation URL; not a pinned client release.",
+      "supports": [
+        ".codex-plugin/plugin.json is the Codex/OpenAI native manifest path.",
+        "Skills and MCP configuration belong at the plugin root.",
+        "Current documentation shows direct server maps or mcp_servers-wrapped maps for referenced MCP configuration files."
+      ],
+      "read_scope": "Extracted page through plugin layout and bundled MCP configuration sections.",
+      "qualification": "Read according to the OpenAI Docs skill; schema compatibility must still be checked against the selected runtime and local plugin tooling.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "H05",
+      "title": "Claude Code plugins reference",
+      "url": "https://code.claude.com/docs/en/plugins-reference",
+      "publisher": "Anthropic",
+      "revision": "Current documentation URL; not a pinned Claude Code release.",
+      "supports": [
+        ".claude-plugin/plugin.json is the native manifest path; current documentation allows the manifest to be omitted.",
+        "If a manifest is present, name is the required identity field.",
+        "Root skills and MCP configuration, native plugin path variables, component and installation conventions."
+      ],
+      "read_scope": "Extracted page including manifest schema and MCP sections.",
+      "qualification": "Does not establish root Agent Plugins plugin.json interoperability.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "H06",
+      "title": "Codex 0.153.4 native plugin MCP configuration parser",
+      "url": "https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/codex-mcp/src/plugin_config.rs",
+      "retrieval_url": "https://raw.githubusercontent.com/openai/codex/refs/tags/rust-v0.153.4/codex-rs/codex-mcp/src/plugin_config.rs",
+      "publisher": "OpenAI",
+      "revision": "rust-v0.153.4",
+      "supports": [
+        "Native host-plugin normalization resolves an explicitly relative cwd with root.join(cwd).",
+        "The native normalizer does not expand PLUGIN_ROOT, CLAUDE_PLUGIN_ROOT or CODEX_PLUGIN_ROOT in command or args.",
+        "Host-plugin normalization leaves an absent cwd unset; executor-owned plugin normalization separately supplies a plugin-root default.",
+        "Agent Plugins MCP configuration uses a separate agent_plugin_config.rs parser."
+      ],
+      "read_scope": "Full raw source for the precise release tag, including normalize_plugin_mcp_server and normalize_plugin_mcp_server_value.",
+      "qualification": "The project's local Codex 0.153.4 diagnostic trace independently reported literal PLUGIN_ROOT args, session cwd and no plugin-root environment injection. The read-only research subtask did not repeat client execution.",
+      "retrieval_method": "Exa MCP web_fetch_exa; GitHub blob fetch timed out, raw release-tag source succeeded.",
+      "retrieved_on": "2026-09-08",
+      "evidence_status": "official_release_source_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "P01",
+      "title": "Pi Coding Agent",
+      "url": "https://pi.dev",
+      "publisher": "Pi / earendil-works",
+      "revision": "Current project homepage.",
+      "supports": [
+        "Current installation package is @earendil-works/pi-coding-agent.",
+        "Extensibility uses extensions, skills, prompt templates and themes.",
+        "MCP integration is presented as an extension/package capability."
+      ],
+      "read_scope": "Full extracted homepage.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "P02",
+      "title": "Pi Packages",
+      "url": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md",
+      "publisher": "Pi / earendil-works",
+      "revision": "main (mutable)",
+      "supports": [
+        "package.json pi key can declare skills, extensions, prompts and themes.",
+        "pi install accepts npm, git and local paths; local paths are recorded without copying.",
+        "Global and project package settings; package resource paths and dependency conventions."
+      ],
+      "read_scope": "Extracted package documentation; installation, local paths, manifest and dependency sections inspected.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "P03",
+      "title": "Pi Skills",
+      "url": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/skills.md",
+      "publisher": "Pi / earendil-works",
+      "revision": "main (mutable)",
+      "supports": [
+        "Global, project, package, settings and --skill discovery.",
+        "/skill:name command; progressive disclosure; shared Agent Skills format.",
+        "Pi allows broader recursive discovery than Agent Plugins 1.0.0; shared packages should keep the stricter simple layout."
+      ],
+      "read_scope": "Full extracted skills documentation.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "P04",
+      "title": "Pi Extensions",
+      "url": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md",
+      "publisher": "Pi / earendil-works",
+      "revision": "main (mutable)",
+      "supports": [
+        "Default extension factory receives ExtensionAPI.",
+        "pi.registerTool registers model-callable tools; current examples import from @earendil-works/pi-coding-agent and typebox.",
+        "Extension locations, TypeScript loading, startup/shutdown lifecycle and package declarations."
+      ],
+      "read_scope": "Opening and API/lifecycle excerpts; not all examples were fetched.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "P05",
+      "title": "Using Pi — Design Principles and CLI",
+      "url": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/usage.md",
+      "publisher": "Pi / earendil-works",
+      "revision": "main (mutable)",
+      "supports": [
+        "The design-principles section explicitly states that Pi core does not include built-in MCP.",
+        "--skill is an additive command-line resource option.",
+        "Package management and project trust are host behavior, not supplied by a generic MCP server."
+      ],
+      "read_scope": "Full extracted usage page; CLI and closing Design Principles sections inspected.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "D01",
+      "title": "DeepSeek Harness README",
+      "url": "https://github.com/deepseek-ai/deepseek-harness/blob/master/README.md",
+      "publisher": "DeepSeek AI",
+      "revision": "master (mutable)",
+      "supports": [
+        "Project identity, dsh launcher and Cordis-based plugin architecture.",
+        "Developer preview and explicitly expected compatibility-breaking changes."
+      ],
+      "read_scope": "Full extracted README.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "D02",
+      "title": "Package and install a plugin",
+      "url": "https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/publish.md",
+      "publisher": "DeepSeek AI",
+      "revision": "master (mutable)",
+      "supports": [
+        "Bundle package.json declares dsh.bundle.patch; profiles separately declare dsh.profile.bundles.",
+        "dsh plugin --profile NAME add PATH installs a bundle; --dump-config inspects composition.",
+        "Later patch rows replace complete config values; native JS entry points are used when a bundle contributes its own Cordis module."
+      ],
+      "read_scope": "Full extracted tutorial.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "D03",
+      "title": "Your first plugin",
+      "url": "https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/develop/basic/index.md",
+      "publisher": "DeepSeek AI",
+      "revision": "master (mutable)",
+      "supports": [
+        "Cordis named exports name, inject and apply; object and class forms also supported.",
+        "Local --patch plugin module paths are absolute; overlay location does not reset the profile's resolution root.",
+        "Services are awaited before activation and ctx.effect supplies cleanup."
+      ],
+      "read_scope": "Full extracted tutorial.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "D04",
+      "title": "DSH MCP client bridge README",
+      "url": "https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md",
+      "publisher": "DeepSeek AI",
+      "revision": "master (mutable)",
+      "supports": [
+        "@deepseek-ai/dsh-mcp-client connects one server per plugin instance.",
+        "stdio and Streamable HTTP; command/args/env/cwd and reconnection settings.",
+        "MCP tools become mcp__server__tool; Resources and Prompts are not bridged by this implementation."
+      ],
+      "read_scope": "Full extracted README.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "D05",
+      "title": "DSH MCP client entry source",
+      "url": "https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/src/index.ts",
+      "publisher": "DeepSeek AI",
+      "revision": "master (mutable)",
+      "supports": [
+        "name = mcp-client, inject = ['tools'], async apply(ctx, config).",
+        "Config schema includes transport, serverName, command, args, env, cwd, toolCallTimeoutMs and failOnStartupError.",
+        "Distinct server-name reservation and effect-scoped disposal; no plugin-root placeholder expansion contract in this entry."
+      ],
+      "read_scope": "Full extracted entry source.",
+      "qualification": "Absence of a placeholder contract in this source is not a statement about every future DSH extension; examples therefore use resolved absolute paths.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "D06",
+      "title": "DSH Skills subsystem",
+      "url": "https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/subsystems/skills.md",
+      "publisher": "DeepSeek AI",
+      "revision": "master (mutable)",
+      "supports": [
+        "Project/custom/user/bundled skill-root precedence.",
+        "<name>/SKILL.md and flat Markdown discovery; no arbitrary recursive **/SKILL.md discovery.",
+        "Registry, filesystem provider and model-facing skill consumer are separate capabilities."
+      ],
+      "read_scope": "Extracted subsystem documentation including discovery and policy sections.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "D07",
+      "title": "DSH filesystem skill provider source",
+      "url": "https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/skill/skill-filesystem/src/index.ts",
+      "publisher": "DeepSeek AI",
+      "revision": "master (mutable)",
+      "supports": [
+        "customSkillDirs and includeDefaultRoots configuration.",
+        "Default dshHome and agentsHome, source-rank construction and provider injection into skills service."
+      ],
+      "read_scope": "Opening source and configuration/root-resolution excerpts.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    },
+    {
+      "id": "D08",
+      "title": "dsh CLI behavior reference",
+      "url": "https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/reference/README.md",
+      "publisher": "DeepSeek AI",
+      "revision": "master (mutable)",
+      "supports": [
+        "Profile boot order; built-in web/headless profile templates versus new arbitrary base-only profiles.",
+        "dsh plugin forwards to pnpm and reconciles dsh.bundle manifests.",
+        "--dump-config is a configuration inspection step, not an application boot test."
+      ],
+      "read_scope": "Full extracted CLI reference.",
+      "retrieval_method": "Exa MCP web_search_exa and/or web_fetch_exa",
+      "retrieved_on": "2026-09-07",
+      "evidence_status": "official_content_read",
+      "runtime_tested_in_this_subtask": false
+    }
+  ]
+}

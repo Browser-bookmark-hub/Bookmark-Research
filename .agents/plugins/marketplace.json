@@ -1,0 +1,20 @@
+{
+  "name": "bookmark-research",
+  "interface": {
+    "displayName": "Bookmark Research"
+  },
+  "plugins": [
+    {
+      "name": "bookmark-research",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
