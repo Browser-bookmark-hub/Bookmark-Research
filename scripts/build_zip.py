@@ -25,6 +25,7 @@ EXTRA_FILES = (
     "docs/research-sources-0.2.0.json",
     "docs/validation-0.2.0.md",
     "README.md",
+    "install.sh",
     "docs/harness-compatibility.md",
     "docs/harness-sources.json",
     "scripts/export_bundle.py",

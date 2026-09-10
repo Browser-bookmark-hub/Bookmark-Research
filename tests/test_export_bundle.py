@@ -289,7 +289,7 @@ class DistributionTests(unittest.TestCase):
             prefix = first["archive_root"] + "/"
             names = {name[len(prefix):] for name in archive.namelist()}
             self.assertTrue({".codex-plugin/plugin.json", ".agents/plugins/marketplace.json",
-                             "scripts/install.py", "MANIFEST.sha256"} <= names)
+                             "scripts/install.py", "install.sh", "MANIFEST.sha256"} <= names)
             checksums = archive.read(prefix + "MANIFEST.sha256").decode("utf-8").splitlines()
             self.assertEqual(len(checksums), len(names) - 1)
             for line in checksums:

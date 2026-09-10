@@ -17,7 +17,9 @@
 
 本地参考位于用户指定的 `Qwen-MM-Plugins-main/{README.md,AGENTS.md,install.sh,pyproject.toml,docs/zh/installation.md,docs/en/releasing.md}`。GitHub `main` 链接用于定位项目，未来内容可能变化。官方 CLI 文档在实现前通过 Exa 搜索并读取了全文，随后通过本机 `codex plugin ... --help` 和隔离 profile 的实际 JSON 响应交叉检查。
 
-Qwen 的远程 `curl | bash` 入口依赖已经发布的安装脚本与独立能力发布目录。本次没有发布外网入口，也没有复制其多能力菜单、重型媒体依赖或自动配置密钥流程。使用本地 ZIP、checkout 和原生 Codex Git 安装，能够与现有标准库运行时保持一致。
+v0.2.0 发布时提供了本地 ZIP、checkout 和原生 Codex Git 安装，尚未提供 `curl | bash` 入口。发布后补充的根目录 [`install.sh`](../install.sh) 实现远程引导：从 Git 下载现有 Python 安装器，以远程 Git 来源调用它，完成后清理临时目录。首次默认跟随 `main`，也可明确选择已有 tag/commit；注册、更新和验证仍由原有安装器及 Codex CLI 负责。
+
+Qwen 的入口脚本来自 `main`，但其默认能力目录指向不可变稳定 tag；“脚本来自 main”不等于“插件跟随 main”。本项目明确区分默认分支安装与 `--ref` 固定版本。远程引导不使用 GitHub Release API 或 ZIP 资产，因此发布入口只需推送源码；既有 v0.2.0 tag 和 Release 资产保持其发布快照。详细命令见 [安装指南](installation.md#一条命令安装-codex)。
 
 ## 命令边界
 
@@ -41,12 +43,13 @@ ZIP 额外包含 README、安装与兼容文档、安装/导出/构建脚本和�
 
 ## 可验证性
 
-对应测试是 `tests/test_export_bundle.py` 和 `tests/test_install.py`。检查范围包括：
+对应测试是 `tests/test_export_bundle.py`、`tests/test_install.py` 和发布后新增的 `tests/test_bootstrap.py`。检查范围包括：
 
 - 五种导出的入口、版本一致性、目录外启动、stdio MCP 初始化及独立数据目录。
 - 原生 Codex JSON 契约、重复安装、本地更新、已注册来源冲突保护、Git 升级错误中止。
 - 含中文、空格和 shell 字符的路径；失败时不覆盖现有文件或发布半成品目录。
 - SQLite、用户 JSON、`.canvas`、缓存、环境密钥标记不进入干净导出或 ZIP。
 - 固定 ZIP 内容、SHA-256 清单、解压后独立运行安装器与导出器。
+- 通过标准输入执行引导脚本、Git tag/commit 安装、分支更新、下载失败、临时目录清理及已有 personal 安装的重复检查；Git 测试使用本地仓库，不依赖 Release 或公网。
 
 真实 Codex 测试仅在系统安装了 Codex CLI 时运行，并使用测试临时 `CODEX_HOME` 管理专用 profile。它不会安装到日常使用的 Codex profile，也不访问网页服务。无 Codex 的环境仍运行导出、打包、运行时和命令契约测试；真实 CLI 测试会明确显示跳过。

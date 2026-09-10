@@ -2,11 +2,43 @@
 
 Bookmark Research 0.2.0 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python 与要使用的客户端；运行 `python3 src/cli.py doctor` 可以离线检查 Python 和 FTS5。客户端兼容范围见 [README](../README.md#client-support)。
 
-## 取得代码
+## 一条命令安装 Codex
+
+已安装 Bash、Git、Python 3.9+（含 SQLite FTS5）和支持 plugin 命令的 Codex CLI 后，可以在任意工作目录执行：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
+```
+
+首次安装使用仓库默认分支，目前是 `main`。引导脚本从 Git 取得 Python 安装器，再通过 Codex 原生命令登记远程来源，安装共享 Skill 和 MCP 并验证运行时。临时下载目录随后清理，Codex 自己保留源码和安装缓存。安装后新建 Codex thread。
+
+更新、检查和预览使用同一入口：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- update
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- verify
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- --dry-run
+```
+
+`--dry-run` 仍会联网下载安装器并读取 Codex 状态，但不执行注册和安装。`--help` 只显示帮助；通过 curl 调用时仍需下载入口脚本。可传 `--codex /absolute/path/to/codex` 和 `--timeout 60`；后者是每条 Codex 命令的超时秒数。需要离线验证时，使用已保留在本地的 `scripts/install.py verify`。
+
+需要固定版本时，在**首次登记来源**时选择 tag 或 commit：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- install --ref v0.2.0
+```
+
+`--ref` 同时选择 Git 中的安装器和待安装插件，所选版本须包含 `scripts/install.py`（从 v0.2.0 开始）。再次安装时省略 `--ref`；已登记的分支、tag 或 commit 会保留。`update` 也保持该 ref，固定 tag 不会自动升级到其他版本。默认跟随 `main` 适合接收开发更新，固定 tag/commit 适合复现。
+
+本入口管理 `bookmark-research@bookmark-research`。已通过 `personal` 等其他 marketplace 安装时，引导脚本会提示沿用其更新流程，避免重复安装。已有同名 marketplace 指向其他仓库或本地目录时，安装器会提示来源冲突；可运行 `update` 更新原来源，或先在 Codex 中明确调整来源。
+
+**Git tag、GitHub Release 和安装脚本是三个独立部分。** Git tag 标记源码版本；Release 提供说明、ZIP 和校验文件；`install.sh` 负责取得源码并安装。上述命令直接使用 Git，不访问 Release API 或 ZIP 资产，只有仓库也能安装和更新。
+
+## 取得代码或 ZIP
 
 从 [v0.2.0 Release](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/tag/v0.2.0) 下载 [插件 ZIP](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-0.2.0.zip)；需要运行离线验证时下载 [测试包](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-test-pack-0.2.0.zip)。两个包均包含 `MANIFEST.sha256`，Release 另提供 ZIP 的 `SHA256SUMS`。解压时保留 `.codex-plugin/` 和 `.agents/` 等隐藏目录，并把目录放在一个稳定位置。
 
-仓库地址：<https://github.com/Browser-bookmark-hub/Bookmark-Research>。复现本版本使用 `v0.2.0` 标签；`main` 跟随开发更新。本项目通过 GitHub Release 和源码分发。
+仓库地址：<https://github.com/Browser-bookmark-hub/Bookmark-Research>。复现本版本使用 `v0.2.0` 标签；`main` 跟随开发更新。ZIP 是可选的分发形式，也可以直接克隆源码：
 
 ```sh
 git clone --branch v0.2.0 https://github.com/Browser-bookmark-hub/Bookmark-Research.git

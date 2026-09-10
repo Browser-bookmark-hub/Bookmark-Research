@@ -1,0 +1,176 @@
+"""Exercise the piped installer against a local Git remote and isolated profiles."""
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import export_bundle
+
+
+ROOT = Path(__file__).resolve().parents[1]
+BASH = shutil.which("bash")
+GIT = shutil.which("git")
+CODEX = shutil.which("codex")
+REPOSITORY = "https://github.com/Browser-bookmark-hub/Bookmark-Research.git"
+
+
+@unittest.skipUnless(BASH and GIT, "Bash and Git are required for bootstrap tests")
+class BootstrapTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="bookmark-bootstrap-")
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name).resolve()
+        self.remote = self.base / "remote source"
+        export_bundle.export_bundle("codex", self.remote)
+        (self.remote / "scripts").mkdir()
+        for name in ("install.py", "export_bundle.py"):
+            shutil.copyfile(ROOT / "scripts" / name, self.remote / "scripts" / name)
+        (self.remote / "src/bootstrap_probe.py").write_text("value = 'before'\n")
+        self.outside = self.base / '中文 cwd $(literal) "quotes"'
+        self.outside.mkdir()
+        self.downloads = self.base / "temporary downloads"
+        self.downloads.mkdir()
+        self.profile = self.base / "codex profile"
+        self.profile.mkdir()
+        self.data = self.base / "user data"
+        self.data.mkdir()
+        (self.data / "index.sqlite3").write_bytes(b"existing-user-data")
+        self.settings = self.base / "settings.json"
+        self.settings.write_text('{"archive":{"enabled":false}}')
+        self.calls = self.base / "codex-calls.jsonl"
+        self.cli = self.base / 'codex with spaces $(literal)'
+        self.cli.write_text("#!" + sys.executable + "\n" + '''
+import json, os, sys
+from pathlib import Path
+with Path(os.environ["BOOTSTRAP_TEST_CALLS"]).open("a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\\n")
+if os.environ.get("BOOTSTRAP_TEST_CLI_FAIL"):
+    sys.exit("native-cli-failure")
+if sys.argv[1:] == ["plugin", "marketplace", "list", "--json"]:
+    print(json.dumps({"marketplaces": []}))
+elif sys.argv[1:] == ["plugin", "list", "--json"]:
+    print(json.dumps({"installed": json.loads(os.environ.get("BOOTSTRAP_TEST_INSTALLED", "[]"))}))
+else:
+    sys.exit("unexpected native mutation")
+''')
+        self.cli.chmod(0o755)
+        self.environment = dict(os.environ, GIT_CONFIG_GLOBAL=str(self.base / "gitconfig"),
+                                GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0",
+                                CODEX_HOME=str(self.profile), TMPDIR=str(self.downloads),
+                                BOOKMARK_RESEARCH_DATA_DIR=str(self.data),
+                                BOOKMARK_RESEARCH_CONFIG=str(self.settings),
+                                BOOTSTRAP_TEST_CALLS=str(self.calls), PYTHONDONTWRITEBYTECODE="1")
+        for name in ("GIT_CONFIG_COUNT", "PYTHONPATH", "PYTHONHOME"):
+            self.environment.pop(name, None)
+        self.git("init", "--quiet", "--initial-branch=main")
+        self.git("config", "user.name", "Bootstrap Test")
+        self.git("config", "user.email", "bootstrap@example.invalid")
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Initial test source")
+        self.git("tag", "v0.2.0")
+        self.git("config", "--file", self.environment["GIT_CONFIG_GLOBAL"],
+                 "url." + self.remote.as_uri() + ".insteadOf", REPOSITORY)
+
+    def git(self, *arguments):
+        return subprocess.run([GIT, "-C", str(self.remote), *arguments],
+                              env=self.environment, text=True, capture_output=True,
+                              check=True, timeout=20).stdout.strip()
+
+    def run_bootstrap(self, *arguments, success=True):
+        result = subprocess.run([BASH, "-s", "--", *arguments, "--codex", str(self.cli)],
+                                input=(ROOT / "install.sh").read_text(), cwd=self.outside,
+                                env=self.environment, text=True, capture_output=True, timeout=60)
+        self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+        self.assertEqual(list(self.downloads.iterdir()), [], "temporary checkout was not cleaned")
+        self.assertEqual((self.data / "index.sqlite3").read_bytes(), b"existing-user-data")
+        self.assertEqual(self.settings.read_text(), '{"archive":{"enabled":false}}')
+        return result
+
+    def test_piped_dry_run_uses_remote_source_and_preserves_argument_boundaries(self):
+        result = json.loads(self.run_bootstrap("--dry-run").stdout)
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(result["source"], {"sourceType": "git", "source": REPOSITORY, "ref": None})
+        self.assertEqual(result["commands"][0], [str(self.cli), "plugin", "marketplace", "add", REPOSITORY, "--json"])
+        self.assertFalse((self.profile / "config.toml").exists())
+        self.assertEqual(len(self.calls.read_text().splitlines()), 2)
+
+    def test_first_install_accepts_tag_and_commit_without_a_github_release(self):
+        for ref in ("v0.2.0", self.git("rev-parse", "HEAD")):
+            with self.subTest(ref=ref):
+                plan = json.loads(self.run_bootstrap("install", "--ref", ref, "--dry-run").stdout)
+                self.assertEqual(plan["source"]["ref"], ref)
+                self.assertEqual(plan["commands"][0][-3:], ["--ref", ref, "--json"])
+
+    def test_fetch_failure_stops_before_native_mutations_and_cleans_up(self):
+        failed = self.run_bootstrap("--ref", "missing-tag", success=False)
+        self.assertIn("Could not fetch", failed.stderr)
+        self.assertEqual([json.loads(line) for line in self.calls.read_text().splitlines()],
+                         [["plugin", "list", "--json"]])
+        self.assertEqual(failed.stdout, "")
+
+    def test_native_failure_propagates_and_cleans_up(self):
+        self.environment["BOOTSTRAP_TEST_CLI_FAIL"] = "1"
+        failed = self.run_bootstrap("--dry-run", success=False)
+        self.assertIn("native-cli-failure", failed.stderr)
+        self.assertFalse((self.profile / "config.toml").exists())
+
+    def test_existing_personal_installation_prevents_a_duplicate(self):
+        self.environment["BOOTSTRAP_TEST_INSTALLED"] = json.dumps([
+            {"pluginId": "bookmark-research@personal", "installed": True, "enabled": True}])
+        failed = self.run_bootstrap(success=False)
+        self.assertIn("Already installed as bookmark-research@personal", failed.stderr)
+        self.assertNotIn("fetching installer", failed.stderr)
+        self.assertFalse((self.profile / "config.toml").exists())
+
+    def test_missing_codex_has_an_actionable_error_before_download(self):
+        self.cli = self.base / "missing codex"
+        failed = self.run_bootstrap(success=False)
+        self.assertIn("Codex CLI was not found", failed.stderr)
+        self.assertNotIn("fetching installer", failed.stderr)
+
+    def test_help_and_invalid_options_do_not_download_or_call_codex(self):
+        self.assertIn("GitHub Release pages and ZIP assets are not used", self.run_bootstrap("--help").stdout)
+        for args in (("--unknown",), ("update", "--ref", "main"), ("verify", "--dry-run"),
+                     ("--ref", "--upload-pack=bad"), ("--timeout", "0"), ("--timeout", "301")):
+            with self.subTest(args=args):
+                failed = self.run_bootstrap(*args, success=False)
+                self.assertNotIn("fetching installer", failed.stderr)
+        self.assertFalse(self.calls.exists())
+
+    @unittest.skipUnless(CODEX, "Codex CLI unavailable; native Git installation test skipped")
+    def test_native_install_repeat_update_and_tag_pin_survive_temporary_cleanup(self):
+        self.cli = Path(CODEX)
+        first = json.loads(self.run_bootstrap().stdout)
+        self.assertTrue(first["verified"])
+        self.assertEqual(first["source"]["sourceType"], "git")
+        repeated = json.loads(self.run_bootstrap().stdout)
+        self.assertEqual(first["installed_path"], repeated["installed_path"])
+        self.assertTrue(json.loads(self.run_bootstrap("verify").stdout)["verified"])
+        configuration = (self.profile / "config.toml").read_text()
+        self.assertIn(REPOSITORY, configuration)
+        self.assertNotIn(str(self.downloads), configuration)
+
+        pinned_profile = self.base / "pinned profile"
+        pinned_profile.mkdir()
+        self.environment["CODEX_HOME"] = str(pinned_profile)
+        pinned = json.loads(self.run_bootstrap("install", "--ref", "v0.2.0").stdout)
+        (self.remote / "src/bootstrap_probe.py").write_text("value = 'after'\n")
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Update default branch")
+        updated_pin = json.loads(self.run_bootstrap("update").stdout)
+        self.assertEqual(updated_pin["installed_path"], pinned["installed_path"])
+        self.assertEqual(Path(pinned["installed_path"], "src/bootstrap_probe.py").read_text(), "value = 'before'\n")
+        self.environment["CODEX_HOME"] = str(self.profile)
+        updated = json.loads(self.run_bootstrap("update").stdout)
+        self.assertTrue(updated["verified"])
+        self.assertEqual(Path(updated["installed_path"], "src/bootstrap_probe.py").read_text(), "value = 'after'\n")
+
+
+if __name__ == "__main__":
+    unittest.main()

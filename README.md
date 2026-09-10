@@ -6,18 +6,36 @@ Query your [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Ca
 
 **0.2.0** adds provider-specific MCP adapters, reusable sessions and capability discovery, durable deep research with retrieval budgets and checked quotations, and a CLI installer with update and verification commands. The agent still chooses each research step; saved tasks can be resumed in another session.
 
-Download the **[0.2.0 plugin ZIP](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-0.2.0.zip)** or the **[test pack](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-test-pack-0.2.0.zip)** from the [GitHub Release](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/tag/v0.2.0). Start with the **[installation guide](docs/installation.md)** for setup, commands for each client, a first query, and updates. The [design research](docs/research-0.2.0.md) records the supplied research links and first-party sources; the [validation guide](docs/validation-0.2.0.md) provides reproducible checks.
+Start with the **one-command Codex installer below**, or the **[installation guide](docs/installation.md)** for other clients, a first query, and updates. The **[0.2.0 plugin ZIP](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-0.2.0.zip)** and **[test pack](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-test-pack-0.2.0.zip)** remain available as optional downloads. The [design research](docs/research-0.2.0.md) records the supplied research links and first-party sources; the [validation guide](docs/validation-0.2.0.md) provides reproducible checks.
 
 ## Install in Codex
 
-From a **0.2.0 checkout or extracted ZIP**:
+With Bash, Git, Python 3.9+ with SQLite FTS5, and a Codex CLI that supports plugins:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
+```
+
+The first install follows the repository's default branch, currently `main`. It fetches code directly from Git and delegates registration and verification to Codex's native plugin CLI; **no GitHub Release or ZIP download is required**. Start a new Codex thread after installation to load the Skill and tools.
+
+```sh
+# Update the registered source, then verify it
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- update
+
+# Preview a first install; --help lists all options
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- --dry-run
+```
+
+To pin a **first installation** to the stable version, append `-s -- install --ref v0.2.0` to `bash`. Repeat installs retain the registered ref; `update` refreshes that ref and does not switch a tag to a newer version. See [installation options](docs/installation.md#一条命令安装-codex) for source conflicts and existing personal installations.
+
+From a **0.2.0 checkout or extracted ZIP**, local installation is also available:
 
 ```sh
 python3 scripts/install.py install
 python3 scripts/install.py verify
 ```
 
-For updates, run `python3 scripts/install.py update`. Start a new Codex thread after installation to load the updated Skill and tools. The installer delegates to Codex's native plugin CLI; `--dry-run` shows its plan. [Native commands and Git sources](docs/installation.md#使用-codex-原生命令) are also documented, including how to choose an existing tag or commit.
+For a local source, run `python3 scripts/install.py update` after updating its files. [Native commands and Git sources](docs/installation.md#使用-codex-原生命令) are also documented.
 
 For **Claude Code, Pi, DSH**, or a downloaded ZIP, follow the [installation guide](docs/installation.md). The repository includes the Codex marketplace at [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
 
@@ -30,7 +48,7 @@ For **Claude Code, Pi, DSH**, or a downloaded ZIP, follow the [installation guid
 | **Python CLI** | [`src/cli.py`](src/cli.py) | Runs the same queries and research workflows directly, including from Pi |
 | **Web providers** | [`config/providers.json`](config/providers.json) and [`src/provider_adapters.py`](src/provider_adapters.py) | Exa, Parallel and optional Tavily behind one MCP; schema checks, session reuse and visible partial failures |
 | **Deep research** | [`src/research.py`](src/research.py) | Persistent brief, selected bookmark context, budgets, evidence, claims, conflicts and reports |
-| **Client integrations** | Native Codex manifest, [`scripts/install.py`](scripts/install.py) and [`scripts/export_bundle.py`](scripts/export_bundle.py) | Install/update/verify in Codex; separate packages or adapters for other clients |
+| **Client integrations** | Native Codex manifest, [`install.sh`](install.sh), [`scripts/install.py`](scripts/install.py) and [`scripts/export_bundle.py`](scripts/export_bundle.py) | One-command install/update/verify in Codex; separate packages or adapters for other clients |
 
 The runtime requires Python 3.9+ and SQLite with FTS5; `doctor` checks these requirements. It uses the Python standard library and does not require a separate database service.
 
