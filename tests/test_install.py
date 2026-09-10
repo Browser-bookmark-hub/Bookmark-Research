@@ -1,5 +1,6 @@
 """Native CLI contracts and isolated, repeatable Codex installation tests."""
 
+import io
 import json
 import os
 import shutil
@@ -82,8 +83,44 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue(result["runtime"]["doctor"]["fts5"])
         self.assertIn("fetch_web", result["runtime"]["mcp_tools"])
         self.assertFalse(result["runtime"]["network_checked"])
+        self.assertFalse(result["getting_started"]["configuration"]["config_exists"])
+        self.assertEqual(result["getting_started"]["configuration"]["settings"]["search"]["providers"], ["exa", "parallel"])
         self.assertFalse((self.base / "user data").exists())
+        self.assertFalse((self.base / "user settings.json").exists())
         self.assertEqual(cli.steps, [])
+
+    def test_onboarding_reads_actual_preferences_and_its_command_works_outside_source(self):
+        settings_path = self.base / "user settings.json"
+        original = '{"search":{"providers":["tavily"],"limit_per_target":3},"archive":{"enabled":false}}'
+        settings_path.write_text(original)
+        guide = install._getting_started(self.source)
+        self.assertIsNone(guide["configuration_error"])
+        self.assertTrue(guide["configuration"]["config_exists"])
+        self.assertEqual(guide["configuration"]["settings"]["search"]["providers"], ["tavily"])
+        self.assertFalse(guide["configuration"]["settings"]["archive"]["enabled"])
+        checked = subprocess.run(guide["settings_command"], cwd=self.base, text=True,
+                                 capture_output=True, check=True, timeout=15)
+        self.assertEqual(json.loads(checked.stdout), guide["configuration"])
+        output = io.StringIO()
+        with mock.patch.object(install.sys, "stderr", output):
+            install._print_getting_started(guide)
+        self.assertIn("tavily", output.getvalue())
+        self.assertNotIn("environment-secret-marker", output.getvalue() + json.dumps(guide))
+        self.assertEqual(settings_path.read_text(), original)
+        self.assertFalse((self.base / "user data").exists())
+
+    def test_onboarding_keeps_unreadable_settings_and_does_not_present_defaults(self):
+        settings_path = self.base / "user settings.json"
+        for original in ('{bad-json', '{"api_key":"environment-secret-marker"}'):
+            with self.subTest(original=original):
+                settings_path.write_text(original)
+                guide = install._getting_started(self.source)
+                self.assertIsNotNone(guide["configuration_error"])
+                self.assertIsNone(guide["configuration"])
+                self.assertEqual(guide["configuration_summary"], [])
+                self.assertEqual(settings_path.read_text(), original)
+                self.assertNotIn("environment-secret-marker", json.dumps(guide))
+                self.assertFalse((self.base / "user data").exists())
 
     def test_conflicting_source_stops_before_any_native_mutation(self):
         cli = ScriptedCli([(["plugin", "marketplace", "list"], {"marketplaces": [self.git_marketplace]})])
@@ -189,6 +226,7 @@ class NativeCodexInstallerTests(unittest.TestCase):
                                 cwd=self.outside, env=self.environment, text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         self.assertNotIn("environment-secret-marker", result.stdout + result.stderr)
+        self.last_stderr = result.stderr
         return json.loads(result.stdout if success else result.stderr)
 
     def test_repeated_install_update_verify_and_conflict_protect_user_data(self):
@@ -198,6 +236,8 @@ class NativeCodexInstallerTests(unittest.TestCase):
         obsolete.write_text("value = 'removed in update'\n", encoding="utf-8")
         first = self.run_installer("install", "--source", str(self.source))
         self.assertTrue(first["verified"])
+        self.assertIn(first["getting_started"]["first_prompt"], self.last_stderr)
+        self.assertEqual(first["getting_started"]["settings_command"][2], str(Path(first["installed_path"]) / "src/cli.py"))
         self.assertFalse(self.data.exists())
         self.assertFalse(self.settings.exists())
         repeated = self.run_installer("install", "--source", str(self.source))
@@ -232,6 +272,8 @@ class NativeCodexInstallerTests(unittest.TestCase):
     def test_dry_run_and_absent_install_do_not_claim_success(self):
         result = self.run_installer("install", "--source", str(self.source), "--dry-run")
         self.assertTrue(result["dry_run"])
+        self.assertNotIn("getting_started", result)
+        self.assertNotIn("安装完成", self.last_stderr)
         self.assertFalse((self.profile / "plugins/cache").exists())
         self.assertFalse((self.profile / "config.toml").exists())
         self.assertFalse(self.run_installer("verify", success=False)["verified"])

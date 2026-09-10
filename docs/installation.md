@@ -57,7 +57,9 @@ python3 scripts/install.py install
 python3 scripts/install.py verify
 ```
 
-安装器会调用 Codex 原生 `plugin marketplace add`、`plugin add` 和 JSON 查询接口；Codex 管理其配置和安装缓存。安装完成后新建 Codex thread，以载入新 Skill 和 MCP 工具。Python 必须能以 `python3` 被 Codex 的 MCP 子进程找到。需要支持这些子命令和 `--json` 的 Codex CLI；本仓库验证环境为 0.153.4。
+安装器会调用 Codex 原生 `plugin marketplace add`、`plugin add` 和 JSON 查询接口；Codex 管理其配置和安装缓存。当前 `main` 的安装器在成功后显示当前配置、首次提问模板和配置查询命令；已有配置会照实显示，读取失败时明确提示修正。stdout 保持 JSON，面向用户的引导写到 stderr，管道执行时也会显示。v0.2.0 固定快照保留当时的安装输出。
+
+安装完成后新建 Codex thread，以载入新 Skill 和 MCP 工具。Python 必须能以 `python3` 被 Codex 的 MCP 子进程找到。需要支持这些子命令和 `--json` 的 Codex CLI；本仓库验证环境为 0.153.4。
 
 安装入口从自身文件位置查找源码，因此也可以在其他工作目录运行。含空格或中文的路径使用引号：
 
@@ -154,14 +156,32 @@ python3 scripts/export_bundle.py --format agent-plugin --output exports/agent-pl
 
 ## 首次使用与数据位置
 
-插件不附带用户书签或预建索引。安装后提供自己的数据包路径：
+全新用户可以先用默认设置，**本地书签查询无需填写配置或 API Key**。安装完成后的引导会显示实际生效的设置和保存位置；第一次主动修改设置时才创建配置文件。安装器读取这些设置时不会导入书签或创建索引。
+
+1. 安装成功后，在 Codex 新建对话，让客户端加载插件。
+2. 准备自己的 Bookmark Canvas 数据包目录。插件不附带书签或预建索引；把下面的占位路径换成实际路径后发送。
+3. 先查看本地栏目与书签，再提出需要联网核验的研究问题。只做网页研究时可以直接提出主题，无需先导入书签。插件使用当前客户端中的模型，无需再填写一套 LLM 模型名称或地址。
 
 ```text
-用 Bookmark Research 导入 /absolute/path/to/my-canvas-package，来源名为 my-canvas。
-先离线列出栏目与卡片，再搜索“我的研究主题”，保留文件夹及卡片语境。
+用 Bookmark Research 读取我的书签画布包 "/absolute/path/to/my-canvas-package"，
+先离线列出栏目、文件夹和书签数量。
 ```
 
-网页研究使用 Exa、Parallel，以及可选的 Tavily。按使用的服务在启动 MCP / CLI 的进程环境中设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`；本地书签查询不需要这些密钥。安装和导出不会收集或写入凭据。
+以下是没有自定义设置时的默认值，可以在对话中按需修改：
+
+| 项目 | 默认值 | 修改示例 |
+| --- | --- | --- |
+| 搜索服务商 | Exa + Parallel，每目标 5 条结果 | “以后只用 Exa 搜索，每目标返回 10 条结果” |
+| 正文读取 | Exa，长度参数 12000 字符 | “以后默认用 Parallel 读取网页” |
+| 请求超时 | 30 秒 | “把网页请求超时改为 45 秒” |
+| 普通网页读取归档 | 开启 | “普通网页读取以后不要自动归档” |
+| 配置和保存位置 | 使用下方默认目录 | “显示 Bookmark Research 的配置和保存位置” |
+
+长度参数是否受支持及实际返回量取决于 provider，不能据此保证完整页面。深度研究会始终保存其任务证据，普通网页归档开关只影响 `fetch_web`。
+
+网页研究使用 Exa、Parallel，以及可选的 Tavily；匿名访问额度和认证要求由服务方决定。如果出现认证或额度错误，按所选服务在**启动客户端的环境**中设置 `EXA_API_KEY`、`PARALLEL_API_KEY` 或 `TAVILY_API_KEY`，再启动客户端使其生效。安装和导出不会收集或写入凭据。
+
+终端用户可执行安装结束时打印的绝对路径命令查看配置；它指向 Codex 保留的安装缓存，临时下载目录清理后仍然可用。在源码目录中也可运行 `python3 src/cli.py config show`，或用 `config set` 修改设置。完整参数见 [CLI 说明](../skills/bookmark-research/references/cli.md)。
 
 索引、页面归档和研究任务保存在 `BOOKMARK_RESEARCH_DATA_DIR`，默认 `~/.local/share/bookmark-research/`，并遵循 `XDG_DATA_HOME`。用户设置通过 `BOOKMARK_RESEARCH_CONFIG` 指定，默认 `~/.config/bookmark-research/settings.json`，并遵循 `XDG_CONFIG_HOME`。保持这些目录位于插件和安装缓存之外，多个客户端可通过相同配置共享它们。详见 [设置与归档](../skills/bookmark-research/references/settings-and-archive.md)。
 

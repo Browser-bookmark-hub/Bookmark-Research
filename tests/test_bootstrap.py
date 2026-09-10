@@ -146,9 +146,15 @@ else:
     @unittest.skipUnless(CODEX, "Codex CLI unavailable; native Git installation test skipped")
     def test_native_install_repeat_update_and_tag_pin_survive_temporary_cleanup(self):
         self.cli = Path(CODEX)
-        first = json.loads(self.run_bootstrap().stdout)
+        installed = self.run_bootstrap()
+        first = json.loads(installed.stdout)
         self.assertTrue(first["verified"])
         self.assertEqual(first["source"]["sourceType"], "git")
+        self.assertIn(first["getting_started"]["first_prompt"], installed.stderr)
+        self.assertFalse(first["getting_started"]["configuration"]["settings"]["archive"]["enabled"])
+        checked = subprocess.run(first["getting_started"]["settings_command"], cwd=self.outside,
+                                 env=self.environment, capture_output=True, text=True, check=True, timeout=15)
+        self.assertEqual(json.loads(checked.stdout), first["getting_started"]["configuration"])
         repeated = json.loads(self.run_bootstrap().stdout)
         self.assertEqual(first["installed_path"], repeated["installed_path"])
         self.assertTrue(json.loads(self.run_bootstrap("verify").stdout)["verified"])

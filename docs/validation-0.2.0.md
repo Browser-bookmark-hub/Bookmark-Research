@@ -18,7 +18,9 @@
 
 ## 离线测试
 
-最终源码测试：Python 3.9 / Codex CLI 0.153.4 环境中 **183 项全部通过，0 跳过**（6.010 秒）。Plugin validator、Skill quick validator、Python 编译检查与 `git diff --check` 通过。最终合成包验证完成两轮研究，输入 5 文件哈希未变。
+v0.2.0 发布快照测试：Python 3.9 / Codex CLI 0.153.4 环境中 **183 项全部通过，0 跳过**（6.010 秒）。Plugin validator、Skill quick validator、Python 编译检查与 `git diff --check` 通过。最终合成包验证完成两轮研究，输入 5 文件哈希未变。
+
+发布后的 `main` 补充一条命令安装和首次使用引导；2026-09-10 的完整测试为 **193 项全部通过，0 跳过**（15.876 秒）。新增检查覆盖本地 Git 仓库的管道安装、临时目录清理后继续使用、固定 ref、已有 personal 安装识别，以及实际配置读取、默认配置无需文件、已有设置保留、配置损坏提示和 stdout JSON 与 stderr 引导分离。
 
 在源码根目录或解压后的测试包根目录运行：
 

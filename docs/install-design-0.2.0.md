@@ -33,6 +33,8 @@ Codex 0.153.4 实测 `marketplaceSource` 只公开 Git URL，不公开已注册 
 
 `--dry-run` 只使用原生读取接口与本地文件读取，然后返回将执行的命令数组。参数数组同时避免了空格、引号、中文或 shell 特殊字符改变命令含义。
 
+当前 `main` 在安装成功后追加首次使用引导：从已安装运行时读取有效配置，展示本地查询的免配置路径、用户需要提供的书签包、首条提问和可选配置方式。面向用户的提示在 stderr，stdout 的 JSON 增加 `getting_started`；其中配置查询命令指向安装缓存，路径按 shell 规则引用。读配置不创建文件或索引；已有配置无效时保留文件并提示修正，不用默认值掩盖问题。
+
 ## 发布包结构
 
 新增 `--format codex` 生成独立的 `.codex-plugin/plugin.json` 和 `.agents/plugins/marketplace.json`，保留原生 Skill 展示元数据。其他格式保持各自入口，不把 Codex manifest 当作跨客户端通用格式。

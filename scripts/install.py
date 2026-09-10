@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -176,6 +177,62 @@ def verify(cli, installed_path=None):
             "installed": True, "enabled": True, "verified": True, "runtime": runtime}
 
 
+def _getting_started(installed_path, timeout=30):
+    """Read the installed runtime's preferences without initializing user data."""
+    command = ["python3", "-B", str(Path(installed_path) / "src/cli.py"), "config", "show"]
+    guide = {
+        "first_prompt": '用 Bookmark Research 读取我的书签画布包 "/absolute/path/to/my-canvas-package"，'
+                        '先离线列出栏目、文件夹和书签数量。',
+        "settings_command": command,
+        "guide_url": "https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/main/docs/installation.md#首次使用与数据位置",
+        "configuration": None, "configuration_summary": [], "configuration_error": None,
+    }
+    try:
+        checked = subprocess.run(command, text=True, capture_output=True, timeout=timeout)
+        if checked.returncode:
+            raise ValueError("Installed config show failed")
+        configuration = json.loads(checked.stdout)
+        settings = configuration["settings"]
+        summary = [
+            "配置：" + ("沿用已保存的设置" if configuration["config_exists"] else "使用默认值，无需先创建配置文件"),
+            "搜索：%s；每目标 %s 条结果" % (" + ".join(settings["search"]["providers"]), settings["search"]["limit_per_target"]),
+            "正文读取：%s；长度参数 %s 字符；超时 %s 秒" % (
+                settings["fetch"]["provider"], settings["fetch"]["max_characters"], settings["timeout_seconds"]),
+            "普通网页读取自动归档：" + ("开启" if settings["archive"]["enabled"] else "关闭"),
+            "归档目录：" + settings["archive"]["directory"],
+            "配置文件：" + configuration["config_path"],
+        ]
+        guide.update(configuration=configuration, configuration_summary=summary)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
+        # Installation is already verified. Keep an unreadable existing config
+        # intact, and avoid exposing its contents or replacing it with defaults.
+        guide["configuration_error"] = "现有配置读取失败。请运行下方配置查询命令查看原因并修正文件；原文件已保留。"
+    return guide
+
+
+def _print_getting_started(guide):
+    lines = ["", "Bookmark Research 安装完成，运行检查已通过。"]
+    if guide["configuration_error"]:
+        lines.extend([guide["configuration_error"], "配置修正后，按以下步骤开始："])
+    else:
+        lines.extend(guide["configuration_summary"])
+    lines.extend([
+        "", "下一步：",
+        "1. 在 Codex 新建对话，让客户端加载插件。",
+        "2. 准备自己的 Bookmark Canvas 数据包，把下面的占位路径换成实际路径后发送：",
+        "   " + guide["first_prompt"],
+        "3. 只做网页研究时可直接提出主题，无需先导入书签。研究使用当前对话的模型，无需另填模型名称或地址。",
+        "", "本地书签查询不需要 API Key。网页研究使用所选服务，匿名额度和认证要求由服务方决定。",
+        "需要密钥时，在启动客户端的环境中配置 EXA_API_KEY、PARALLEL_API_KEY 或 TAVILY_API_KEY。",
+        "", "可选配置：在对话中说“显示 Bookmark Research 的配置”，或“以后只用 Exa 搜索”。",
+        "归档偏好也可通过对话修改；深度研究始终保留任务证据。",
+        "查看配置的终端命令（可从任意目录运行）：",
+        "  " + shlex.join(guide["settings_command"]),
+        "首次使用与配置说明：" + guide["guide_url"],
+    ])
+    print("\n".join(lines), file=sys.stderr)
+
+
 def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=None):
     if action == "verify":
         return verify(cli, installed_path)
@@ -228,7 +285,10 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
         for relative in [Path(".codex-plugin/plugin.json"), *_copy_plan(source_root, include_codex_metadata=True)]:
             if (source_root / relative).read_bytes() != (cached_root / relative).read_bytes():
                 raise RuntimeError("Installed cache differs from the selected source: " + relative.as_posix())
-    return {**plan, **verified, "next_step": "Start a new Codex thread to load the updated Skill and MCP tools."}
+    result = {**plan, **verified, "next_step": "Start a new Codex thread to load the updated Skill and MCP tools."}
+    if action == "install":
+        result["getting_started"] = _getting_started(verified["installed_path"], cli.timeout)
+    return result
 
 
 def main(argv=None):
@@ -255,7 +315,9 @@ def main(argv=None):
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(json.dumps({"error": str(error), "verified": False}, ensure_ascii=False), file=sys.stderr)
         return 1
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    if result.get("getting_started"):
+        _print_getting_started(result["getting_started"])
     return 0
 
 
