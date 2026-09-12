@@ -115,7 +115,7 @@ class ProviderAdapter:
         properties = schema["properties"]
         if purpose == "search":
             candidates = {
-                "exa": {"query": query, "numResults": limit},
+                "exa": {"query": query, "objective": query, "numResults": limit},
                 "parallel": {"objective": query, "search_queries": [query], "session_id": session_id},
                 "tavily": {"query": query, "max_results": limit, "search_depth": "basic", "include_raw_content": False},
             }[self.provider]

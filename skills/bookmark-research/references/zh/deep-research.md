@@ -45,7 +45,7 @@
 
 `inventory.json` 冻结所有原始 URL、稳定 `u-` ID、重复书签实例、文件夹祖先、卡片描述、副本、分组、方向关系与输入文件哈希。`context.json` 保存关注书签摘要。数据取自上次同步索引；需要最新状态时先 sync。归档的 `sN` 是正文快照 ID，不能与原始 URL ID 或包 ID 互换。正文按 URL 关联原始实例；本地 notes、路径和整个输入包不会自动加入联网参数。
 
-`research_inventory`／`research_coverage` 每页至多 100 项，跟随 `next_offset` 直到 null；要按 ID 读取时每次至多 100 个 ID。较大的单条上下文返回原始档案位置。概览或第一页不能定义研究范围。
+`research_inventory`／`research_coverage` 每页至多 100 项，跟随 `next_offset` 直到 null；要按 ID 读取时每次至多 100 个 ID。较大的单条上下文返回原始档案位置。概览或第一页不能定义研究范围。响应中的 `source_scope` 列表至多预览 20 项，并提供 `*_total` 和 `*_truncated`；通过 `artifact_path` 与 `artifact_json_pointer` 可定位完整保存的范围，包括排除在主题子集外的 ID。
 
 预算是可执行的检索上限，不是费用或模型 token 保证：
 

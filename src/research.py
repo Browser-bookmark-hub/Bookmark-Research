@@ -200,18 +200,37 @@ class ResearchSessions:
                 value[field + "_truncated"] = True
         return value
 
+    @staticmethod
+    def _scope_preview(path, scope):
+        """Bound response metadata without changing frozen scope or saved artifacts."""
+        if scope is None:
+            return None
+        preview = {}
+        for field, value in scope.items():
+            if isinstance(value, list):
+                preview[field] = copy.deepcopy(value[:20])
+                preview[field + "_total"] = len(value)
+                preview[field + "_truncated"] = len(value) > 20
+            else:
+                preview[field] = copy.deepcopy(value)
+        preview.update(artifact_path=str(path / "context.json"), artifact_json_pointer="/source_scope",
+                       detail_note="Scope lists preview at most 20 entries; read the full source_scope from the artifact. "
+                                   "Paginate research_inventory to read every selected item.")
+        return preview
+
     def _summary(self, path, state):
         remaining = {key.removeprefix("max_"): state["budget"][key] - state["usage"][key.removeprefix("max_")]
                      for key in self.DEFAULT_BUDGET}
         collections = ("questions", "claims", "conflicts", "sources", "operations", "bookmark_context",
                        "inventory", "inventory_reviews", "external_runs")
         coverage = self._coverage(path, state)
+        coverage["source_scope"] = self._scope_preview(path, state.get("source_scope"))
         return {"research_id": state["research_id"], "directory": str(path),
                 "status": state["status"], "brief": state["brief"], "scope": state["scope"],
                 "source_ids": state["source_ids"], "providers": state["providers"],
                 "context_manifest": str(path / "context.json"),
                 "inventory_manifest": str(path / "inventory.json") if state.get("source_scope") else None,
-                "source_scope": state.get("source_scope"),
+                "source_scope": coverage["source_scope"],
                 "coverage": {key: value for key, value in coverage.items() if key != "rows"},
                 "created_at": state["created_at"], "updated_at": state["updated_at"],
                 "budget": state["budget"], "usage": state["usage"], "remaining": remaining,
@@ -457,7 +476,8 @@ class ResearchSessions:
                 self._find(rows, identifier, "inventory item")
             rows = [row for row in rows if row["id"] in identifiers]
         return {"research_id": research_id, "available": "source_scope" in state,
-                "source_scope": state.get("source_scope"), "scope_total": len(state.get("inventory", [])),
+                "source_scope": self._scope_preview(path, state.get("source_scope")),
+                "scope_total": len(state.get("inventory", [])),
                 "manifest_path": str(path / "inventory.json") if "source_scope" in state else None,
                 **self._page(rows, offset, limit, path / "inventory.json")}
 
@@ -472,6 +492,7 @@ class ResearchSessions:
             raise ValueError("Unknown coverage filter")
         path, state = self._load(research_id)
         result = self._coverage(path, state)
+        result["source_scope"] = self._scope_preview(path, result["source_scope"])
         rows = result.pop("rows")
         scope_total = len(rows)
         if selected != "all":

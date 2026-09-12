@@ -102,6 +102,76 @@ class ResearchCoverageTests(unittest.TestCase):
         self.assertEqual(self.sessions.status(identifier)["source_scope"], initial["source_scope"])
         self.assertEqual([row["id"] for row in self.all_rows(identifier)[0]], ids)
 
+    def test_large_scope_previews_bound_responses_without_losing_saved_or_paginated_inputs(self):
+        self.index_package(3000)
+        with BookmarkIndex(self.db) as index:
+            manifest = index.inventory(["fixture"])
+        all_ids = [row["id"] for row in manifest["entries"]]
+        for mode, selected_ids in (("whole", all_ids), ("subset", all_ids[:125])):
+            with self.subTest(mode=mode):
+                started = self.sessions.start("Review the selected synthetic inputs",
+                    [{"id": "q1", "question": "What does each selected input say?"}],
+                    source_ids=["fixture"], providers=["exa"], scope_mode=mode,
+                    inventory_ids=selected_ids if mode == "subset" else None)
+                identifier = started["research_id"]
+                path = Path(started["directory"])
+                saved = json.loads((path / "state.json").read_text())
+                scope = saved["source_scope"]
+                omitted_ids = sorted(set(all_ids) - set(selected_ids))
+                self.assertEqual(scope["selected_inventory_ids"], selected_ids)
+                self.assertEqual(scope["omitted_inventory_ids"], omitted_ids)
+                self.assertEqual(json.loads((path / "inventory.json").read_text()), manifest)
+                self.assertEqual(json.loads((path / "context.json").read_text())["source_scope"], scope)
+                responses = (started, self.sessions.status(identifier),
+                             self.sessions.inventory(identifier, limit=1),
+                             self.sessions.coverage(identifier, limit=1))
+                for response in responses:
+                    preview = response["source_scope"]
+                    for field in ("selected_inventory_ids", "omitted_inventory_ids", "focus_bookmark_refs"):
+                        self.assertEqual(preview[field], scope[field][:20])
+                        self.assertEqual(preview[field + "_total"], len(scope[field]))
+                        self.assertEqual(preview[field + "_truncated"], len(scope[field]) > 20)
+                    self.assertEqual(preview["artifact_path"], str(path / "context.json"))
+                    self.assertEqual(preview["artifact_json_pointer"], "/source_scope")
+                    self.assertLess(len(json.dumps(preview, ensure_ascii=False)), 5000)
+                    self.assertLess(len(json.dumps(response, ensure_ascii=False)),
+                                    50000 if "directory" in response else 10000)
+                    if "coverage" in response:
+                        self.assertEqual(response["coverage"]["source_scope"], preview)
+                self.assertEqual(responses[-1]["metrics"]["substantive_review"],
+                                 {"count": 0, "total": len(selected_ids), "rate": 0})
+                self.assertFalse(responses[-1]["completion_ready"])
+                rows, offsets = self.all_rows(identifier)
+                self.assertEqual([row["id"] for row in rows], selected_ids)
+                self.assertEqual(offsets, list(range(0, len(selected_ids), 100)))
+                selected_set = set(selected_ids)
+                self.assertEqual(rows, [row for row in manifest["entries"] if row["id"] in selected_set])
+                self.assertEqual(self.sessions.inventory(identifier, inventory_ids=selected_ids[-2:])["items"], rows[-2:])
+                self.assertEqual(self.sessions.status(identifier, section="inventory",
+                    offset=len(selected_ids) - 1, limit=1)["items"], rows[-1:])
+                finished = self.sessions.finish(identifier, "Synthetic sources remain unread.", status="incomplete")
+                self.assertLess(len(json.dumps(finished, ensure_ascii=False)), 50000)
+                for artifact in ("state", "context", "sources", "coverage"):
+                    stored = json.loads(Path(finished["artifacts"][artifact]).read_text())
+                    self.assertEqual(stored["source_scope"], scope)
+
+    def test_scope_preview_keeps_small_lists_and_marks_the_boundary_for_focus_references(self):
+        for count in (20, 21):
+            with self.subTest(count=count):
+                references = [{"source_id": "fixture", "section_id": "sources", "item_id": "i-" + str(index)}
+                              for index in range(count)]
+                identifier = self.start(count, bookmark_refs=references)
+                result = self.sessions.status(identifier)
+                saved = json.loads(Path(result["context_manifest"]).read_text())["source_scope"]
+                scope = result["source_scope"]
+                for field in ("selected_inventory_ids", "focus_bookmark_refs"):
+                    self.assertEqual(scope[field], saved[field][:20])
+                    self.assertEqual(scope[field + "_total"], count)
+                    self.assertEqual(scope[field + "_truncated"], count > 20)
+                self.assertEqual(scope["omitted_inventory_ids"], [])
+                self.assertEqual(scope["omitted_inventory_ids_total"], 0)
+                self.assertFalse(scope["omitted_inventory_ids_truncated"])
+
     def test_changed_frozen_manifest_is_rejected(self):
         identifier = self.start()
         manifest = Path(self.sessions.status(identifier)["inventory_manifest"])

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -94,6 +95,73 @@ class ArchiveTests(unittest.TestCase):
             "\n\n# B\nURL: " + urls[1] + "\n\n" + second_body}]}
         saved = self.capture(raw, urls)
         self.assertEqual([Path(page["body_path"]).read_text() for page in saved["pages"]], [first_body, second_body])
+
+    def test_exa_indented_multiline_title_is_a_separate_page_boundary(self):
+        # Public Exa output can retain line breaks/indentation from a page title.
+        # The old single-line header parser assigned B's body to A and lost B.
+        urls = ["https://example.test/" + letter for letter in "abc"]
+        title = "Diagrams\n             \n           \n           Smart canvases \n          for developers"
+        bodies = ["Policy-only page A.", "Canvas product page B.", "Unrelated page C."]
+        raw = {"content": [{"type": "text", "text":
+            "# Article A\nURL: " + urls[0] + "\nPublished: 2026-09-12\n\n" + bodies[0] +
+            "\n\n# " + title + "\nURL: " + urls[1] + "\n\n" + bodies[1] +
+            "\n\n# Article C\nURL: " + urls[2] + "\n\n" + bodies[2]}]}
+        saved = self.capture(raw, urls)
+        self.assertEqual([page["extraction_status"] for page in saved["pages"]], ["extracted"] * 3)
+        self.assertEqual([Path(page["body_path"]).read_text() for page in saved["pages"]], bodies)
+        self.assertEqual(saved["pages"][1]["title"], title)
+        self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
+
+    def test_multiline_unrequested_redirect_is_still_a_boundary(self):
+        urls = ["https://example.test/a", "https://example.test/b"]
+        raw = {"content": [{"type": "text", "text":
+            "# A\nURL: " + urls[0] + "\n\nA body\n\n" +
+            "# Redirected\n  page B\nURL: https://other.test/b\n\nB body"}]}
+        saved = self.capture(raw, urls)
+        self.assertEqual(Path(saved["pages"][0]["body_path"]).read_text(), "A body")
+        self.assertIsNone(saved["pages"][1]["body_path"])
+        self.assertIn("B body", Path(saved["response_path"]).read_text())
+
+    def test_indented_article_body_without_url_field_finishes_promptly(self):
+        body = "An article.\n\n# Indented notes\n" + "                not a URL field\n" * 32 + "End."
+        text = "# A\nURL: https://example.test/page\n\n" + body
+        script = ("import json, sys; sys.path.insert(0, sys.argv[1]); "
+                  "from archive import SourceArchive; "
+                  "print(json.dumps(SourceArchive._text_rows(sys.stdin.read())))")
+        # A deadline makes pathological regex backtracking fail instead of
+        # hanging the suite on ordinary indented article content.
+        result = subprocess.run([sys.executable, "-c", script,
+                                 str(Path(__file__).resolve().parents[1] / "src")],
+                                input=text, text=True, capture_output=True, timeout=3)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)[0]["text"], body)
+
+    def test_unmatched_or_malformed_url_fields_cannot_become_previous_page_text(self):
+        urls = ["https://example.test/a", "https://example.test/b"]
+        suffixes = [
+            "\n\nURL: " + urls[1] + "\n\nUnknown body without a header",
+            "\n\n# Article B\nUnrecognized continuation\nURL: " + urls[1] + "\n\nB body",
+            "\n\n# Article B\nURL: not-a-url\n\nB body",
+            "\n\n# Article B\nURL: https://example.test/b trailing text\n\nB body",
+            "\n# Embedded heading without a record separator\nURL: " + urls[1] + "\n\nB body",
+        ]
+        for suffix in suffixes:
+            with self.subTest(suffix=suffix):
+                raw = {"content": [{"type": "text", "text":
+                    "# A\nURL: " + urls[0] + "\n\nA body" + suffix}]}
+                saved = self.capture(raw, urls)
+                self.assertTrue(all(page["body_path"] is None for page in saved["pages"]))
+                self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
+
+    def test_url_mentions_inside_titles_or_sentences_are_not_boundaries(self):
+        urls = ["https://example.test/a", "https://example.test/b"]
+        title = "Example URL: " + urls[1]
+        body = "This sentence mentions URL: " + urls[1] + " without a provider field."
+        raw = {"content": [{"type": "text", "text":
+            "# " + title + "\nURL: " + urls[0] + "\n\n" + body}]}
+        saved = self.capture(raw, urls)
+        self.assertEqual(Path(saved["pages"][0]["body_path"]).read_text(), body)
+        self.assertIsNone(saved["pages"][1]["body_path"])
 
     def test_exa_published_metadata_and_partial_failure_are_not_page_text(self):
         # Mirrors formatCrawlResults in exa-labs/exa-mcp-server webFetch.ts:

@@ -41,6 +41,26 @@ class ProviderSchemaTests(unittest.TestCase):
             with self.subTest(provider=row["provider"]), self.assertRaisesRegex(McpError, "billing_account"):
                 adapter.arguments(tool, "search", query="test")
 
+    def test_exa_current_search_schema_receives_the_requested_objective(self):
+        observed = json.loads((ROOT / "tests/fixtures/exa-search-schema-2026-09-12.json").read_text())
+        adapter = ProviderAdapter("exa", self.registry["exa"])
+        query = "RAGFlow PIKE-RAG official architecture documentation"
+        arguments = adapter.arguments(observed["tool"], "search", query=query, limit=3)
+        self.assertEqual(arguments, {"query": query, "objective": query, "numResults": 3})
+        self.assertEqual(adapter.capabilities([observed["tool"]])["search"]["status"], "supported")
+
+    def test_exa_legacy_schema_does_not_receive_an_unknown_objective(self):
+        row = next(row for row in self.fixture["providers"] if row["provider"] == "exa")
+        adapter = ProviderAdapter("exa", self.registry["exa"])
+        tool = copy.deepcopy(adapter.select("search", row["tools"]))
+        tool["inputSchema"]["properties"].pop("objective", None)
+        tool["inputSchema"]["required"] = [key for key in tool["inputSchema"].get("required", [])
+                                            if key != "objective"]
+        tool["inputSchema"]["additionalProperties"] = False
+        arguments = adapter.arguments(tool, "search", query="RAG documentation", limit=2)
+        self.assertEqual(arguments["query"], "RAG documentation")
+        self.assertNotIn("objective", arguments)
+
     def test_supplied_values_are_checked_against_typed_constraints(self):
         for schema, value in (({"type": "number"}, True),
                 ({"type": "array", "items": {"type": "string"}}, [1]),

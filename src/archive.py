@@ -91,8 +91,16 @@ class SourceArchive:
         # Exa concatenates header/URL/body records into one text block for a batch.
         # Include unrequested/redirected records as boundaries, so their text
         # cannot be silently attributed to the preceding requested URL.
-        header = r"(?:^|\n)(?:# |Title: )([^\n]+)\nURL: (https?://[^\s]+)\n"
+        # Titles may retain indented continuation lines from the source HTML.
+        # Records must start the block or follow the provider's blank separator.
+        header = r"(?:\A|\n\n)(?:# |Title: )([^\n]+(?:\n[ \t][^\n]*)*)\nURL: (https?://[^\s]+)\n"
         matches = list(re.finditer(header, text))
+        # A missed or malformed URL field could hide the next page boundary.
+        # Keep the whole block raw instead of assigning that page to its neighbor.
+        fields = [match.start() for match in re.finditer(r"(?m)^[ \t]*URL:", text)]
+        matched_fields = [match.start(2) - len("URL: ") for match in matches]
+        if fields != matched_fields:
+            return rows
         try:
             keys = [cls._key(match.group(2)) for match in matches]
         except ValueError:
@@ -113,8 +121,6 @@ class SourceArchive:
                 body = body[metadata.end():]
             if match.group().lstrip("\n").startswith("Title: ") and body.startswith("Text: "):
                 body = body[6:]
-            if index + 1 < len(matches) and body.endswith("\n"):
-                body = body[:-1]  # Remaining half of the inter-record blank line.
             rows.append({**row, "text": body})
         return rows
 

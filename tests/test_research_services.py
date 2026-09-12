@@ -71,7 +71,12 @@ class ResearchServicesTests(unittest.TestCase):
         started = self.sessions.start("LOCAL_BRIEF_PRIVATE", [{"id": "q1", "question": "Compare all sources."}],
             source_ids=["fixture"])
         research_id = started["research_id"]
-        ids = started["source_scope"]["selected_inventory_ids"]
+        ids, offset = [], 0
+        while offset is not None:
+            page = self.sessions.inventory(research_id, offset=offset)
+            ids.extend(page["inventory_ids"])
+            offset = page["next_offset"]
+        self.assertEqual(len(ids), 207)
         for provider in ("openai", "parallel"):
             with self.subTest(provider=provider):
                 prepared = self.service.prepare(research_id, "Public research question", provider=provider)

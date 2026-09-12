@@ -66,6 +66,7 @@ knowledge/
 - manifest 记录请求 URL、返回 URL、provider、tool、实际请求参数、检索时间、响应哈希 `response_sha256`、正文路径与哈希，以及失败、缺失、摘录或可能截断的标记。服务返回的发布时间与作者分别放在 `provider_published_at`、`provider_author`，不混入正文。`completeness: "unknown"` 表示不能证明完整。`possibly_truncated: false` 也不是完整性保证。
 - `#comments` 等锚点会保留，但网页提取不保证所有评论已加载；`fragment_scope_verified: false` 明示这一点。检索时间不等于网页发布时间、更新时间或缓存时间。
 - 返回格式无法识别时仍保存响应与 manifest，正文路径为空；部分 URL 失败时只保存成功识别的正文。每页的 `extraction_status: "provider_error"` 表示服务报告失败；同一 URL 的正文冲突时为 `conflicting_provider_results`，不自动挑选一份正文。归档失败会在 `archive.status: "error"` 明示，工具仍返回已收到的内容，不自动重复付费抓取。
+- Exa 批量记录支持带缩进的多行标题。每个独占行的 `URL:` 字段都必须属于已识别的记录；边界缺失、格式异常或重复时，该文本块只保留原始响应。未请求的重定向页面同样构成边界。正文内出现类似记录字段的歧义内容时，这项保守检查可能不提取正文，应检查原始响应，不将其归给另一页。
 - 再读同一 URL 会追加新快照，不覆盖旧档案；这只是按调用保存，不是后台版本监控。
 
 报告可引用 `archive.manifest_path` 和各页 `body_path`。档案不自动加入书签 SQLite 或生成 Wiki。宿主实际取得的原文可用 `research_import_evidence` 导入并标明 provenance；外部研究报告用 external_report，引用列表不算原页阅读。整理知识页使用 `wiki_write`。

@@ -43,7 +43,7 @@ Omit `source_ids` for a public question without bookmarks; do not use unregister
 
 `inventory.json` freezes original URLs, stable `u-` IDs, duplicate instances, folder ancestors, card descriptions, copies, groups, directed relationships and input-file hashes. `context.json` holds bookmark-focus summaries. Input comes from the last synchronized index; sync first when freshness is required. Archived `sN` text-snapshot IDs differ from inventory and package IDs. Text is associated with original instances by URL. Local notes, paths and whole packages are not automatically added to network inputs.
 
-`research_inventory` / `research_coverage` return up to 100 items per page. Follow `next_offset` until null; ID-filtered requests accept at most 100 IDs at a time. Large individual contexts return an archive location. A preview or first page does not define scope.
+`research_inventory` / `research_coverage` return up to 100 items per page. Follow `next_offset` until null; ID-filtered requests accept at most 100 IDs at a time. Large individual contexts return an archive location. A preview or first page does not define scope. Response `source_scope` lists preview at most 20 entries with `*_total` and `*_truncated`; `artifact_path` plus `artifact_json_pointer` locates the complete saved scope, including omitted IDs.
 
 Budgets are enforced retrieval limits, not guarantees about money or model tokens:
 
