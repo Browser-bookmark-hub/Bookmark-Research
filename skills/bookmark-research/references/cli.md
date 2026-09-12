@@ -77,6 +77,8 @@ Failed batches use `status:"error"`, `results:[]` and an `error` description. A 
 
 `research record <research-id> --input <entry.json>` can use `{"kind":"resume","text":"Continue investigating recorded gaps"}` to resume an exported incomplete report while retaining its previous report and budget.
 
+For batches, the same command accepts an input object `{"batch_id":"group-1-review-v1","entries":[...]}` with 1–50 entries. The existing bare single-entry JSON remains supported. Use stable batch IDs for safe retries; see [recording evidence](deep-research.md#record-types) for ordering, atomicity and compact results.
+
 The current model makes decisions and synthesizes; the CLI stores state and executes individual operations. Read [deep research](deep-research.md) for briefs, budgets, citations and all record types.
 
 ```sh

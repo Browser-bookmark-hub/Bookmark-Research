@@ -85,7 +85,13 @@ Give each network step a stable `operation_id`, such as `round1-search` or `q1-r
 
 ## Record types
 
-`research_record` accepts `{research_id, entry}`. Supply fields for the selected kind only. The model supplies judgments and prose; the runtime validates citation relationships, state and boundaries.
+`research_record` accepts either `{research_id, entry}` or `{research_id, entries: [...], batch_id?: "group-1-review-v1"}`. Supply exactly one of `entry` and `entries`, with only the fields for each selected kind. Prefer batches when several evidence decisions are ready; retain a separate record for every source and inventory judgment. The model supplies judgments and prose; the runtime validates citation relationships, state and boundaries.
+
+- A batch contains 1–50 entries, applied in input order under one session lock and saved once. Any invalid entry rejects the entire batch and identifies its zero-based `entries[i]`; no partial records or retry receipt are saved. The MCP request-size limit still applies, so split large quotations into smaller batches.
+- `source_review` can precede a claim using that source in the same batch. For references to newly generated claim/conflict IDs, read the returned IDs and submit dependent records in a subsequent batch; do not guess IDs while other readers may be writing.
+- Supply a stable, unique `batch_id` per group/stage/revision. An identical retry returns the original result with `replayed:true`, including after reopening the process or finishing the session. Reusing that ID with different entries fails. Without a `batch_id`, inspect saved records before retrying an uncertain outcome; claims are not automatically deduplicated.
+- The batch response contains `count` and ordered `results` with `index`, `kind`, `id` and per-entry `replayed`, without repeating evidence text. Full records remain available through `research_status` section pagination. The single-entry response is unchanged.
+- `resume` and `external_run` require single-entry calls because they also write report snapshots or external artifacts. All other listed kinds support batching. Concurrent calls to the current stdio server queue; use batching for writes and supported host concurrency for independent reading.
 
 | `entry.kind` | Fields | Purpose |
 | --- | --- | --- |

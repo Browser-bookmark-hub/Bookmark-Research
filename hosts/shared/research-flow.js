@@ -115,6 +115,9 @@ for (let round = 0; round <= gapRounds && remaining.length; round += 1) {
     "with exact quotes and question IDs. For EACH inventory ID record inventory_review: reviewed requires " +
     "accepted source_ids, question_ids, and real citations or claim_ids; blocked requires a specific reason; " +
     "excluded requires reason_code out_of_scope/non_content and an explanation. Failed fetches are not reviewed. " +
+    "Batch ready records using research_record entries (up to 50) with a stable batch_id under your operation prefix. " +
+    "Place source reviews before their claims; use returned claim IDs in later inventory/answer batches. " +
+    "An invalid entry rejects the whole batch. Retry the same batch_id only with identical entries. " +
     "Keep all assigned IDs in inventory_ids, list the actual sN source_ids and claim_ids, and leave verified_ids " +
     "empty. Report every failure. Reuse valid saved work when the host replays this child.", groupSchema)));
   for (let index = 0; index < groups.length; index += 1) {

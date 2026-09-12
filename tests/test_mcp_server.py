@@ -407,11 +407,34 @@ class McpServerTests(unittest.TestCase):
             ("research_start", {"brief": "Test", "questions": [{"id": "q", "question": "Q?"}], "budget": {"max_fetch_calls": True}}),
             ("research_fetch", {"research_id": "r-1234567890abcdef", "question_id": "q", "urls": ["https://example.test"]}),
             ("research_record", {"research_id": "r-1234567890abcdef", "entry": {"kind": "exec", "command": "false"}}),
+            ("research_record", {"research_id": "r-1234567890abcdef", "entries": []}),
+            ("research_record", {"research_id": "r-1234567890abcdef", "entries": [{"kind": "resume", "text": "Continue"}]}),
+            ("research_record", {"research_id": "r-1234567890abcdef", "entries": [{"kind": "gap"}] * 51}),
         ]
         for name, arguments in invalid:
             with self.subTest(name=name):
                 self.assertEqual(self.call(name, arguments)["error"]["code"], -32602)
         self.assertIsNone(self.server._research_sessions)
+
+    def test_record_batch_through_mcp_returns_ids_and_replays_without_new_events(self):
+        from research import ResearchSessions
+        self.ready()
+        self.server._research_sessions = ResearchSessions(self.base / "research", settings=self.settings)
+        research_id = decode_tool(self.call("research_start", {"brief": "Batch protocol", "questions": [
+            {"id": "q1", "question": "What is supported?"}]}))["research_id"]
+        self.call("research_import_evidence", {"research_id": research_id, "operation_id": "import-1", "question_id": "q1",
+            "url": "https://example.test/docs", "text": "The service supports fetch.", "provenance": {"kind": "page"}})
+        arguments = {"research_id": research_id, "batch_id": "read-group-1", "entries": [
+            {"kind": "source_review", "source_id": "s1", "verdict": "accepted", "text": "Page identity checked."},
+            {"kind": "claim", "question_id": "q1", "statement": "Fetch is supported.",
+             "citations": [{"source_id": "s1", "quote": "The service supports fetch."}]}]}
+        first = decode_tool(self.call("research_record", arguments))
+        self.assertEqual(first["count"], 2)
+        self.assertEqual([row["id"] for row in first["results"]], ["s1", "c1"])
+        self.assertNotIn("citations", json.dumps(first))
+        self.assertEqual(decode_tool(self.call("research_record", arguments)), {**first, "replayed": True})
+        state = decode_tool(self.call("research_status", {"research_id": research_id, "section": "events"}))
+        self.assertEqual(state["total"], 2)
 
     def test_line_transport_only_emits_json_and_recovers_from_parse_errors(self):
         messages = [initialize(), {"jsonrpc": "2.0", "method": "notifications/initialized"},

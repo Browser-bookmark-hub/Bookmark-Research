@@ -268,8 +268,12 @@ def main(argv=None):
                     result = sessions.search(args.research_id, **payload)
                 elif action == "fetch":
                     result = sessions.fetch(args.research_id, **payload)
-                else:
+                elif "kind" in payload:
                     result = sessions.record(args.research_id, payload)
+                else:
+                    if set(payload) - {"entry", "entries", "batch_id"}:
+                        raise ValueError("Research record input has unknown fields")
+                    result = sessions.record(args.research_id, **payload)
             elif action == "status":
                 result = sessions.status(args.research_id, args.section, args.offset, args.limit)
             elif action == "source":

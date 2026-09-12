@@ -76,6 +76,8 @@ A request to research a package covers all its original URLs by default, retaini
 
 The initial reading budget has a lower bound based on URL count; inspect `initial_fetch_plan`. Each fetch may contain up to 8 URLs. Preserve explicit budgets and the full inventory if capacity is insufficient, reporting the gap. Plugin budgets cannot cover host or external-service consumption that the plugin cannot observe.
 
+Batch ready evidence records with `research_record.entries` (up to 50 per call) and a stable, group-specific `batch_id`. Keep every source and inventory judgment; batching reduces calls without reducing coverage. Use returned claim IDs in subsequent batches. See [recording evidence](references/deep-research.md#record-types) for atomic writes and retry rules.
+
 ## User settings
 
 Use `get_settings` when the user asks about configuration or storage. For a lasting preference, use `update_settings` to change only relevant fields. Apply temporary requirements as per-call overrides. See [settings and archives](references/settings-and-archive.md) for configuration and archive formats. These options use the shared implementation, not a freshly written script on each turn.

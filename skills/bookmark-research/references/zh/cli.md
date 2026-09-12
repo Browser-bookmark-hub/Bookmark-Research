@@ -77,6 +77,8 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 
 `research record <research-id> --input <entry.json>` 的 entry 可用 `{"kind":"resume","text":"继续调查已记录的缺口"}`，恢复已导出 incomplete 报告的任务；原报告和预算都会保留。
 
+批量提交仍使用同一命令，输入改为 `{"batch_id":"group-1-review-v1","entries":[...]}`，每批 1–50 条。旧的单条 entry JSON 继续兼容。使用稳定的批次 ID 安全重试；顺序、整批提交和精简返回规则见 [证据记录](deep-research.md)。
+
 当前模型负责决策和综合，CLI 保存状态并执行每个步骤。先读 [深度研究流程](deep-research.md)，其中含 brief、预算、引用和 record 各类型的完整参数约定。
 
 ```sh

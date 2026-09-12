@@ -122,6 +122,9 @@ RESEARCH_ENTRY = _object_schema({
     "citations": _array_schema(_object_schema({"source_id": RESEARCH_ID, "quote": _text_schema(4000)},
                                                 ["source_id", "quote"]), 12),
 }, ["kind"])
+RESEARCH_BATCH_ENTRY = _object_schema({**RESEARCH_ENTRY["properties"], "kind": {
+    "type": "string", "enum": [kind for kind in RESEARCH_ENTRY["properties"]["kind"]["enum"]
+                              if kind not in ("resume", "external_run")]}}, ["kind"])
 TOOL_SCHEMAS.update({
     "research_start": _object_schema({
         "brief": _text_schema(12000), "scope": {"type": "string", "maxLength": 12000},
@@ -157,7 +160,10 @@ TOOL_SCHEMAS.update({
         "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "limit": {"type": "integer", "minimum": 1, "maximum": 50000},
     }, ["research_id", "source_id"]),
-    "research_record": _object_schema({"research_id": RESEARCH_ID, "entry": RESEARCH_ENTRY}, ["research_id", "entry"]),
+    "research_record": _object_schema({"research_id": RESEARCH_ID, "entry": RESEARCH_ENTRY,
+        "entries": _array_schema(RESEARCH_BATCH_ENTRY, 50, 1),
+        "batch_id": {**RESEARCH_ID, "description": "Optional stable ID for safe batch retries; reuse only with identical entries."}},
+        ["research_id"]),
     "research_inventory": _object_schema({"research_id": RESEARCH_ID,
         "inventory_ids": dict(_array_schema(RESEARCH_ID, 100, 1), uniqueItems=True),
         "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
@@ -185,7 +191,7 @@ TOOL_DESCRIPTIONS.update({
     "research_search": "Execute and save one search round for specified research questions. Reserve one search attempt per unique provider/question/query before access. Reusing operation_id with identical arguments returns the recorded outcome without resubmission.",
     "research_fetch": "Read selected URLs for a research question and persist actual responses and identifiable text in this session's evidence directory. This research tool always retains evidence, independently of fetch_web archiving settings. Reuse operation_id for safe outcome lookup.",
     "research_source": "Read a saved research source by ID with pagination and SHA-256 verification. This reads extracted text, which may be partial; it does not contact a provider.",
-    "research_record": "Record quoted claims, source reviews, retractions, supported answers, gaps, conflicts/resolutions, questions, or interrupted operations. kind=resume with text reopens an incomplete report, preserving prior artifacts and budgets. Kinds have different required fields; see deep-research.md. Quote matching proves text presence, not factual entailment.",
+    "research_record": "Prefer entries for 1-50 evidence records in one call. Provide exactly one of entry or entries. A batch validates in order and saves atomically; any invalid entry saves nothing. Returns compact IDs in input order. Use batch_id for safe retries with identical entries. Only single entry supports resume/external_run; resume preserves prior reports and budgets. Kinds have different required fields; see deep-research.md. Quote matching proves presence, not entailment.",
     "research_inventory": "Read the frozen original URL scope with stable inventory IDs, all bookmark instances and context. Paginate until next_offset is null; a page is not the whole research scope.",
     "research_coverage": "Compare substantive source reviews against the frozen input. Reports accounted, usable-text, reviewed and question coverage separately; paginate missing/unread/unreviewed IDs for follow-up. A provider or host run completing does not complete source coverage.",
     "research_import_evidence": "Import explicitly supplied original text or an external report with provenance and idempotent operation_id. Evidence starts unreviewed. External reports never count as reading the original URLs they cite. Does not fetch remote content or modify packages.",

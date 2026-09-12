@@ -102,6 +102,31 @@ class ResearchCoverageTests(unittest.TestCase):
         self.assertEqual(self.sessions.status(identifier)["source_scope"], initial["source_scope"])
         self.assertEqual([row["id"] for row in self.all_rows(identifier)[0]], ids)
 
+    def test_batched_reviews_retain_complete_per_url_coverage_and_claim_links(self):
+        research_id = self.start(2)
+        rows, _ = self.all_rows(research_id)
+        sources = self.sessions.fetch(research_id, "read-all", "q1", [row["original_url"] for row in rows])["sources"]
+        entries = []
+        for source in sources:
+            quote = self.sessions.source(research_id, source["id"])["text"]
+            entries.extend([{"kind": "source_review", "source_id": source["id"], "verdict": "accepted", "text": "Original checked."},
+                {"kind": "claim", "question_id": "q1", "statement": quote, "citations": [{"source_id": source["id"], "quote": quote}]}])
+        result = self.sessions.record(research_id, entries=entries, batch_id="claims")
+        claim_ids = [row["id"] for row in result["results"] if row["kind"] == "claim"]
+        reviews = [{"kind": "inventory_review", "inventory_id": source["inventory_ids"][0], "disposition": "reviewed",
+                    "text": "Original evidence supports the cited claim.", "question_ids": ["q1"], "source_ids": [source["id"]],
+                    "claim_ids": [claim_id]} for source, claim_id in zip(sources, claim_ids)]
+        self.sessions.record(research_id, entries=[*reviews, {"kind": "answer", "question_id": "q1", "answer": "All inputs checked.",
+            "claim_ids": claim_ids}], batch_id="coverage-and-answer")
+        events = self.sessions.status(research_id, section="events")["total"]
+        replay = self.sessions.record(research_id, entries=reviews, batch_id="recheck")
+        self.assertTrue(all(row["replayed"] for row in replay["results"]))
+        self.assertEqual(self.sessions.status(research_id, section="events")["total"], events)
+        coverage = self.sessions.coverage(research_id)
+        self.assertTrue(coverage["completion_ready"])
+        self.assertEqual(coverage["metrics"]["substantive_review"]["count"], 2)
+        self.assertEqual(self.sessions.finish(research_id, "All original inputs reviewed.")["status"], "completed")
+
     def test_large_scope_previews_bound_responses_without_losing_saved_or_paginated_inputs(self):
         self.index_package(3000)
         with BookmarkIndex(self.db) as index:

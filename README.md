@@ -172,6 +172,8 @@ Quotations and hashes prove what text was saved. The model must still check that
 
 Active tasks can continue directly. After exporting an `incomplete` report, use `research_record` with `kind:"resume"` and a reason; prior reports are preserved, and retrieval budgets and operation IDs carry forward. Completed and cancelled tasks remain closed. Status returns bounded previews; use section pagination for complete records.
 
+`research_record` accepts either a single `entry` or up to 50 `entries` per call. Batches validate in order and save atomically, return compact IDs, and support safe retries with a stable `batch_id`. Use returned claim IDs for dependent records in later batches. `resume` and `external_run` remain single-entry operations; see [record types](skills/bookmark-research/references/deep-research.md#record-types).
+
 [Professional service tools](skills/bookmark-research/references/research-services.md) prepare the exact brief/source payload, start once, observe the existing run, and archive its report. OpenAI cancellation is supported; Parallel cancellation is not established by this adapter. Unknown create outcomes are retained without resubmission. Imported reports remain secondary evidence and never mark all cited original URLs as read.
 
 [Wiki and quality evaluation](docs/wiki-quality.md) track reviewed knowledge and measure supplied run results. Semantic citation accuracy requires actual reviewer labels. The included synthetic fixture demonstrates the scorer; it provides no evidence that a host, workflow or provider produces better research.
@@ -225,7 +227,7 @@ The [shared Skill](skills/bookmark-research/SKILL.md) guides the agent's workflo
 | `research_search` | Run and record a bounded search round with an idempotency key |
 | `research_fetch` | Fetch selected URLs into the task's evidence archive |
 | `research_source` | Read saved source text with hash verification and pagination |
-| `research_record` | Save evidence and corrections, or explicitly resume an incomplete report |
+| `research_record` | Save evidence and corrections singly or in atomic batches; resume incomplete reports |
 | `research_finish` | Validate coverage and write a completed, incomplete or cancelled report |
 | `research_inventory` / `research_coverage` | Paginate original sources and compare actual review against the complete frozen scope |
 | `research_import_evidence` | Import actual host-read original text or explicitly secondary reports with provenance |

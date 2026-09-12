@@ -19,7 +19,7 @@
 
 1. 用 `research_start` 建立问题与冻结范围，保留返回的 `research_id`。`source_ids` 指已同步的数据包；`u-` ID 指原始 URL 清单；`sN` 指已保存的证据来源，三者不可互换。选中书签不能隐式缩小一个完整数据包的审阅范围；确需子集时使用显式范围参数并在报告中标明。
 2. 分页读取 `research_inventory`，直到 `next_offset` 为 null。保存全部 ID、原始 URL 和对应的书签实例，不使用第一页或预览替代全量清单。现有任务状态为 `incomplete` 时先明确记录 `resume`；已完成或取消的任务不能重开。
-3. 每组默认 12 项，读者逐项读取正文并记录 `source_review`、有准确引文的 claim、`inventory_review`。`reviewed` 需要已接受的原始来源、问题和引文或 claim；失败页面只记录具体阻塞原因，排除项需说明 `out_of_scope` 或 `non_content`。
+3. 每组默认 12 项，读者逐项读取正文并记录 `source_review`、有准确引文的 claim、`inventory_review`。已有的多条记录用 `research_record.entries` 批量提交（最多 50 条），按分组和阶段使用稳定的 `batch_id`，后续批次引用返回的真实 claim ID。`reviewed` 需要已接受的原始来源、问题和引文或 claim；失败页面只记录具体阻塞原因，排除项需说明 `out_of_scope` 或 `non_content`。
 4. 等全部读者结束后，由另一批子代理独立核验原文、引用语义、版本日期和反证。无法检查不等于反驳成功；保留缺口、失败和未核验 ID。
 5. 对 `research_coverage` 的 `all`、`missing`、`unread`、`unreviewed` 各自读取全部分页。比较完整 ID 集合及 `difference_counts`。把来源差集和未核验项交给下一轮阅读、独立核验；脚本默认补查 1 轮，可设为 0 至 4 轮。
 6. 保存完整分析 JSON，再回答问题和重查覆盖。`research_finish` 决定研究能否完成；所有输入被列明、可用正文覆盖、实质审阅覆盖、问题完成率是不同指标。全失败、全排除、重要结论未核验或仍有未解释缺口时输出 `incomplete`。工作流返回后，主代理直接调用 `research_status`、`research_coverage` 并读取返回的报告与分析附件，核对真实状态、完整范围和哈希；不能只相信子代理返回的成功文字或预期文件名。

@@ -27,6 +27,7 @@ class ResearchSessions:
     DEFAULT_BUDGET = {"max_search_calls": 16, "max_fetch_calls": 12, "max_rounds": 8}
     LIMITS = {"max_search_calls": 120, "max_fetch_calls": 80, "max_rounds": 40}
     FETCH_BATCH_SIZE = 8
+    RECORD_BATCH_SIZE = 50
     PROVIDERS = ("exa", "parallel", "tavily")
 
     def __init__(self, directory=None, settings=None, engine=None, db_path=None):
@@ -898,7 +899,63 @@ class ResearchSessions:
             previous.update(recorded)
         return recorded, False
 
-    def record(self, research_id, entry):
+    def record(self, research_id, entry=None, entries=None, batch_id=None):
+        if (entry is None) == (entries is None):
+            raise ValueError("Provide exactly one of entry or entries")
+        if entries is not None:
+            if not isinstance(entries, list) or not 1 <= len(entries) <= self.RECORD_BATCH_SIZE:
+                raise ValueError("entries must contain 1 to %s objects" % self.RECORD_BATCH_SIZE)
+        elif batch_id is not None:
+            raise ValueError("batch_id is only supported with entries")
+        digest = None
+        if batch_id is not None:
+            batch_id = self._identifier(batch_id, "Batch id")
+            try:
+                payload = json.dumps(entries, sort_keys=True, ensure_ascii=False, allow_nan=False)
+            except (TypeError, ValueError) as error:
+                raise ValueError("entries must contain JSON data") from error
+            digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        path = self._path(research_id)
+        if not (path / "state.json").is_file():
+            raise ValueError("Unknown research session")
+        with Settings._update_lock(path / "state.json"):
+            _, state = self._load(research_id)
+            if entries is None:
+                result = self._record_entry(path, state, entry)
+                if not result.get("replayed"):
+                    self._save(path, state)
+                return result
+            batches = state.get("record_batches", {})
+            if batch_id is not None and batch_id in batches:
+                previous = batches[batch_id]
+                if previous["digest"] != digest:
+                    raise ValueError("batch_id already used with different entries")
+                return {**copy.deepcopy(previous["result"]), "replayed": True}
+            if batch_id is not None and len(batches) >= max(500, 10 * len(state.get("inventory", []))):
+                raise ValueError("Research record batch limit reached; finish this session")
+            results = []
+            for index, item in enumerate(entries):
+                try:
+                    # These two kinds write artifacts outside state.json and
+                    # therefore cannot participate in this atomic state update.
+                    if isinstance(item, dict) and item.get("kind") in ("resume", "external_run"):
+                        raise ValueError("resume and external_run require a single entry call")
+                    result = self._record_entry(path, state, item)
+                except ValueError as error:
+                    raise ValueError("entries[%s]: %s; no entries were saved" % (index, error)) from error
+                results.append({"index": index, "kind": result["kind"], "id": result["recorded"]["id"],
+                                "replayed": result.get("replayed", False)})
+            response = {"research_id": research_id, "count": len(results), "results": results, "replayed": False}
+            if batch_id is not None:
+                response["batch_id"] = batch_id
+                state.setdefault("record_batches", {})[batch_id] = {"digest": digest, "result": response}
+            # All validation and in-batch dependencies run against the same
+            # in-memory state. The entries and retry receipt commit together.
+            self._save(path, state)
+            return response
+
+    def _record_entry(self, path, state, entry):
+        research_id = state["research_id"]
         if not isinstance(entry, dict):
             raise ValueError("entry must be an object")
         shapes = {"claim": {"kind", "question_id", "statement", "citations", "confidence", "inference"},
@@ -916,109 +973,103 @@ class ResearchSessions:
         kind = entry.get("kind")
         if not isinstance(kind, str) or kind not in shapes or set(entry) - shapes[kind]:
             raise ValueError("Unknown research entry kind or fields")
-        path = self._path(research_id)
-        if not (path / "state.json").is_file():
-            raise ValueError("Unknown research session")
-        with Settings._update_lock(path / "state.json"):
-            _, state = self._load(research_id)
-            if kind != "resume":
-                self._active(state)
-            if len(state["events"]) >= max(500, 10 * len(state.get("inventory", []))):
-                raise ValueError("Research event limit reached; finish this session")
-            question = self._find(state["questions"], entry.get("question_id"), "question") if kind in ("claim", "answer", "gap") else None
-            if kind in ("inventory_review", "external_run"):
-                recorded, replayed = (self._inventory_review(path, state, entry) if kind == "inventory_review"
-                                      else self._external_run(path, state, entry))
-                if replayed:
-                    return {"research_id": research_id, "kind": kind, "recorded": recorded, "replayed": True}
-            elif kind == "resume":
-                if state["status"] != "incomplete":
-                    raise ValueError("Only an incomplete report can be resumed; active sessions already accept steps")
-                reason = self._text(entry.get("text"), "Resume reason")
-                snapshot = uuid.uuid4().hex[:12]
-                artifacts = {}
-                # Keep earlier deliverables in the session root so their
-                # relative evidence links still resolve after a later finish.
-                for name, suffix in (("report", ".md"), ("sources", ".json"), ("state", ".json")):
-                    saved = path / (name + "-" + snapshot + suffix)
-                    self._write(saved, self._artifact(path, name + suffix).read_text(encoding="utf-8"))
-                    artifacts[name] = str(saved)
-                recorded = {"status": "active", "text": reason, "previous_status": "incomplete",
-                            "previous_artifacts": artifacts}
-                state["status"] = "active"
-                for field in ("summary", "limitations", "finished_at", "artifacts"):
-                    state.pop(field, None)
-            elif kind == "claim":
-                confidence = entry.get("confidence", "medium")
-                if confidence not in ("low", "medium", "high") or type(entry.get("inference", False)) is not bool:
-                    raise ValueError("Invalid confidence or inference field")
-                if len(state["claims"]) >= max(100, 2 * len(state.get("inventory", []))):
-                    raise ValueError("Research claim limit reached")
-                recorded = {"id": "c%s" % (len(state["claims"]) + 1), "question_id": question["id"],
-                            "statement": self._text(entry.get("statement"), "Statement"),
-                            "citations": self._citations(path, state, entry.get("citations")),
-                            "confidence": confidence, "inference": entry.get("inference", False), "status": "active"}
-                state["claims"].append(recorded)
-            elif kind == "answer":
-                claims = self._claims(state, entry.get("claim_ids"))
-                if any(self._find(state["claims"], identifier, "claim")["question_id"] != question["id"] for identifier in claims):
-                    raise ValueError("Answer claims must belong to this question")
-                question.update(status="answered", answer=self._text(entry.get("answer"), "Answer", 12000),
-                                claim_ids=claims, gap=None)
-                recorded = question
-            elif kind == "gap":
-                question.update(status="unresolved", gap=self._text(entry.get("text"), "Evidence gap"))
-                recorded = question
-            elif kind == "question":
-                if len(state["questions"]) >= 24:
-                    raise ValueError("Research question limit reached")
-                recorded = self._question({"id": entry.get("id"), "question": entry.get("question")})
-                if any(row["id"] == recorded["id"] for row in state["questions"]):
-                    raise ValueError("Question id already exists")
-                state["questions"].append(recorded)
-            elif kind == "conflict":
-                recorded = {"id": "x%s" % (len(state["conflicts"]) + 1), "status": "open",
-                            "claim_ids": self._claims(state, entry.get("claim_ids"), minimum=2, allow_retracted=True),
-                            "text": self._text(entry.get("text"), "Conflict"), "resolution": None}
-                state["conflicts"].append(recorded)
-            elif kind == "resolution":
-                recorded = self._find(state["conflicts"], entry.get("conflict_id"), "conflict")
-                recorded.update(status="resolved", resolution={"text": self._text(entry.get("text"), "Resolution"),
-                                "claim_ids": self._claims(state, entry.get("claim_ids"))})
-            elif kind == "source_review":
-                verdict = entry.get("verdict")
-                if verdict not in ("accepted", "rejected", "uncertain"):
-                    raise ValueError("verdict must be accepted, rejected or uncertain")
-                recorded = self._find(state["sources"], entry.get("source_id"), "source")
-                if verdict == "accepted":
-                    self._body(path, recorded)
-                recorded["review"] = {"verdict": verdict, "text": self._text(entry.get("text"), "Source review")}
-                if verdict == "rejected":
-                    affected = {claim["id"] for claim in state["claims"]
-                                if any(citation["source_id"] == recorded["id"] for citation in claim["citations"])}
-                    for question in state["questions"]:
-                        if affected.intersection(question["claim_ids"]):
-                            question.update(status="unresolved", gap="A supporting source was rejected; review and replace affected claims.")
-                    for conflict in state["conflicts"]:
-                        if conflict["resolution"] and affected.intersection(conflict["resolution"]["claim_ids"]):
-                            conflict["status"] = "open"
-            elif kind == "retraction":
-                recorded = self._find(state["claims"], entry.get("claim_id"), "claim")
-                recorded.update(status="retracted", retraction=self._text(entry.get("text"), "Retraction reason"))
+        if kind != "resume":
+            self._active(state)
+        if len(state["events"]) >= max(500, 10 * len(state.get("inventory", []))):
+            raise ValueError("Research event limit reached; finish this session")
+        question = self._find(state["questions"], entry.get("question_id"), "question") if kind in ("claim", "answer", "gap") else None
+        if kind in ("inventory_review", "external_run"):
+            recorded, replayed = (self._inventory_review(path, state, entry) if kind == "inventory_review"
+                                  else self._external_run(path, state, entry))
+            if replayed:
+                return {"research_id": research_id, "kind": kind, "recorded": recorded, "replayed": True}
+        elif kind == "resume":
+            if state["status"] != "incomplete":
+                raise ValueError("Only an incomplete report can be resumed; active sessions already accept steps")
+            reason = self._text(entry.get("text"), "Resume reason")
+            snapshot = uuid.uuid4().hex[:12]
+            artifacts = {}
+            # Keep earlier deliverables in the session root so their
+            # relative evidence links still resolve after a later finish.
+            for name, suffix in (("report", ".md"), ("sources", ".json"), ("state", ".json")):
+                saved = path / (name + "-" + snapshot + suffix)
+                self._write(saved, self._artifact(path, name + suffix).read_text(encoding="utf-8"))
+                artifacts[name] = str(saved)
+            recorded = {"status": "active", "text": reason, "previous_status": "incomplete",
+                        "previous_artifacts": artifacts}
+            state["status"] = "active"
+            for field in ("summary", "limitations", "finished_at", "artifacts"):
+                state.pop(field, None)
+        elif kind == "claim":
+            confidence = entry.get("confidence", "medium")
+            if confidence not in ("low", "medium", "high") or type(entry.get("inference", False)) is not bool:
+                raise ValueError("Invalid confidence or inference field")
+            if len(state["claims"]) >= max(100, 2 * len(state.get("inventory", []))):
+                raise ValueError("Research claim limit reached")
+            recorded = {"id": "c%s" % (len(state["claims"]) + 1), "question_id": question["id"],
+                        "statement": self._text(entry.get("statement"), "Statement"),
+                        "citations": self._citations(path, state, entry.get("citations")),
+                        "confidence": confidence, "inference": entry.get("inference", False), "status": "active"}
+            state["claims"].append(recorded)
+        elif kind == "answer":
+            claims = self._claims(state, entry.get("claim_ids"))
+            if any(self._find(state["claims"], identifier, "claim")["question_id"] != question["id"] for identifier in claims):
+                raise ValueError("Answer claims must belong to this question")
+            question.update(status="answered", answer=self._text(entry.get("answer"), "Answer", 12000),
+                            claim_ids=claims, gap=None)
+            recorded = question
+        elif kind == "gap":
+            question.update(status="unresolved", gap=self._text(entry.get("text"), "Evidence gap"))
+            recorded = question
+        elif kind == "question":
+            if len(state["questions"]) >= 24:
+                raise ValueError("Research question limit reached")
+            recorded = self._question({"id": entry.get("id"), "question": entry.get("question")})
+            if any(row["id"] == recorded["id"] for row in state["questions"]):
+                raise ValueError("Question id already exists")
+            state["questions"].append(recorded)
+        elif kind == "conflict":
+            recorded = {"id": "x%s" % (len(state["conflicts"]) + 1), "status": "open",
+                        "claim_ids": self._claims(state, entry.get("claim_ids"), minimum=2, allow_retracted=True),
+                        "text": self._text(entry.get("text"), "Conflict"), "resolution": None}
+            state["conflicts"].append(recorded)
+        elif kind == "resolution":
+            recorded = self._find(state["conflicts"], entry.get("conflict_id"), "conflict")
+            recorded.update(status="resolved", resolution={"text": self._text(entry.get("text"), "Resolution"),
+                            "claim_ids": self._claims(state, entry.get("claim_ids"))})
+        elif kind == "source_review":
+            verdict = entry.get("verdict")
+            if verdict not in ("accepted", "rejected", "uncertain"):
+                raise ValueError("verdict must be accepted, rejected or uncertain")
+            recorded = self._find(state["sources"], entry.get("source_id"), "source")
+            if verdict == "accepted":
+                self._body(path, recorded)
+            recorded["review"] = {"verdict": verdict, "text": self._text(entry.get("text"), "Source review")}
+            if verdict == "rejected":
+                affected = {claim["id"] for claim in state["claims"]
+                            if any(citation["source_id"] == recorded["id"] for citation in claim["citations"])}
                 for question in state["questions"]:
-                    if recorded["id"] in question["claim_ids"]:
-                        question.update(status="unresolved", gap="A supporting claim was retracted; a revised answer is needed.")
+                    if affected.intersection(question["claim_ids"]):
+                        question.update(status="unresolved", gap="A supporting source was rejected; review and replace affected claims.")
                 for conflict in state["conflicts"]:
-                    if conflict["resolution"] and recorded["id"] in conflict["resolution"]["claim_ids"]:
+                    if conflict["resolution"] and affected.intersection(conflict["resolution"]["claim_ids"]):
                         conflict["status"] = "open"
-            else:
-                recorded = self._find(state["operations"], entry.get("operation_id"), "operation")
-                if recorded["status"] != "pending":
-                    raise ValueError("Only an interrupted pending operation can be acknowledged")
-                recorded.update(status="unknown_outcome", explanation=self._text(entry.get("text"), "Interruption explanation"))
-            state["events"].append({"at": self._now(), "kind": kind, "value": copy.deepcopy(recorded)})
-            self._save(path, state)
-            return {"research_id": research_id, "kind": kind, "recorded": recorded}
+        elif kind == "retraction":
+            recorded = self._find(state["claims"], entry.get("claim_id"), "claim")
+            recorded.update(status="retracted", retraction=self._text(entry.get("text"), "Retraction reason"))
+            for question in state["questions"]:
+                if recorded["id"] in question["claim_ids"]:
+                    question.update(status="unresolved", gap="A supporting claim was retracted; a revised answer is needed.")
+            for conflict in state["conflicts"]:
+                if conflict["resolution"] and recorded["id"] in conflict["resolution"]["claim_ids"]:
+                    conflict["status"] = "open"
+        else:
+            recorded = self._find(state["operations"], entry.get("operation_id"), "operation")
+            if recorded["status"] != "pending":
+                raise ValueError("Only an interrupted pending operation can be acknowledged")
+            recorded.update(status="unknown_outcome", explanation=self._text(entry.get("text"), "Interruption explanation"))
+        state["events"].append({"at": self._now(), "kind": kind, "value": copy.deepcopy(recorded)})
+        return {"research_id": research_id, "kind": kind, "recorded": recorded}
 
     def finish(self, research_id, summary, status="completed", limitations=None):
         summary = self._text(summary, "Summary", 16000)

@@ -79,6 +79,8 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 
 配置默认为 `~/.config/bookmark-research/settings.json`。支持 XDG 和显式路径覆盖，多宿主可共享数据。索引更新不会自动抓网页、运行 LLM 或改写 Wiki；来源变化时提示复核，旧研究与证据保留。
 
+`research_record` 支持单条 `entry` 或每批至多 50 条的 `entries`，按顺序校验后一次保存，返回精简编号；稳定的 `batch_id` 可避免重试产生重复记录。依赖新 claim ID 的记录在读取返回值后另批提交。`resume` 和 `external_run` 仍需单条调用，详见 [证据记录](skills/bookmark-research/references/zh/deep-research.md)。
+
 ## 搜索、配置与语言
 
 默认搜索 Exa + Parallel，正文读取使用 Exa，普通网页归档开启。可说“显示配置”“以后只用 Exa 搜索”或“这次不要归档”。深度研究始终保存任务证据。
