@@ -1,26 +1,30 @@
-# GitHub 与同步边界
+# GitHub and synchronization boundaries
 
-本参考吸收公开数据包指南 S6.0、S6.4、P1、P2 中与研究相关的路由、持久偏好和同步边界；依据版本见 [阅读协议](package-semantics.md#依据与维护)。不把生成与回写流程加入本分析 Skill。
+**English** · [中文](zh/github-and-sync.md)
 
-## 研究 GitHub 内容
+This reference incorporates research routing, persistent preferences and synchronization boundaries from S6.0, S6.4, P1 and P2 of the public package guide; see [provenance](package-semantics.md#provenance-and-maintenance). It does not add generation or write-back workflows to this analysis Skill.
 
-插件未内置 GitHub MCP、GitHub OAuth 或 `gh`，也不安装它们。先识别宿主实际可用并已获授权的工具：
+## Researching GitHub content
 
-| 任务 | 采用的入口 |
+The plugin does not bundle or install GitHub MCP, GitHub OAuth or `gh`. Identify tools actually available and authorized in the host:
+
+| Task | Entry point |
 | --- | --- |
-| 读取公开 README、文档或 Gist | 已有 GitHub 文件读取工具；或 `fetch_web` 读取公开 URL |
-| 精确查代码、指定分支/提交、issue、PR、release | 优先用宿主已有 GitHub MCP；有 `gh` 时也可通过宿主命令工具读取 |
-| 查看用户提供的本地仓库历史与改动 | 宿主命令工具的 `git status`、`git diff`、`git log` |
-| 提交、推送、拉取、创建 issue 或 PR | 属于另外的修改任务，按用户当前授权和该目录规则执行；本插件不提供这些操作接口 |
+| Public README, documentation or Gist | Existing GitHub file-reading tool, or `fetch_web` for the public URL. |
+| Exact code, branch/commit, issue, PR or release lookup | Prefer the host's GitHub MCP; an existing `gh` can also be used through host commands. |
+| Local repository history and changes supplied by the user | Host commands such as `git status`, `git diff`, `git log`. |
+| Commit, push, pull, create an issue or PR | A separate modification task governed by current user authorization and directory rules. This plugin exposes no such operations. |
 
-不要把网页成功抓取等同于查过仓库全部代码、全部评论或指定提交。未接入 GitHub 专项工具时，可读取相关公开网页并说明覆盖范围；涉及私有仓库时沿用宿主已有访问方式与任务范围，不把私有内容发给公开搜索服务。官方 GitHub MCP 项目可参考 https://github.com/github/github-mcp-server 。
+Fetching a page does not establish that all repository code, comments or a particular commit were checked. Without specialized GitHub tools, read relevant public pages and disclose coverage. Use existing host access and task scope for private repositories; do not send private content to public search services. The official GitHub MCP project is https://github.com/github/github-mcp-server .
 
-宿主 GitHub MCP／`gh` 的结果不经过本插件 `fetch_web`，因此不会自动进入其归档。需要保存这些结果时，保存实际返回内容并记录仓库、文件路径、ref／commit（能取得时）、URL 与读取时间；不要伪造缺失字段。
+Host GitHub MCP / `gh` results bypass this plugin's `fetch_web` and are not automatically archived. When retention is needed, save actual returned content and record repository, file path, ref/commit when available, URL and reading time. Do not invent missing fields.
 
-## 数据包中的 Git 同步约束
+## Git constraints in canvas packages
 
-`AGENTS.md` 提及 GitHub 不代表自动安装或授权 GitHub MCP。指南允许参考官方仓库，并约束用户数据包在 Git／同步目录中的处理方式。
+A reference to GitHub in `AGENTS.md` neither installs nor authorizes GitHub MCP. The guide permits consulting official repositories and constrains handling of packages in Git/sync directories.
 
-普通本地查询无需做整库同步审计。只有任务实际涉及包内文件结构调整、回写或 commit/push/pull 时，才核对该包 `AGENTS.md` 的 P2：检查允许的包结构与 `.canvas`，按其规则处理外部 file 节点及无关文件，并验证本次改动；分析工具不得把检查变成未经请求的清理或提交。
+Ordinary local queries need no full-repository synchronization audit. Check the package guide's P2 only when the task actually involves file structure changes, write-back or commit/push/pull: inspect allowed structure and `.canvas`, handle external file nodes/unrelated files according to those rules, and validate actual changes. Do not turn analysis into unrequested cleanup or commits.
 
-研究报告、正文快照、配置和数据库放在画布包之外。不要为接入研究功能，在原画布同步目录添加 `knowledge/`、`raw/` 或 `wiki/`，避免这些文件受到画布同步清理。长期偏好保存到用户配置或 Skill；包内 `AGENTS.md` 可能在后续导出／同步时被模板重建。
+Keep reports, page snapshots, settings and databases outside the canvas package. Do not add `knowledge/`, `raw/` or `wiki/` to the original synced directory to enable research; canvas synchronization may clean them. Store lasting preferences in user settings or the Skill. Package `AGENTS.md` may be regenerated from templates during export/sync.
+
+A persistently synced local canvas directory can use `mode:live`, with `completeness:complete` only for a confirmed full mirror. MCP checks on-disk changes and preserves the valid index during Git locks, empty directories or validation failures. It does not pull, push or log in to Git. Manual exports of the same canvas can still be imported as snapshots. See [source lifecycle](source-lifecycle.md) for parameters, deletion stability and reconnect behavior.

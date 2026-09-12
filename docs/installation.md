@@ -1,6 +1,10 @@
 # 安装与更新
 
-Bookmark Research 0.2.0 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python 与要使用的客户端；运行 `python3 src/cli.py doctor` 可以离线检查 Python 和 FTS5。客户端兼容范围见 [README](../README.md#client-support)。
+[English](installation.en.md) · **中文**
+
+执行 Skill 和方法参考以英文维护，配完整中文阅读版及双语宿主提示说明，见[指令索引](instructions.md)。安装导出会携带这些文件。
+
+Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python 与要使用的客户端；运行 `python3 src/cli.py doctor` 可以离线检查 Python 和 FTS5。当前 checkout 的四宿主工作流及验证范围见 [宿主兼容说明](harness-compatibility.md)。下文 v0.2.0 Release 链接是历史发布产物，不包含新增宿主脚本；使用这些工作流时从当前源码导出。
 
 ## 一条命令安装 Codex
 
@@ -11,6 +15,15 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 ```
 
 首次安装使用仓库默认分支，目前是 `main`。引导脚本从 Git 取得 Python 安装器，再通过 Codex 原生命令登记远程来源，安装共享 Skill 和 MCP 并验证运行时。临时下载目录随后清理，Codex 自己保留源码和安装缓存。安装后新建 Codex thread。
+
+安装帮助和首次使用引导默认按 `LC_ALL` → `LC_MESSAGES` → `LANG` 判断语言：中文 locale 使用中文，其余或未设置时使用英文。显式选择中文可运行：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- install --lang zh
+python3 scripts/install.py install --lang zh
+```
+
+`--lang en` 选择英文，`--lang auto` 恢复自动判断。Shell 用 `BOOKMARK_RESEARCH_INSTALL_LANG` 向 Python 安装器传递选择；Python 的显式 `--lang` 优先。该选项只影响安装引导，不保存研究语言设置；Git、Codex 和运行时的技术诊断保留原文。固定到旧 tag 时使用该版本的安装器，旧版本可能仍显示当时的引导语言。
 
 更新、检查和预览使用同一入口：
 
@@ -36,9 +49,9 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 ## 取得代码或 ZIP
 
-从 [v0.2.0 Release](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/tag/v0.2.0) 下载 [插件 ZIP](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-0.2.0.zip)；需要运行离线验证时下载 [测试包](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-test-pack-0.2.0.zip)。两个包均包含 `MANIFEST.sha256`，Release 另提供 ZIP 的 `SHA256SUMS`。解压时保留 `.codex-plugin/` 和 `.agents/` 等隐藏目录，并把目录放在一个稳定位置。
+以下下载示例固定到已发布的 [v0.2.0 Release](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/tag/v0.2.0)：[插件 ZIP](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-0.2.0.zip) 和用于离线验证的 [测试包](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-test-pack-0.2.0.zip)。其他已发布版本以 [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) 为准；本地 0.4.0 构建及验证见 [验证记录](validation-0.4.0.md)。两个包均包含 `MANIFEST.sha256`，Release 另提供 ZIP 的 `SHA256SUMS`。解压时保留 `.codex-plugin/` 和 `.agents/` 等隐藏目录，并把目录放在一个稳定位置。
 
-仓库地址：<https://github.com/Browser-bookmark-hub/Bookmark-Research>。复现本版本使用 `v0.2.0` 标签；`main` 跟随开发更新。ZIP 是可选的分发形式，也可以直接克隆源码：
+仓库地址：<https://github.com/Browser-bookmark-hub/Bookmark-Research>。复现该历史快照使用 `v0.2.0` 标签；`main` 跟随开发更新。ZIP 是可选的分发形式，也可以直接克隆源码：
 
 ```sh
 git clone --branch v0.2.0 https://github.com/Browser-bookmark-hub/Bookmark-Research.git
@@ -46,7 +59,7 @@ cd Bookmark-Research
 python3 src/cli.py doctor
 ```
 
-请在包含 `scripts/install.py` 的 0.2.0 checkout 或 ZIP 中使用下方安装入口。旧提交仍可使用原生 Codex 命令或各自版本的导出器。
+请在包含 `scripts/install.py` 的 0.2.0 或后续版本 checkout、ZIP 中使用下方安装入口。旧提交仍可使用原生 Codex 命令或各自版本的导出器。
 
 ## Codex CLI 安装
 
@@ -95,7 +108,7 @@ codex plugin add bookmark-research@bookmark-research
 codex plugin list --json
 ```
 
-远程安装本版本时，使用 `codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref v0.2.0`，再执行 `codex plugin add bookmark-research@bookmark-research`。`--ref main` 跟随开发分支，固定版本则使用标签或 commit。已有同名来源先按上文核对其注册状态。
+固定安装 v0.2.0 时，使用 `codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref v0.2.0`，再执行 `codex plugin add bookmark-research@bookmark-research`。`--ref main` 跟随开发分支，其他固定版本使用实际已存在的标签或 commit。已有同名来源先按上文核对其注册状态。
 
 原生命令依据 [OpenAI plugin packaging documentation](https://developers.openai.com/plugins/build/plugins) 和 [Codex CLI reference](https://developers.openai.com/codex/cli/reference#codex-plugin)。默认个人 marketplace `~/.agents/plugins/marketplace.json` 是 Codex 的隐式发现机制；上面的 `marketplace add` 用于本仓库自己的显式 marketplace，二者不要混淆。
 
@@ -114,14 +127,24 @@ python3 scripts/install.py install --source /absolute/path/to/bookmark-research
 
 这份导出包含原生插件和本地 marketplace。选择稳定路径后再安装；不要直接把 Codex 已注册目录移动到别处。
 
+多组研究沿用当前会话的原生子代理，规则位于 `hosts/codex/delegate.md`。`python3 hosts/codex/prepare.py --research-id RID` 经共享 MCP 读取全部清单分页并输出分组，不启动子代理。原生委派和等待工具必须在会话中实际可见；插件不安装全局 agent 定义或自建 JavaScript 工作流引擎。
+
 ### Claude Code
 
 ```sh
 python3 scripts/export_bundle.py --format claude --output exports/claude/bookmark-research
+claude plugin validate --strict ./exports/claude/bookmark-research
 claude --plugin-dir ./exports/claude/bookmark-research
 ```
 
-包含 `.claude-plugin/plugin.json`、`.mcp.json` 和共享 Skill；`--plugin-dir` 为当前会话加载插件。参见 [Claude Code plugin reference](https://code.claude.com/docs/en/plugins-reference)。
+包含 `.claude-plugin/plugin.json`、`.mcp.json`、共享 Skill 和 `workflows/bookmark-research.js`；`--plugin-dir` 为当前会话加载插件。先创建研究取得 `research_id`，再明确调用：
+
+```text
+运行 /bookmark-research:bookmark-research，传入
+{"research_id":"RID","run_key":"review-1","group_size":12,"max_gap_rounds":1}。
+```
+
+`RID` 替换为真实任务 ID，`run_key` 在新运行保持唯一，同一次恢复保持不变。需要 Claude Code 2.1.154+ 及已启用的 Dynamic Workflows；Pro 还需在 `/config` 开启。通过 `/workflows` 管理运行，恢复限于同一会话，退出后需重开。自带 `/deep-research` 为独立的显式入口，不自动保证本插件书签清单覆盖。参见 [Claude workflows](https://code.claude.com/docs/en/workflows)。
 
 ### Pi
 
@@ -130,11 +153,25 @@ python3 scripts/export_bundle.py --format pi --output exports/pi/bookmark-resear
 pi --skill ./exports/pi/bookmark-research/skills/bookmark-research/SKILL.md
 ```
 
-用 `/skill:bookmark-research` 加载工作流。需要持久注册时执行 `pi install /absolute/path/to/exports/pi/bookmark-research`。Pi 适配器声明 `pi.skills`，Skill 调用 Python CLI；没有 Pi MCP bridge 或原生工具 extension。参见 [Pi package documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md)。
+用 `/skill:bookmark-research` 加载 Skill。需要持久注册 Skill 时执行 `pi install /absolute/path/to/exports/pi/bookmark-research`；这条命令会修改 Pi settings。Pi 适配器声明 `pi.skills`，另附保存工作流及 Python stdio 工具桥；不提供 Pi 原生 MCP extension。
+
+保存工作流需要 Node 22.19+、Pi 0.83+、`pi-subagents` 0.43.0+，以及同一父会话加载的 `pi-subagents-workflows`。选定稳定导出位置后，只向指定项目登记：
+
+```sh
+python3 exports/pi/bookmark-research/hosts/pi/register-workflow.py --project /absolute/path/to/project
+```
+
+登记器创建 `.pi/subagent-workflows/bookmark-research/workflow.json` 和 `script.js`，不安装扩展或更改 settings。已有不同定义会保留并报冲突；重复相同登记幂等。项目须受信任，从该项目启动 Pi 后调用：
+
+```js
+pi_subagent_workflow({action:"run",name:"bookmark-research",args:{research_id:"RID",run_key:"review-1"}});
+```
+
+运行以 detached 模式启动，主代理须使用扩展的等待、状态和 artifacts 功能等到终态。`delegate` 需要 Bash 访问已绑定的 Python bridge，或已有研究 MCP 工具。搬迁包后需重新登记；注册表不提供跨会话 journal replay。参见 [Pi workflow registry](https://pi.dev/packages/pi-subagents-workflows)。
 
 ### DSH / DeepSeek Harness
 
-先在 DSH 环境安装官方 `@deepseek-ai/dsh-mcp-client`。把以下占位路径换成最终保留的目录：
+DSH 环境需已安装官方 `@deepseek-ai/dsh-mcp-client`。多组研究还要求所选 profile 已配置 workflow service、worker-thread engine 和 `workflow` tool。把以下占位路径换成最终保留的目录：
 
 ```sh
 python3 scripts/export_bundle.py --format dsh --output /absolute/path/to/bookmark-research-dsh
@@ -144,7 +181,15 @@ dsh web --patch /absolute/path/to/bookmark-research-dsh/cordis.patch.yml
 
 `cordis.patch.yml` 连接 MCP；Skill 发现仍需把现有 Skill provider 的 `customSkillDirs` 指向该导出的 `skills/`。补丁包含绝对路径，移动目录后必须重新生成。它是本机适配器，不是可搬移的 `dsh.bundle` npm 包。参见 [官方 MCP client 文档](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md)。
 
-Claude Code、Pi、DSH 的导出结构和独立运行时有测试覆盖；各客户端内的加载和实际工具调用仍需客户端验证。
+生成可直接传给宿主 `workflow` 工具的完整 JSON：
+
+```sh
+python3 /absolute/path/to/bookmark-research-dsh/hosts/dsh/workflow-call.py --research-id RID --run-key review-1
+```
+
+结果由独立的 `meta`、无 export 的 `script`、对象 `args` 组成。DSH 等待完整流程后返回 `{runId,agentsStarted,result}`，取消是错误，渲染可能截断。报告子代理会通过共享研究工具保存完整分析附件并返回实际路径；不能假设宿主自动提供全文句柄。导出和生成参数均不启动宿主任务。
+
+本机已通过 Claude Code 2.1.247 原生 strict manifest 校验、宿主隔离检查与真实 MCP 分页/附件检查。Pi、DSH 未安装，本机 Node 22.17.0 低于 Pi workflow 要求；四宿主付费研究端到端均未运行。完整边界见 [验证记录](host-validation.json)。
 
 ### Agent Plugins 1.0.0
 
@@ -159,13 +204,21 @@ python3 scripts/export_bundle.py --format agent-plugin --output exports/agent-pl
 全新用户可以先用默认设置，**本地书签查询无需填写配置或 API Key**。安装完成后的引导会显示实际生效的设置和保存位置；第一次主动修改设置时才创建配置文件。安装器读取这些设置时不会导入书签或创建索引。
 
 1. 安装成功后，在 Codex 新建对话，让客户端加载插件。
-2. 准备自己的 Bookmark Canvas 数据包目录。插件不附带书签或预建索引；把下面的占位路径换成实际路径后发送。
+2. 准备自己的 Bookmark Canvas 目录、ZIP 或单卡 JSON。插件不附带书签或预建索引；把下面的占位路径换成实际路径后发送。
 3. 先查看本地栏目与书签，再提出需要联网核验的研究问题。只做网页研究时可以直接提出主题，无需先导入书签。插件使用当前客户端中的模型，无需再填写一套 LLM 模型名称或地址。
 
 ```text
 用 Bookmark Research 读取我的书签画布包 "/absolute/path/to/my-canvas-package"，
 先离线列出栏目、文件夹和书签数量。
 ```
+
+手动导出会保存为快照，下载文件移走后仍能查询。同一画布的新导出直接说“沿用刚才的来源”；插件会复用来源 ID 和未变的索引。单卡按局部数据处理，其他卡片不会因未提供而删除。
+
+持续同步目录可直接说：“把这个目录作为持续来源，它是完整的画布同步目录。”宿主会使用 `mode:live, completeness:complete` 登记，MCP 运行期间自动检查变化；关闭宿主后停止，下次连接／查询补查。默认不需要填写轮询参数。不同形态和恢复方法见 [来源生命周期](../skills/bookmark-research/references/source-lifecycle.md)。
+
+联网研究可以直接说“快速查证这个书签”“比较这组工具”或“全量研究这个包，交付报告和 Wiki”。默认由宿主根据请求选择快速查证、主动搜索或深度研究，不需要固定提示词；范围以本次请求为准，研究整包时保留全部原始 URL。三种方式、配置与语言示例见[使用指南](user-guide.md)，内部关系见[结构与触发流程](bookmark-research-architecture.md)。
+
+宿主自身执行多轮研究可以使用现有搜索与正文工具；OpenAI／Parallel 专业研究 API 是另需启用并配置凭据的路线。更新插件后，旧会话可能仍只暴露部分旧版工具：所需功能可先通过同包 CLI 执行，新建会话后加载新版 Skill 和完整 MCP 工具。仅设置研究深度或取得路由建议不会自动启动任务。
 
 以下是没有自定义设置时的默认值，可以在对话中按需修改：
 
@@ -183,7 +236,7 @@ python3 scripts/export_bundle.py --format agent-plugin --output exports/agent-pl
 
 终端用户可执行安装结束时打印的绝对路径命令查看配置；它指向 Codex 保留的安装缓存，临时下载目录清理后仍然可用。在源码目录中也可运行 `python3 src/cli.py config show`，或用 `config set` 修改设置。完整参数见 [CLI 说明](../skills/bookmark-research/references/cli.md)。
 
-索引、页面归档和研究任务保存在 `BOOKMARK_RESEARCH_DATA_DIR`，默认 `~/.local/share/bookmark-research/`，并遵循 `XDG_DATA_HOME`。用户设置通过 `BOOKMARK_RESEARCH_CONFIG` 指定，默认 `~/.config/bookmark-research/settings.json`，并遵循 `XDG_CONFIG_HOME`。保持这些目录位于插件和安装缓存之外，多个客户端可通过相同配置共享它们。详见 [设置与归档](../skills/bookmark-research/references/settings-and-archive.md)。
+索引、页面归档和研究任务保存在 `BOOKMARK_RESEARCH_DATA_DIR`，默认 `~/.local/share/bookmark-research/`，并遵循 `XDG_DATA_HOME`；来源原始快照在数据库旁的 `index.sqlite3.sources/`。用户设置通过 `BOOKMARK_RESEARCH_CONFIG` 指定，默认 `~/.config/bookmark-research/settings.json`，并遵循 `XDG_CONFIG_HOME`。保持这些目录位于插件和安装缓存之外，多个客户端可通过相同配置共享它们。详见 [设置与归档](../skills/bookmark-research/references/settings-and-archive.md)。
 
 ## 更新
 
@@ -203,10 +256,10 @@ Git marketplace 的 `update` 保持已注册的仓库与 ref，刷新其快照�
 
 ```sh
 python3 -m unittest discover -s tests
-python3 scripts/build_zip.py --output dist/bookmark-research-0.2.0.zip
+python3 scripts/build_zip.py --output dist/bookmark-research-0.4.0.zip
 ```
 
-ZIP 包含原生插件、marketplace、共享运行时、Skill、安装入口、导出器、文档和许可；不包含测试、数据库、页面归档、用户配置或书签数据包。测试与合成测试包留在源码仓库。
+ZIP 包含原生插件、marketplace、共享运行时、Skill、四宿主源文件及组装器、安装入口、导出器、文档和许可；不包含测试、数据库、页面归档、用户配置或书签数据包。加 `--include-tests` 可另建测试包，包含合成 fixture、宿主 JS 检查、`verify_fixture.py` 和 `verify_quality.py`，可解压后再次导出宿主包。
 
 构建结果打印 ZIP 的 SHA-256；相同内容以固定文件顺序、时间和权限打包，在相同 Python/zlib 环境中可重现相同字节。解压后的 `MANIFEST.sha256` 列出包内文件校验和，可在解压目录运行 `shasum -a 256 -c MANIFEST.sha256`。校验和用于发现损坏，来源真实性仍取决于你下载的仓库或发行渠道。
 

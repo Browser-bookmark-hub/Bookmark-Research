@@ -1,27 +1,33 @@
-# CLI 与调用示例
+# CLI and invocation examples
 
-所有命令使用 Python 3.9+ 标准库，stdout 为 JSON。把 `<root>` 替换为本插件实际绝对路径。包路径、来源名、公司名、节点 ID 和 example.com URL 均为占位示例，使用时替换为用户输入或实际查询结果。插件没有预置这些来源或书签。`--db` 与 `--config` 是全局参数，须放在子命令之前。MCP 提供相同核心能力；CLI 是 Pi 或未接 MCP 载体的执行入口。
+**English** · [中文](zh/cli.md)
+
+Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<root>` with the actual absolute plugin path. Package paths, source/company names, node IDs and example.com URLs are placeholders for user input or actual query results; the plugin does not preload them. Global `--db` and `--config` options precede the subcommand. MCP provides the same core operations. Use the CLI in Pi or any host missing the required MCP tool.
 
 ```sh
 python3 <root>/src/cli.py doctor
 python3 <root>/src/cli.py sync /absolute/path/to/package --source-id my-canvas
 python3 <root>/src/cli.py status
-python3 <root>/src/cli.py search my-canvas --target '示例公司甲' --target '示例公司乙' --section A --limit 5
+python3 <root>/src/cli.py search my-canvas --target 'Example Company A' --target 'Example Company B' --section A --limit 5
 python3 <root>/src/cli.py search my-canvas --group card-group-example --limit 50
 python3 <root>/src/cli.py context my-canvas --group card-group-example
 python3 <root>/src/cli.py context my-canvas --item actual-bookmark-id
 ```
 
-`search` 同时匹配标题、URL、note、tag 和文件夹路径。多个 `--tag` 为同时满足；多个 `--target` 各自计算结果并返回并集。它不提供任意 SQL 执行。`--no-refresh` 表示读取上次同步的当前索引；默认 refresh 对包内受支持文件作哈希检查，只更新变更记录。CLI 的兼容字段 `stored_snapshot_only` 和 MCP 的 `saved_snapshot` 都指跳过刷新，不代表保存了可选择的画布历史版本。
+`sync` accepts directories, ZIPs or single-card JSON. `--mode snapshot` saves a snapshot; `--mode live` connects a persistent directory. `--completeness partial` retains omitted files; use `complete` only for a confirmed full mirror. New ordinary exports default to snapshot, Git directories to live; existing sources retain their mode. Reuse `--source-id` for a new export of the same canvas. See [source lifecycle](source-lifecycle.md).
 
-`context` 不传 `--item` 时只返回栏目头、画布节点和关系，`items:[]` 不代表栏目为空。取文件夹 ID 可先 `search` 找到其中一个书签，再 `context --item <书签ID>` 读取 `ancestors`，随后用 `search --folder <文件夹ID>` 限定范围。`--section` 匹配重复 label 时可能选择多个栏目，单张卡片应传唯一 ID。
+`history <source-id>` lists versions and recoverable snapshot paths. MCP checks live sources while running. In terminal-only use, `watch` provides foreground monitoring and JSON lines for status changes.
 
-数据库优先级：`--db` → `BOOKMARK_RESEARCH_DATA_DIR/index.sqlite3` → `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/index.sqlite3`。CLI 与各客户端设相同路径即可共用一个索引。数据库不能放在原始同步包或插件代码目录内。
+`search` matches titles, URLs, notes, tags and folder paths. Multiple `--tag` values must all match; multiple `--target` values have separate totals and return their union. It provides no arbitrary SQL execution. Default refresh checks live-file hashes; snapshots do not read original download locations. `--no-refresh` uses the current synchronized index, not a selected past version. Returned `source.state` distinguishes snapshots, current/pending and failed sources. Legacy `stored_snapshot_only` still means only that proactive checking was skipped.
+
+Without `--item`, `context` returns section headers, canvas nodes and relationships. `items:[]` does not mean an empty section. Find one bookmark with `search`, retrieve its `ancestors` through `context --item <bookmark-id>`, then query `search --folder <folder-id>`. A repeated label in `--section` may select multiple sections; use a unique ID for one card.
+
+Database precedence: `--db` → `BOOKMARK_RESEARCH_DATA_DIR/index.sqlite3` → `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/index.sqlite3`. Point clients and CLI at the same path to share an index. Keep databases outside original synced packages and plugin code.
 
 ```sh
 python3 <root>/src/cli.py providers
 python3 <root>/src/cli.py providers --probe
-python3 <root>/src/cli.py search-web --target '示例公司甲 官方价格' --target '示例公司乙 官方价格' --limit 5
+python3 <root>/src/cli.py search-web --target 'Example Company A official pricing' --target 'Example Company B official pricing' --limit 5
 python3 <root>/src/cli.py fetch-web https://example.com/company-a https://example.com/company-b
 python3 <root>/src/cli.py fetch-web https://example.com/company-a --no-archive --max-characters 30000
 python3 <root>/src/cli.py config show
@@ -29,62 +35,98 @@ python3 <root>/src/cli.py config set --search-provider exa --archive true
 python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 ```
 
-`config show` / `config set` 对应 MCP `get_settings` / `update_settings`。`config set --input /path/to/changes.json`（或 `-` 从 stdin）支持合并部分配置。CLI 标志覆盖同次 JSON 输入中的对应字段。`fetch-web` 默认归档，`--archive` / `--no-archive` 只覆盖本次；后续调用的默认值用 `config set --archive true|false`。其他配置与目录优先级见 [配置与归档](settings-and-archive.md)。
+`config show` / `config set` correspond to MCP `get_settings` / `update_settings`. `config set --input /path/to/changes.json` (or `-` for stdin) merges partial settings. CLI flags override matching fields from that invocation's JSON. `fetch-web` archives by default; `--archive` / `--no-archive` affects one call. Set future defaults with `config set --archive true|false`. See [settings and archives](settings-and-archive.md).
 
-`providers` 只描述配置；`--probe` 才联网检查握手和工具列表。Exa/Parallel 公共端点是否可匿名使用取决于服务当前限额；可在启动进程前设置 `EXA_API_KEY` / `PARALLEL_API_KEY`。可选 `--provider tavily`：存在 `TAVILY_API_KEY` 时使用 Bearer，否则发送明确 keyless header。工具列出不证明当前凭据能够执行。不要把密钥写进 manifest 或报告。
+`providers` describes configuration only; `--probe` checks online handshake and tool discovery. Anonymous Exa/Parallel access depends on current provider limits. Set `EXA_API_KEY` / `PARALLEL_API_KEY` before starting the process when needed. Optional `--provider tavily` uses Bearer with `TAVILY_API_KEY` or an explicit keyless header without it. A listed tool does not prove execution authorization. Never place keys in manifests or reports.
 
-独立目标标签与多轮查询可通过 `search-web --input /path/to/query.json` 传入：
+Use `search-web --input /path/to/query.json` for stable target labels and repeated queries:
 
 ```json
 {
   "targets": [
-    {"target": "示例公司甲", "query": "示例公司甲 官方 API 价格"},
-    {"target": "示例公司甲", "query": "示例公司甲 官方产品文档"},
-    {"target": "示例公司乙", "query": "示例公司乙 官方 API 价格"}
+    {"target": "Example Company A", "query": "Example Company A official API pricing"},
+    {"target": "Example Company A", "query": "Example Company A official product documentation"},
+    {"target": "Example Company B", "query": "Example Company B official API pricing"}
   ],
   "providers": ["exa", "parallel"],
   "limit_per_target": 5
 }
 ```
 
-上限为 12 个 target/query 对、每目标 20 个返回 URL；`fetch-web` 每次最多 8 个 URL。provider 之间并行，同一 provider 的会话按序处理并复用工具目录。
+Limits are 12 target/query pairs and 20 returned URLs per target. `fetch-web` accepts up to 8 URLs per call. Providers run concurrently; each provider's requests run sequentially and reuse its tool catalog within the process.
 
-融合载体上其他 MCP 的**实际结果**：将结果规范成下面形状，调用 `merge-results /path/to/batches.json`。不要凭摘要补造 URL、排名或 provider 名。
+To merge **actual results** from other host MCPs, normalize them to this shape and call `merge-results /path/to/batches.json`. Do not invent URLs, ranks or provider names from snippets.
 
 ```json
 {
-  "targets": ["示例公司甲"],
+  "targets": ["Example Company A"],
   "limit_per_target": 5,
   "batches": [{
     "provider": "tavily",
-    "target": "示例公司甲",
-    "query": "示例公司甲 官方 API 价格",
+    "target": "Example Company A",
+    "query": "Example Company A official API pricing",
     "status": "ok",
-    "results": [{"url": "https://example.com/company-a", "title": "示例公司甲", "snippet": "此处替换为服务实际返回的摘要", "rank": 1}]
+    "results": [{"url": "https://example.com/company-a", "title": "Example Company A", "snippet": "Replace with the actual provider snippet.", "rank": 1}]
   }]
 }
 ```
 
-失败批次用 `status:"error"`、`results:[]`、`error` 描述；空成功结果则用 `status:"ok"`、`results:[]`。结果中的 `coverage`、`uncovered_targets`、`errors` 用于区分覆盖不足与调用失败。
+Failed batches use `status:"error"`, `results:[]` and an `error` description. A successful empty result uses `status:"ok"` with `results:[]`. Returned `coverage`, `uncovered_targets` and `errors` distinguish incomplete coverage from call failures.
 
-## 深度研究命令
+## Deep research commands
 
-`research record <research-id> --input <entry.json>` 的 entry 可用 `{"kind":"resume","text":"继续调查已记录的缺口"}`，恢复已导出 incomplete 报告的任务；原报告和预算都会保留。
+`research record <research-id> --input <entry.json>` can use `{"kind":"resume","text":"Continue investigating recorded gaps"}` to resume an exported incomplete report while retaining its previous report and budget.
 
-当前模型负责决策和综合，CLI 保存状态并执行每个步骤。先读 [深度研究流程](deep-research.md)，其中含 brief、预算、引用和 record 各类型的完整参数约定。
+The current model makes decisions and synthesizes; the CLI stores state and executes individual operations. Read [deep research](deep-research.md) for briefs, budgets, citations and all record types.
 
 ```sh
 python3 <root>/src/cli.py research start --input /path/to/brief.json
 python3 <root>/src/cli.py research status
 python3 <root>/src/cli.py research status <research-id>
 python3 <root>/src/cli.py research status <research-id> --section claims --offset 0 --limit 20
+python3 <root>/src/cli.py research inventory <research-id> --offset 0 --limit 100
+python3 <root>/src/cli.py research coverage <research-id> --filter unreviewed --offset 0 --limit 100
 python3 <root>/src/cli.py research search <research-id> --input /path/to/search-step.json
 python3 <root>/src/cli.py research fetch <research-id> --input /path/to/fetch-step.json
 python3 <root>/src/cli.py research source <research-id> s1 --offset 0 --limit 12000
+python3 <root>/src/cli.py research import-evidence <research-id> --input /path/to/actual-evidence.json
 python3 <root>/src/cli.py research record <research-id> --input /path/to/entry.json
-python3 <root>/src/cli.py research finish <research-id> --summary '已核验的结论' --status completed
+python3 <root>/src/cli.py research finish <research-id> --summary 'Verified conclusions' --status completed
 ```
 
-`--input -` 从 stdin 读 JSON。start 的 JSON 同 `research_start` 参数；search/fetch 的 JSON 使用对应 MCP 字段但省略位置参数已传的 `research_id`；record 的 JSON **仅包含 entry 对象**，例如 `{kind:"gap",question_id:"q1",text:"尚缺一手资料"}` 的标准 JSON 写法。finish 支持重复 `--limitation`；未完成使用 `--status incomplete`，取消用 `cancelled`。
+`--input -` reads JSON from stdin. Start input matches `research_start`. Search/fetch JSON uses corresponding MCP fields but omits the positional `research_id`. Record JSON contains **only the entry object**, such as `{"kind":"gap","question_id":"q1","text":"First-party evidence is still missing"}`. Finish accepts repeated `--limitation`; use `--status incomplete` for unfinished research or `cancelled` for cancellation.
 
-默认研究目录与 MCP 相同，位于数据目录 `research/`。CLI 可在 `research` 之后、动作之前传 `--directory /absolute/path/to/research`。换会话时保持该目录一致，按 `status` 返回的 ID 和正文继续。网络步骤要求 `operation_id`，重用同一 ID 读取结果不会重复提交。运行 `research start/status/source/record/finish` 不需要 API key 或网络。
+The default research directory is the same data-directory `research/` used by MCP. Put `--directory /absolute/path/to/research` after `research` and before its action to override it. Preserve this location across sessions and resume using actual status IDs and text. Network steps require `operation_id`; reusing an ID to read its result does not resubmit. `research start/status/source/record/finish` need neither an API key nor network access.
+
+`source_ids` are actual registered package IDs; start freezes their whole scope by default. Read inventory/coverage until `next_offset` is null. Repeat `--inventory-id` for a batch of original-URL IDs. Import-evidence JSON matches MCP without positional `research_id` and requires actual text and provenance. An external report does not increase original-page coverage.
+
+## Host routing and professional services
+
+```sh
+python3 <root>/src/cli.py research route --host codex --task-shape batch_research --tool collaboration.spawn_agent
+python3 <root>/src/cli.py research route --host claude_code --available-command /bookmark-research:bookmark-research
+python3 <root>/src/cli.py research service describe
+python3 <root>/src/cli.py research service prepare --input /path/to/service-brief.json
+python3 <root>/src/cli.py research service start --input /path/to/service-request-with-operation-id.json
+python3 <root>/src/cli.py research service status <external-id> --refresh
+python3 <root>/src/cli.py research service result <external-id> --offset 0 --limit 12000
+python3 <root>/src/cli.py research service attach --input /path/to/known-run.json
+python3 <root>/src/cli.py research service import <external-id> --operation-id import-report
+python3 <root>/src/cli.py research service cancel <external-id>
+```
+
+Repeat route `--tool`, `--available-command` and `--extension` for capabilities actually observed in the session; `--input` also accepts complete MCP input. Routing does not execute a workflow. Prepare/start/attach JSON includes `research_id`. See [professional services](research-services.md) for creation, status and cancellation semantics. Describe/prepare are offline; `--refresh` observes an existing remote run once. Starting another task after a timeout is not recovery.
+
+## Wiki and evaluation
+
+```sh
+python3 <root>/src/cli.py wiki write <page-id> --input /path/to/page-and-change-note.json
+python3 <root>/src/cli.py wiki get <page-id>
+python3 <root>/src/cli.py wiki get <page-id> --revision 1
+python3 <root>/src/cli.py wiki list --offset 0 --limit 20
+python3 <root>/src/cli.py wiki search 'research execution' --limit 10
+python3 <root>/src/cli.py wiki lint
+python3 <root>/src/cli.py evaluate --input /path/to/suite-runs-judgments.json
+```
+
+Wiki write input is `{page,change_note,expected_revision?}`; `page_id` is positional. Updates require the current revision. Put Wiki `--directory` before its action; use `--research-directory` for a nondefault research location. Evaluate accepts `{suite,runs,judgments?}` and calculates supplied data without starting a model judge. See [Wiki and evaluation](wiki-and-evaluation.md) for formats and limits.

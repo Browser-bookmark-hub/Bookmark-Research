@@ -1,50 +1,89 @@
 ---
 name: bookmark-research
-description: "分析书签画布 JSON/.canvas 的书签与关系，聚合 Exa、Parallel、Tavily 搜索，并以可恢复任务、正文证据和矛盾核验完成深度研究。用于书签查询、网页核验和研究报告，不生成或回写可导入画布包。"
+description: "Query Bookmark Canvas directories, ZIPs or single cards; preserve snapshots or sync live directories, research the complete requested scope with evidence and Wiki delivery. Does not generate or write back to canvas packages."
 ---
 
-# 书签聚合研究
+# Bookmark Research
 
-把用户的问题转成可重复的本地查询与按需网页研究，交付答复或研究报告。适用于符合 Bookmark Canvas JSON 模式协议的数据包，路径、来源名和查询目标由当前用户提供或从其已注册来源中选取；插件不预置任何个人书签库。按任务判断需要本地元数据、网页内容，还是两者结合。
+[中文阅读版](references/zh/skill-guide.md)
 
-## 数据包阅读规则
+Turn the user's question into repeatable local queries and web research as needed, delivering an answer or a research report. Inputs follow the Bookmark Canvas JSON protocol. Use package paths, registered sources and targets supplied by the current user; the plugin contains no personal bookmark collection. Decide whether the task needs local metadata, page content, or both.
 
-分析数据包时，先读本插件的 [阅读协议](references/package-semantics.md)，掌握字段、元数据位置、副本与关系语义；同一会话已读且规则未变时直接复用。受支持格式的常规分析使用这份内置协议，不要求每次重新读取包内整份 `AGENTS.md`。
+## Output language
 
-包采用新格式、出现未解释的字段或冲突，或用户要求核对包内特殊约定时，再查该包 `AGENTS.md` 的相关章节和实际 JSON。载体已加载且适用的目录指令仍需遵循。当前 Skill 没有生成或回写书签包的流程；生成报告不等于生成可导入 JSON/.canvas。
+Use the user's explicitly requested output language; otherwise follow their actual task and conversation. If neither selects a language, use English. Apply this to answers, progress, authored report text, and Wiki titles/sections. Bilingual starter prompts and the language of these instructions do not select the answer language. Installer `--lang` affects onboarding only.
 
-## 调用入口
+Pass the resolved output language to delegated agents, workflow `output_language`, and professional research briefs. Record explicit language requirements in the research brief so a later session can recover them. Preserve original quotations, URLs, identifiers, code and technical field names; put translations outside quotations. Language choice never narrows source coverage or restricts retrieval to sources in one language.
 
-本插件注册一个 `bookmark-research` MCP，提供本地查询、聚合搜索／读取、`research_*` 研究会话及配置工具。不同载体会给工具名加前缀，按实际工具列表调用；GitHub 专项工具的选择见下文。
+This is the single execution Skill. The linked Chinese copies are for reading and review; load the relevant reference in one language, without loading both copies.
 
-如果载体没有加载此 MCP，使用同包 CLI。插件根目录是本 `SKILL.md` 所在目录的 `../..`，入口为 `<插件根目录>/src/cli.py`。使用实际绝对路径，不依赖当前工作目录。命令和结果格式见 [references/cli.md](references/cli.md)。这份固定程序负责查询，不要为每个问题重写脚本或重建数据库。
+## Reading a package
 
-## 本地问题
+For package analysis, first read the bundled [package semantics](references/package-semantics.md) for fields, metadata locations, copies and relationships. Reuse that reference within the same session if its rules have not changed. Routine analysis of a supported format does not require rereading the package's entire `AGENTS.md`.
 
-1. 先用 `index_status` 找已注册的 `source_id`。用户已给出数据包路径时可直接 `sync_package`；首次全量导入，同一来源后续增量更新。移动或部分导出同一画布时显式复用原 `source_id`。
-2. 把多个目标放在一次 `search_bookmarks.targets` 中；按用户范围传 `section`、`group_id`、`folder_id` 或 `tags`。每个目标都有独立的总数与分页。默认查询前检查原包变化；用户允许使用上次同步的索引时可设 `refresh=false`，这不能选择任意历史版本。
-3. 查询卡片描述、组成员、方向关系用 `get_context`，这些字段不在书签文本搜索范围内。对具体书签传 `item_id` 才返回该项及 `ancestors`；只传栏目或组时返回结构概览，不会列出全部书签和文件夹。进一步限定文件夹时，从书签祖先中取得 `folder_id`。
+Consult relevant parts of the original package guide and actual JSON when the format is new, fields are unexplained, meanings conflict, or the user asks to check special conventions. Follow applicable directory instructions already loaded by the host. This Skill has no canvas generation or write-back workflow; a research report is not an importable JSON/.canvas package.
 
-这是元数据的字面匹配加结构过滤，不是公司实体识别或语义检索。中文别名、英文名、域名可分别查询；“公司文件夹里有 536 条书签”不等于“有 536 家公司”。不要把零匹配解释成互联网上不存在。按公司汇总时保留命中的书签 ID、URL 和上下文，说明归并依据。
+## Tool entry points
 
-JSON/.canvas 是事实来源；SQLite 只存派生查询索引。输出笔记、证据和数据库都放在同步包之外。
+The plugin registers one `bookmark-research` MCP server for local queries, search/page reading, `research_*` records and services, `wiki_*`, evaluation and settings. Hosts may prefix tool names; use those actually exposed in the current session.
 
-## 网页问题
+Check availability per operation. If the required MCP tool is missing, use the bundled CLI, including when the host exposes only part of an older tool catalog. The plugin root is `../..` from this `SKILL.md` directory; the entry point is `<plugin-root>/src/cli.py`. Use its actual absolute path rather than assuming a working directory. See the [CLI reference](references/cli.md). Reuse this implementation instead of writing a new query script or rebuilding the database for each question. If the CLI command is also absent, report that version's missing capability.
 
-- **快速查证**：明确 URL 用 `fetch_web`，需要发现来源时用一轮 `search_web` 后读取关键页面。Non-reasoning 描述模型的搜索方式，不能仅凭是否有 URL 判断推理能力；不保证服务会实时访问原站。
-- **Agentic search**：由当前模型拆目标、组织查询、查看结果、读取关键页面，再针对缺口补查。独立目标可以并行；后一步依赖前一步发现时顺序执行。
-- **Deep research**：需要持续、多轮调查、比较或可继续的研究时，读 [深度研究流程](references/deep-research.md)。使用 `research_start` 保存问题与预算，再通过 `research_search`／`research_fetch` 围绕证据缺口迭代；保存正文引用、回答、矛盾及解决依据。当前模型负责规划与综合，运行时负责记账、恢复、证据检查及报告。只创建任务或收集搜索摘要不能算完成。
+## Select a workflow from the request
 
-联网前读 [研究与服务接入规则](references/research-workflow.md)，按实际可用工具和用户范围执行。默认 Exa + Parallel，可按需选择 Tavily；配置与工具发现不证明实际调用已获授权。仅查询本地时无需读取联网参考或探测远程服务。
+Users state the question, scope and deliverable naturally; no fixed trigger phrase is required. Use local queries for bookmark location, counts or canvas structure. For web tasks, honor the explicit depth requested for this task, then saved defaults. With `research.depth:auto`, choose by intent:
 
-涉及 GitHub 仓库、issue、代码或 Git 同步时，读 [GitHub 与同步边界](references/github-and-sync.md)。插件没有内置 GitHub MCP；优先使用宿主实际具备且适用于任务的 GitHub 工具，公开网页也可用 `fetch_web` 读取。
+| Example intent | Mode | Action |
+| --- | --- | --- |
+| “Quickly check this fact in my bookmark.” | `quick` | Read the known URL, or search for a source and read key pages, then answer. |
+| “Compare these bookmarked tools and establish their differences.” | `agentic` | Use canvas context to break down questions, search, read, analyze and follow evidence gaps. |
+| “Research the whole package” or “Investigate this thoroughly and deliver a verifiable report.” | `deep` | Create research records, preserve the complete requested scope, investigate, independently review evidence and check coverage; write a Wiki when requested. |
 
-## 用户配置
+Choose depth and scope separately. Keep an explicitly selected card or topic; for a whole-package request, apply the full-scope rules below. Briefly state the selected mode and scope, then actually call the tools. A `research_route` suggestion does not start research. Native host investigation needs no professional research API credential. If the user explicitly selects a professional service, check its availability and do not silently switch execution routes. A question about capabilities or a plan alone does not start a package investigation.
 
-用户询问配置或保存位置时用 `get_settings`；要求改变今后默认行为时，用 `update_settings` 仅更新相关字段。临时要求用本次工具参数覆盖，不改长期偏好。配置和归档格式见 [配置与来源归档](references/settings-and-archive.md)。这些选项由固定程序执行，不靠每轮重新编写脚本。
+## Local questions
 
-## 交付与留存
+1. Use `index_status` to find registered `source_id` values. `sync_package` accepts directories, ZIPs and single-card JSON. Use `mode:"snapshot"` for manual exports and `mode:"live"` for a persistent directory identified by the user. Use `completeness:"complete"` only for a confirmed full mirror; use `partial` for partial exports and single cards. Reuse the existing `source_id` for a new export path of the same canvas; do not merge sources by similar titles or URLs. Read [source lifecycle](references/source-lifecycle.md) for intake, migration or recovery.
+2. Combine multiple targets in one `search_bookmarks.targets` request. Apply `section`, `group_id`, `folder_id` or `tags` only as required by the user's scope. Each target has its own total and pagination. Snapshots work offline; live queries check for changes first. Read the returned `source.state`: disclose pending synchronization, and use `refresh=false` on error/unavailable only when the user allows the old index. Find historical snapshots through `source_history`; `refresh=false` does not select a past version.
+3. Use `get_context` for card descriptions, group membership and directed relationships; bookmark text search does not cover these fields. Supply `item_id` to retrieve an item and its `ancestors`. A section/group alone returns a structural overview, not every bookmark and folder. Obtain a `folder_id` from bookmark ancestors before restricting a query to that folder.
 
-简单查询直接答复；研究报告保留引用与实际覆盖范围。`fetch_web` 默认自动保存实际响应、能识别出的正文和来源记录，引用返回的 `archive` 路径；检查其中的失败、缺失与完整性标记。`search_web` 不自动抓取命中的全部 URL。正文存档还不是 LLM Wiki 或 RAG，本插件尚不提供跨来源 Wiki 编写与向量检索。
+Search uses literal metadata matching plus structural filters, not company entity recognition or semantic retrieval. Query Chinese aliases, English names and domains separately when useful. “536 bookmarks in a company folder” does not mean “536 companies.” Zero local matches do not establish that something does not exist online. When grouping by company, retain bookmark IDs, URLs and context and explain the grouping basis.
 
-深度研究用 `research_finish` 生成 `report.md` 与 `sources.json`。全部问题有带引用的回答、已处理矛盾时才选 `completed`；预算耗尽或证据不足时选 `incomplete` 并列出缺口。正文原句匹配只能证明文本存在，仍需模型判断它是否支持结论。会话状态保存在数据目录的 `research/` 中；用户要求继续时用 `research_status` 找回，读取已有证据后从缺口继续。
+JSON/.canvas is the source of truth. SQLite holds a derived index and source registrations; source snapshots, notes, evidence and the database live outside the synced package. While MCP runs, only local indexes of live sources update automatically. Research inventories, text and Wiki pages retain versions. `research_status.source_freshness` or Wiki `needs_review` indicates changed input requiring review, not a completed reinvestigation.
+
+## Web questions
+
+- **Quick checking:** use `fetch_web` for a known URL. When discovering sources, use one `search_web` round and read key pages. “Non-reasoning” describes a model's search approach; a known URL does not establish its reasoning capability. A provider is not guaranteed to visit the origin live.
+- **Agentic search:** the host model decomposes targets, organizes queries, reads and follows gaps. Use currently callable subagents for independent topics; use existing host workflows for repeated grouping, verification and follow-up. Execution and agent lifecycle belong to the host.
+- **Deep research:** for sustained investigation or a research report, read the [deep research workflow](references/deep-research.md). Choose native host investigation, a host research workflow, or an optional [professional research service](references/research-services.md). Search MCP access does not establish research API authentication.
+
+For multiple sources, read [host workflows](references/host-workflows.md). `research_route` can suggest a route from the tools, commands and extensions actually visible now; it does not execute it. Codex uses native delegation, Claude a loaded Dynamic Workflow, Pi loaded extensions, and DSH a configured engine. Do not infer enabled capabilities from a host name or conflate documented support, component discovery and real execution. Claude's `/deep-research` needs explicit invocation; writing `ultracode` in a prompt is not a substitute for its real invocation conditions.
+
+For product comparisons, fact checking or leaderboard analysis, read [research methods](references/research-methods.md) and give readers and independent verifiers the selected method and questions. Use an existing SDK only when a real programmatic task lacks a host. This plugin does not implement a scheduler, agent pool or background worker.
+
+Before web research, read [research and provider access](references/research-workflow.md), then use actual available tools within the user's scope. Defaults are Exa + Parallel; Tavily is optional. Configuration and tool discovery do not establish authorization for an actual call. Local-only queries need no web reference or remote probe.
+
+For GitHub repositories, issues, code or Git synchronization, read [GitHub and synchronization boundaries](references/github-and-sync.md). No GitHub MCP is bundled. Prefer suitable GitHub tools actually available in the host; `fetch_web` can also read public pages.
+
+## Full scope for package research
+
+A request to research a package covers all its original URLs by default, retaining the folder, card and relationship context of every duplicate bookmark instance. Narrow scope only when the user selects a topic, card or source subset. Pagination, budget, duplicate URLs and subagent count never justify silently reducing scope.
+
+1. After syncing, call `research_start` with actual indexed `source_ids`. Default `scope_mode:"whole"` freezes the complete inventory. `bookmark_refs` can mark points of interest without reducing that scope. Use explicit `scope_mode:"subset"` only for a required subset and report selected and omitted items.
+2. Follow `research_inventory.next_offset` through the entire inventory. Distinguish package `source_id`, original-URL `u-...` inventory IDs and saved-text `sN` evidence IDs. Preserve every inventory ID in grouping; batching and concurrency change execution only.
+3. Fetch original URL text, or import text actually obtained by the host. Read it through `research_source`, then record `source_review`, cited claims and `inventory_review`. Search snippets, file import alone, successful child turns and external report citation lists do not substitute for reviewing original pages.
+4. Independently check claims and quotations, then use `research_coverage` to obtain missing/unread/unreviewed differences and continue. Record failures or login barriers as `blocked` with specific reasons; record justified out-of-scope/non-content items as `excluded` with reasons. Bulk exclusions or merely recording failures cannot establish whole-package completion.
+
+The initial reading budget has a lower bound based on URL count; inspect `initial_fetch_plan`. Each fetch may contain up to 8 URLs. Preserve explicit budgets and the full inventory if capacity is insufficient, reporting the gap. Plugin budgets cannot cover host or external-service consumption that the plugin cannot observe.
+
+## User settings
+
+Use `get_settings` when the user asks about configuration or storage. For a lasting preference, use `update_settings` to change only relevant fields. Apply temporary requirements as per-call overrides. See [settings and archives](references/settings-and-archive.md) for configuration and archive formats. These options use the shared implementation, not a freshly written script on each turn.
+
+## Deliverables and retention
+
+Answer simple queries directly; retain citations and actual scope in research reports. `fetch_web` archives actual responses, recognized text and source records by default; inspect failure, missing-content and completeness markers. `search_web` does not read result URLs automatically. A successful fetch and a matching quotation do not prove the claim: check page identity and citation meaning.
+
+Use `research_finish` for the report, source list and coverage details. Report accounted-for inputs, usable text, substantive review and question completion separately. Use `completed` only when full source review, answers and conflict checks satisfy the gate. Important gaps, active/unknown external runs or insufficient budget require `incomplete`. Records live in the data directory's `research/`. A `research_status` overview previews at most 20 entries; paginate full records. Record `resume` before continuing an incomplete archive. Saved records do not imply a running background agent.
+
+When knowledge synthesis is requested, use `wiki_write` to compile conclusions supported by accepted sources into topic/entity pages with links, revisions and review notes. Use `wiki_lint` for sources and links and `wiki_search` for authored text. The Wiki is outside the original package and has no automatic vectorization or webpage monitoring. For quality comparisons, prepare actual runs and independent judgment labels before calling `evaluate_research`; missing semantic scores, cost and latency remain unknown. See [Wiki and evaluation](references/wiki-and-evaluation.md).

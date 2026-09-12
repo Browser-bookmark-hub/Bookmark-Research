@@ -64,7 +64,7 @@ class McpServerTests(unittest.TestCase):
         return self.server.handle(request("tools/call", {"name": name, "arguments": arguments or {}}))
 
     def sync(self):
-        response = self.call("sync_package", {"package_path": str(self.package), "source_id": "fixture"})
+        response = self.call("sync_package", {"package_path": str(self.package), "source_id": "fixture", "mode": "live"})
         self.assertFalse(response["result"]["isError"], response)
         return decode_tool(response)
 
@@ -74,10 +74,15 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(response["result"]["capabilities"], {"tools": {}})
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
         self.assertEqual({tool["name"] for tool in listing}, {
-            "sync_package", "search_bookmarks", "get_context", "index_status",
+            "sync_package", "source_history", "search_bookmarks", "get_context", "index_status",
             "search_web", "fetch_web", "search_providers", "get_settings", "update_settings",
             "research_start", "research_status", "research_search", "research_fetch",
-            "research_source", "research_record", "research_finish"})
+            "research_source", "research_record", "research_finish", "research_inventory",
+            "research_coverage", "research_import_evidence", "research_route", "research_services",
+            "research_service_prepare", "research_service_start", "research_service_status",
+            "research_service_result", "research_service_cancel", "research_service_attach",
+            "research_service_import", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
+            "wiki_lint", "evaluate_research"})
         self.assertTrue(all(tool["inputSchema"]["additionalProperties"] is False for tool in listing))
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server._providers)

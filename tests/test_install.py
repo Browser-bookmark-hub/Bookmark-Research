@@ -37,6 +37,39 @@ class ScriptedCli:
         return result
 
 
+class InstallerLanguageTests(unittest.TestCase):
+    def test_explicit_language_and_locale_precedence(self):
+        cases = [
+            ("auto", {}, "en"),
+            ("auto", {"LANG": "zh_CN.UTF-8"}, "zh"),
+            ("auto", {"LANG": "en_US.UTF-8", "LC_MESSAGES": "zh_TW.UTF-8"}, "zh"),
+            ("auto", {"LANG": "zh_CN.UTF-8", "LC_MESSAGES": "zh_TW.UTF-8", "LC_ALL": "C"}, "en"),
+            ("auto", {"LANG": "zh_CN.UTF-8", "LC_ALL": ""}, "zh"),
+            ("auto", {"LANG": "fr_FR.UTF-8"}, "en"),
+            ("auto", {"LANG": "en", "BOOKMARK_RESEARCH_INSTALL_LANG": "zh"}, "zh"),
+            ("en", {"LANG": "zh_CN.UTF-8", "BOOKMARK_RESEARCH_INSTALL_LANG": "zh"}, "en"),
+            ("zh", {"LC_ALL": "C"}, "zh"),
+        ]
+        for requested, environment, expected in cases:
+            with self.subTest(requested=requested, environment=environment):
+                before = dict(environment)
+                self.assertEqual(install.resolve_language(requested, environment), expected)
+                self.assertEqual(environment, before)
+        with self.assertRaises(ValueError):
+            install.resolve_language("fr", {})
+
+    def test_python_help_accepts_language_before_or_after_action_without_installing(self):
+        for arguments, expected in ((["--lang", "en", "install", "--help"], "Installer language"),
+                                    (["install", "--help", "--lang", "zh"], "安装器语言")):
+            with self.subTest(arguments=arguments), mock.patch.object(install, "manage") as manage:
+                output = io.StringIO()
+                with mock.patch.object(install.sys, "stdout", output), self.assertRaises(SystemExit) as stopped:
+                    install.main(arguments)
+                self.assertEqual(stopped.exception.code, 0)
+                self.assertIn(expected, output.getvalue())
+                manage.assert_not_called()
+
+
 class InstallerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="bookmark-install-contract-")
@@ -89,6 +122,59 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.base / "user settings.json").exists())
         self.assertEqual(cli.steps, [])
 
+    def test_local_source_missing_host_assets_stops_before_native_mutation(self):
+        for relative in ("hosts/codex/delegate.md", "hosts/codex/prepare.py", "hosts/shared/research-call.py"):
+            with self.subTest(relative=relative):
+                asset = self.source / relative
+                original = asset.read_bytes()
+                asset.unlink()
+                cli = ScriptedCli([(["plugin", "marketplace", "list"], {"marketplaces": []})])
+                try:
+                    with self.assertRaisesRegex(ValueError, "Required host asset is missing") as caught:
+                        install.manage("install", cli, source=self.source)
+                    self.assertIn(relative, str(caught.exception))
+                    self.assertEqual(cli.calls, [["plugin", "marketplace", "list"]])
+                finally:
+                    asset.write_bytes(original)
+
+    def _check_invalid_cached_host_assets(self, missing):
+        for action in ("install", "update"):
+            for ordinal, relative in enumerate(("hosts/codex/delegate.md", "hosts/codex/prepare.py", "hosts/shared/research-call.py")):
+                with self.subTest(action=action, relative=relative):
+                    cached = self.base / (action + "-cache-" + str(ordinal))
+                    shutil.copytree(self.source, cached)
+                    asset = cached / relative
+                    if missing:
+                        asset.unlink()
+                    else:
+                        asset.write_bytes(asset.read_bytes() + b"\n# Stale cached host asset\n")
+                    if action == "install":
+                        steps = [
+                            (["plugin", "marketplace", "list"], {"marketplaces": []}),
+                            (["plugin", "marketplace", "add", str(self.source)], {"marketplaceName": install.NAME}),
+                        ]
+                    else:
+                        steps = [
+                            (["plugin", "marketplace", "list"], {"marketplaces": [self.local_marketplace]}),
+                            (["plugin", "list"], {"installed": [self.registration]}),
+                        ]
+                    steps.extend([
+                        (["plugin", "add", install.SELECTOR], {"pluginId": install.SELECTOR, "installedPath": str(cached)}),
+                        (["plugin", "list"], {"installed": [self.registration]}),
+                    ])
+                    cli = ScriptedCli(steps)
+                    with self.assertRaises((ValueError, RuntimeError)) as caught:
+                        install.manage(action, cli, source=self.source if action == "install" else None)
+                    self.assertIn(relative, str(caught.exception))
+                    self.assertEqual(cli.steps, [])
+                    self.assertFalse((self.base / "user data").exists())
+
+    def test_local_install_and_update_reject_missing_cached_host_assets(self):
+        self._check_invalid_cached_host_assets(missing=True)
+
+    def test_local_install_and_update_reject_stale_cached_host_assets(self):
+        self._check_invalid_cached_host_assets(missing=False)
+
     def test_onboarding_reads_actual_preferences_and_its_command_works_outside_source(self):
         settings_path = self.base / "user settings.json"
         original = '{"search":{"providers":["tavily"],"limit_per_target":3},"archive":{"enabled":false}}'
@@ -107,6 +193,46 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("tavily", output.getvalue())
         self.assertNotIn("environment-secret-marker", output.getvalue() + json.dumps(guide))
         self.assertEqual(settings_path.read_text(), original)
+        self.assertFalse((self.base / "user data").exists())
+
+    def test_runtime_discovery_cannot_monitor_the_users_existing_sources(self):
+        from test_bookmark_index import BookmarkIndex, TEMP, make_package, read_json, write_json
+        from source_manager import SourceManager
+        package = self.base / "user-package"
+        make_package(package)
+        database = Path(os.environ["BOOKMARK_RESEARCH_DATA_DIR"]) / "index.sqlite3"
+        with BookmarkIndex(database) as index:
+            SourceManager(index).sync(package, "user-source", mode="live")
+        before = database.read_bytes()
+        document = read_json(package, TEMP)
+        document["items"][0]["children"][0]["note"] = "not-yet-synchronized"
+        write_json(package, TEMP, document)
+        result = install._runtime_check(self.source)
+        self.assertIn("source_history", result["mcp_tools"])
+        self.assertFalse(result["database_created"])
+        self.assertEqual(database.read_bytes(), before)
+        with BookmarkIndex(database) as index:
+            self.assertEqual(index.search("user-source", targets=["not-yet-synchronized"])["total"], 0)
+
+    def test_onboarding_languages_preserve_identical_settings_and_commands(self):
+        path = self.base / "user settings.json"
+        original = '{"search":{"providers":["tavily"]},"archive":{"enabled":false}}'
+        path.write_text(original)
+        guides = []
+        for language, expected in (("en", "Next steps:"), ("zh", "下一步：")):
+            guide = install._getting_started(self.source, language=language)
+            output = io.StringIO()
+            with mock.patch.object(install.sys, "stderr", output):
+                install._print_getting_started(guide)
+            self.assertIn(expected, output.getvalue())
+            self.assertIn(guide["first_prompt"], output.getvalue())
+            self.assertIn("tavily", output.getvalue())
+            self.assertEqual(guide["language"], language)
+            self.assertEqual(path.read_text(), original)
+            guides.append(guide)
+        self.assertEqual(guides[0]["configuration"], guides[1]["configuration"])
+        self.assertEqual(guides[0]["settings_command"], guides[1]["settings_command"])
+        self.assertIn("installation.en.md", guides[0]["guide_url"])
         self.assertFalse((self.base / "user data").exists())
 
     def test_onboarding_keeps_unreadable_settings_and_does_not_present_defaults(self):
@@ -172,6 +298,23 @@ class InstallerTests(unittest.TestCase):
         cli = ScriptedCli([(["plugin", "list"], {"installed": [{**self.registration, "version": "9.0.0"}]})])
         with self.assertRaisesRegex(ValueError, "cache version differs"):
             install.verify(cli, self.source)
+
+    def test_standalone_verify_rejects_missing_or_symlinked_host_assets(self):
+        for invalid_kind in ("missing", "symlink"):
+            for ordinal, relative in enumerate(("hosts/codex/delegate.md", "hosts/codex/prepare.py", "hosts/shared/research-call.py")):
+                with self.subTest(invalid_kind=invalid_kind, relative=relative):
+                    cached = self.base / (invalid_kind + "-verify-cache-" + str(ordinal))
+                    shutil.copytree(self.source, cached)
+                    asset = cached / relative
+                    asset.unlink()
+                    if invalid_kind == "symlink":
+                        asset.symlink_to(self.source / relative)
+                    cli = ScriptedCli([(["plugin", "list"], {"installed": [self.registration]})])
+                    with self.assertRaises(ValueError) as caught:
+                        install.verify(cli, cached)
+                    self.assertIn(relative, str(caught.exception))
+                    self.assertEqual(cli.steps, [])
+                    self.assertFalse((self.base / "user data").exists())
 
     def test_source_validation_rejects_credential_urls_and_local_refs(self):
         for value in ("https://user:secret@example.test/repo.git", "https://example.test/repo?token=secret",
@@ -247,9 +390,16 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.settings.write_text('{"archive":{"enabled":false}}', encoding="utf-8")
         probe.write_text("value = 'after'\n", encoding="utf-8")
         obsolete.unlink()
+        updated_host_assets = {}
+        for relative in ("hosts/codex/delegate.md", "hosts/codex/prepare.py", "hosts/shared/research-call.py"):
+            asset = self.source / relative
+            updated_host_assets[relative] = asset.read_bytes() + b"\n# Updated host asset\n"
+            asset.write_bytes(updated_host_assets[relative])
         updated = self.run_installer("update")
         self.assertEqual(Path(updated["installed_path"], "src/install_probe.py").read_text(), "value = 'after'\n")
         self.assertFalse(Path(updated["installed_path"], "src/obsolete_probe.py").exists())
+        for relative, expected in updated_host_assets.items():
+            self.assertEqual((Path(updated["installed_path"]) / relative).read_bytes(), expected)
         manifest_path = self.source / ".codex-plugin/plugin.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["version"] = "9.8.7"

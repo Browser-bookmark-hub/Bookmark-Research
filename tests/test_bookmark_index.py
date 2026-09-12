@@ -1,12 +1,15 @@
 """Behavioral tests: package semantics, incremental persistence and isolation."""
 
 import hashlib
+import concurrent.futures
 import json
 import shutil
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from bookmark_index import BookmarkIndex
@@ -84,6 +87,89 @@ class IndexBehaviorTests(unittest.TestCase):
 
     def revisions(self):
         return {row["item_id"]: (row["pk"], row["revision"]) for row in self.index.connection.execute("SELECT * FROM items")}
+
+    def test_complete_inventory_preserves_instances_folders_and_copy_appearances(self):
+        before = {str(path.relative_to(self.package)): hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in self.package.rglob("*") if path.is_file()}
+        with patch.object(self.index, "search", side_effect=AssertionError("Inventory must not depend on search limits")):
+            inventory = self.index.inventory(["demo"])
+        self.assertEqual(inventory["counts"]["unique_urls"], 4)
+        self.assertEqual(inventory["counts"]["bookmark_instances"], 5)
+        self.assertEqual(inventory["counts"]["folders"], 3)
+        self.assertEqual(inventory["counts"]["nodes"], 5)
+        self.assertEqual(inventory["counts"]["edges"], 2)
+        self.assertEqual(inventory["counts"]["memberships"], 1)
+        alpha = next(row for row in inventory["entries"] if row["original_url"].endswith("/alpha"))
+        self.assertEqual(len(alpha["instances"]), 2)
+        primary, temporary = alpha["instances"]
+        self.assertEqual(primary["ancestor_ids"], ["root", "companies"])
+        self.assertEqual(primary["metadata"]["extra"], "preserved")
+        self.assertEqual({row["label"] for row in primary["appearances"]}, {"A", "B"})
+        self.assertEqual({edge["direction"] for view in primary["appearances"] for edge in view["edges"]}, {"forward", "none"})
+        self.assertEqual(temporary["appearances"][0]["memberships"][0]["group_id"], "group-one")
+        self.assertEqual({row["file_path"]: row["sha256"] for row in inventory["files"]}, before)
+        self.assertEqual(before, {str(path.relative_to(self.package)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                 for path in self.package.rglob("*") if path.is_file()})
+        self.index.refresh("demo")
+        self.assertEqual(self.index.inventory(["demo"])["input_version"], inventory["input_version"])
+
+    def test_inventory_keeps_exact_urls_separate_and_stable_across_input_versions(self):
+        original = self.index.inventory(["demo"])
+        section = read_json(self.package, TEMP)
+        section["items"].extend([{"id": "fragment-1", "type": "bookmark", "title": "Anchor", "url": "https://example.test/alpha#one"},
+                                  {"id": "local-document", "type": "bookmark", "title": "Local", "url": "file:///notes.pdf"},
+                                  {"id": "separator", "type": "bookmark", "title": "Separator", "url": "---"}])
+        write_json(self.package, TEMP, section)
+        self.index.refresh("demo")
+        current = self.index.inventory(["demo"])
+        self.assertNotEqual(current["input_version"], original["input_version"])
+        self.assertEqual(current["counts"]["unique_urls"], 7)
+        self.assertTrue({row["id"] for row in original["entries"]} < {row["id"] for row in current["entries"]})
+        by_url = {row["original_url"]: row for row in current["entries"]}
+        self.assertNotEqual(by_url["https://example.test/alpha"]["id"], by_url["https://example.test/alpha#one"]["id"])
+        self.assertEqual(by_url["https://example.test/alpha"]["retrieval_url"], by_url["https://example.test/alpha#one"]["retrieval_url"])
+        self.assertEqual(by_url["file:///notes.pdf"]["url_kind"], "local")
+        self.assertIsNone(by_url["---"]["retrieval_url"])
+        moved = self.base / "Moved"
+        shutil.copytree(self.package, moved)
+        self.index.sync(moved, "demo")
+        moved_inventory = self.index.inventory(["demo"])
+        self.assertEqual(moved_inventory["input_version"], current["input_version"])
+        self.assertEqual(moved_inventory["entries"], current["entries"])
+
+    def test_inventory_is_one_consistent_read_during_concurrent_sync(self):
+        self.index.connection.execute("PRAGMA journal_mode=WAL")
+        initial = self.index.inventory(["demo"])
+        reading, committed = threading.Event(), threading.Event()
+        original_item_result = self.index._item_result
+
+        def writer():
+            if not reading.wait(5):
+                raise AssertionError("Reader did not reach its snapshot")
+            primary = read_json(self.package, PRIMARY)
+            primary["tree"]["children"][0]["children"][0]["title"] = "Changed after snapshot"
+            write_json(self.package, PRIMARY, primary)
+            with BookmarkIndex(self.db_path) as index:
+                index.refresh("demo")
+            committed.set()
+
+        def paused_item(row):
+            if not reading.is_set():
+                reading.set()
+                if not committed.wait(5):
+                    raise AssertionError("Concurrent writer did not commit")
+            return original_item_result(row)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(writer)
+            with patch.object(self.index, "_item_result", side_effect=paused_item):
+                captured = self.index.inventory(["demo"])
+            future.result(timeout=5)
+        self.assertEqual(captured, initial)
+        current = self.index.inventory(["demo"])
+        self.assertNotEqual(current["input_version"], initial["input_version"])
+        titles = [item["title"] for row in current["entries"] for item in row["instances"]]
+        self.assertIn("Changed after snapshot", titles)
 
     def test_metadata_copies_context_order_and_literal_batch(self):
         self.assertEqual(self.index.status("demo")["bookmarks"], 5)

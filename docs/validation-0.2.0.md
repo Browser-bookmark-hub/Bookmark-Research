@@ -14,7 +14,7 @@
 | 有依据的结论 | 来源身份审阅、原句匹配、哈希校验、被拒绝来源拦截、撤回结论后重开问题 |
 | 学习 Qwen 安装结构 | [安装设计](install-design-0.2.0.md)：原生 CLI、install/update/verify、来源选择、固定版本与配置分离 |
 | 可下载和验证的包 | `scripts/build_zip.py` 生成普通 ZIP 与 `--include-tests` 验证包；确定性文件清单与 SHA-256 |
-| 详细查看调研 URL | [完整来源清单](research-sources-0.2.0.json)：逐项读取、失败、私人链接处理和来源质量状态 |
+| 详细查看调研 URL | [v0.2.0 历史来源清单](https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/v0.2.0/docs/research-sources-0.2.0.json)：逐项读取、失败、私人链接处理和来源质量状态；新版 ZIP 不附带实例清单 |
 
 ## 离线测试
 
@@ -46,7 +46,7 @@ python3 scripts/verify_fixture.py --output /tmp/bookmark-research-validation
 
 独立审查发现并修复了回执已写但状态未提交时的来源恢复、超过 2 MiB 的研究状态返回、MCP 错误标记、撤回结论被脚注渲染隐藏等问题。回归用例包括 45 条 claim／540 段长引用的完整分页与完成响应；审查者另用实际 Markdown 渲染器确认历史结论和跳转链接可见。
 
-另一位代理按 Skill 自主探索合成画布，没有读取预设验证流程或答案。它找到 Investigation 组的 4 个书签及后续连线，发现 scenario 缺少 update 页后诚实交付 incomplete。补齐合成资料后，评估又暴露 incomplete 报告缺少恢复入口；现通过 `research_record kind=resume` 在同一任务继续。原报告、状态和来源快照保留，补读后完成报告，fetch 预算从 2/4 增至 3/4，原 unknown_outcome 不退款。初次失败和修复后结果保存在 `/tmp/bookmark-research-skill-eval-0bclzs9d/`，没有把首次运行改写成全程成功。
+另一位代理按 Skill 自主探索合成画布，没有读取预设验证流程或答案。它找到 Investigation 组的 4 个书签及后续连线，发现 scenario 缺少 update 页后诚实交付 incomplete。补齐合成资料后，评估又暴露 incomplete 报告缺少恢复入口；现通过 `research_record kind=resume` 在同一任务继续。原报告、状态和来源快照保留，补读后完成报告，fetch 预算从 2/4 增至 3/4，原 unknown_outcome 不退款。初次失败和修复后结果保存在本机独立验收目录，没有把首次运行改写成全程成功。
 
 恢复另经独立故障注入复核：连续两次恢复的 6 份快照逐字节一致，原报告的 9 个相对链接可解析；快照写入或状态保存失败时原产物保持完整，再次恢复不重复网络调用、不增加预算。
 
@@ -71,7 +71,7 @@ python3 scripts/verify_fixture.py --output /tmp/bookmark-research-0.2.0-fixture-
 
 计数使用原 JSON 的独立遍历与导入后的 SQLite 交叉核对。这里没有联网抓取这 557 个 URL。完整个人路径与逐文件哈希保存在本地验证输出，公开测试包只收录合成数据。
 
-另一个 AI 升级调研包的 223 个书签实例／207 个去重 URL，其研究覆盖与无法读取项单独列在 [来源清单](research-sources-0.2.0.json)，不把这些实例数混作公司或独立证据数。
+另一个 AI 升级调研包的 223 个书签实例／207 个去重 URL，其研究覆盖与无法读取项单独列在 [v0.2.0 历史来源清单](https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/v0.2.0/docs/research-sources-0.2.0.json)，不把这些实例数混作公司或独立证据数。
 
 ## 真实服务验证
 
@@ -87,7 +87,7 @@ python3 tests/live_provider_smoke.py --run-live --output /tmp/bookmark-provider-
 
 ## 真实研究流程
 
-使用工作区 0.2.0 的 `ResearchSessions`，由宿主模型实际完成“核验三层搜索与原生深度研究服务的边界”。任务 `r-e7090e9833194564` 位于本机 `/tmp/bookmark-research-0.2.0-live-research/sessions/`；网络步骤在不同进程中继续，读取已存来源、审核正文、记录原句后综合报告。
+使用工作区 0.2.0 的 `ResearchSessions`，由宿主模型实际完成“核验三层搜索与原生深度研究服务的边界”。任务 `r-e7090e9833194564` 保存在本机独立研究目录；网络步骤在不同进程中继续，读取已存来源、审核正文、记录原句后综合报告。
 
 | 观察项 | 实际结果 |
 | --- | --- |

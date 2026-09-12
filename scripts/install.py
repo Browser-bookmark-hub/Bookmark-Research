@@ -8,13 +8,39 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from export_bundle import NAME, SOURCE_ROOT, _copy_plan, read_plugin_manifest
+from host_assets import read_asset
 
 
 SELECTOR = NAME + "@" + NAME
+CODEX_HOST_FILES = (
+    "hosts/codex/delegate.md",
+    "hosts/codex/prepare.py",
+    "hosts/shared/research-call.py",
+)
+
+
+def resolve_language(language="auto", environment=None):
+    """Choose installer copy without changing the process locale or user settings."""
+    if language not in ("auto", "en", "zh"):
+        raise ValueError("--lang must be auto, en, or zh")
+    if language != "auto":
+        return language
+    environment = os.environ if environment is None else environment
+    forwarded = environment.get("BOOKMARK_RESEARCH_INSTALL_LANG")
+    if forwarded in ("en", "zh"):
+        return forwarded
+    locale = next((environment.get(key) for key in ("LC_ALL", "LC_MESSAGES", "LANG")
+                   if environment.get(key)), "en")
+    return "zh" if locale.lower().startswith("zh") else "en"
+
+
+def _message(language, english, chinese):
+    return chinese if language == "zh" else english
 
 
 class CodexCli:
@@ -83,6 +109,8 @@ def _source(value, ref=None):
         root = path.resolve()
         manifest = read_plugin_manifest(root)
         _copy_plan(root)
+        for relative in CODEX_HOST_FILES:
+            read_asset(root, relative)
         marketplace_path = root / ".agents/plugins/marketplace.json"
         marketplace = json.loads(marketplace_path.read_text(encoding="utf-8"))
         if not isinstance(marketplace, dict) or marketplace.get("name") != NAME:
@@ -128,6 +156,8 @@ def _cached_path(installed):
 
 def _runtime_check(root, timeout=30):
     manifest = read_plugin_manifest(root)
+    for relative in CODEX_HOST_FILES:
+        read_asset(root, relative)
     command = [sys.executable, "-B", str(root / "src/cli.py"), "doctor"]
     doctor = subprocess.run(command, cwd=root.parent, text=True, capture_output=True, timeout=timeout)
     if doctor.returncode:
@@ -145,10 +175,15 @@ def _runtime_check(root, timeout=30):
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     ]
-    environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-    mcp = subprocess.run([server["command"], *server["args"]], cwd=root,
-                         input="\n".join(json.dumps(row) for row in requests) + "\n",
-                         text=True, capture_output=True, timeout=timeout, env=environment)
+    # Startup now monitors registered live sources. Tool discovery during an
+    # installation check must use an empty store, not start syncing user data.
+    with tempfile.TemporaryDirectory(prefix="bookmark-runtime-check-") as probe_data:
+        environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", BOOKMARK_RESEARCH_DATA_DIR=probe_data)
+        mcp = subprocess.run([server["command"], *server["args"]], cwd=root,
+                             input="\n".join(json.dumps(row) for row in requests) + "\n",
+                             text=True, capture_output=True, timeout=timeout, env=environment)
+        if (Path(probe_data) / "index.sqlite3").exists():
+            raise RuntimeError("MCP discovery unexpectedly created a database")
     if mcp.returncode:
         raise RuntimeError("Installed MCP startup failed: " + mcp.stderr.strip()[-2000:])
     responses = {row.get("id"): row for row in (json.loads(line) for line in mcp.stdout.splitlines())}
@@ -177,14 +212,20 @@ def verify(cli, installed_path=None):
             "installed": True, "enabled": True, "verified": True, "runtime": runtime}
 
 
-def _getting_started(installed_path, timeout=30):
+def _getting_started(installed_path, timeout=30, language="auto"):
     """Read the installed runtime's preferences without initializing user data."""
+    language = resolve_language(language)
+    message = lambda english, chinese: _message(language, english, chinese)
     command = ["python3", "-B", str(Path(installed_path) / "src/cli.py"), "config", "show"]
     guide = {
-        "first_prompt": '用 Bookmark Research 读取我的书签画布包 "/absolute/path/to/my-canvas-package"，'
-                        '先离线列出栏目、文件夹和书签数量。',
+        "language": language,
+        "first_prompt": message(
+            'Use Bookmark Research to read my canvas package at "/absolute/path/to/my-canvas-package". '
+            'First list its sections, folders, and bookmark counts offline.',
+            '用 Bookmark Research 读取我的书签画布包 "/absolute/path/to/my-canvas-package"，先离线列出栏目、文件夹和书签数量。'),
         "settings_command": command,
-        "guide_url": "https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/main/docs/installation.md#首次使用与数据位置",
+        "guide_url": "https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/main/docs/" + message(
+            "installation.en.md#first-use-and-data-locations", "installation.md#首次使用与数据位置"),
         "configuration": None, "configuration_summary": [], "configuration_error": None,
     }
     try:
@@ -194,46 +235,64 @@ def _getting_started(installed_path, timeout=30):
         configuration = json.loads(checked.stdout)
         settings = configuration["settings"]
         summary = [
-            "配置：" + ("沿用已保存的设置" if configuration["config_exists"] else "使用默认值，无需先创建配置文件"),
-            "搜索：%s；每目标 %s 条结果" % (" + ".join(settings["search"]["providers"]), settings["search"]["limit_per_target"]),
-            "正文读取：%s；长度参数 %s 字符；超时 %s 秒" % (
+            message("Settings: ", "配置：") + (message("using saved preferences", "沿用已保存的设置")
+                if configuration["config_exists"] else message("using defaults; no config file is required", "使用默认值，无需先创建配置文件")),
+            message("Search: %s; %s results per target", "搜索：%s；每目标 %s 条结果") % (
+                " + ".join(settings["search"]["providers"]), settings["search"]["limit_per_target"]),
+            message("Page reading: %s; length parameter %s characters; timeout %s seconds", "正文读取：%s；长度参数 %s 字符；超时 %s 秒") % (
                 settings["fetch"]["provider"], settings["fetch"]["max_characters"], settings["timeout_seconds"]),
-            "普通网页读取自动归档：" + ("开启" if settings["archive"]["enabled"] else "关闭"),
-            "归档目录：" + settings["archive"]["directory"],
-            "配置文件：" + configuration["config_path"],
+            message("Archive ordinary page reads: ", "普通网页读取自动归档：") + (
+                message("enabled", "开启") if settings["archive"]["enabled"] else message("disabled", "关闭")),
+            message("Archive directory: ", "归档目录：") + settings["archive"]["directory"],
+            message("Config file: ", "配置文件：") + configuration["config_path"],
         ]
         guide.update(configuration=configuration, configuration_summary=summary)
     except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired):
         # Installation is already verified. Keep an unreadable existing config
         # intact, and avoid exposing its contents or replacing it with defaults.
-        guide["configuration_error"] = "现有配置读取失败。请运行下方配置查询命令查看原因并修正文件；原文件已保留。"
+        guide["configuration_error"] = message(
+            "Could not read existing settings. Run the config command below to diagnose and fix the file; the original was preserved.",
+            "现有配置读取失败。请运行下方配置查询命令查看原因并修正文件；原文件已保留。")
     return guide
 
 
 def _print_getting_started(guide):
-    lines = ["", "Bookmark Research 安装完成，运行检查已通过。"]
+    language = resolve_language(guide.get("language", "auto"))
+    message = lambda english, chinese: _message(language, english, chinese)
+    lines = ["", message("Bookmark Research installed; runtime checks passed.", "Bookmark Research 安装完成，运行检查已通过。")]
     if guide["configuration_error"]:
-        lines.extend([guide["configuration_error"], "配置修正后，按以下步骤开始："])
+        lines.extend([guide["configuration_error"], message("After fixing the configuration, start here:", "配置修正后，按以下步骤开始：")])
     else:
         lines.extend(guide["configuration_summary"])
     lines.extend([
-        "", "下一步：",
-        "1. 在 Codex 新建对话，让客户端加载插件。",
-        "2. 准备自己的 Bookmark Canvas 数据包，把下面的占位路径换成实际路径后发送：",
+        "", message("Next steps:", "下一步："),
+        message("1. Start a new Codex thread to load the plugin.", "1. 在 Codex 新建对话，让客户端加载插件。"),
+        message("2. Prepare your Bookmark Canvas directory, ZIP, or single-card JSON. Replace the path below and send:",
+                "2. 准备自己的 Bookmark Canvas 目录、ZIP 或单卡 JSON，把下面的占位路径换成实际路径后发送："),
         "   " + guide["first_prompt"],
-        "3. 只做网页研究时可直接提出主题，无需先导入书签。研究使用当前对话的模型，无需另填模型名称或地址。",
-        "", "本地书签查询不需要 API Key。网页研究使用所选服务，匿名额度和认证要求由服务方决定。",
-        "需要密钥时，在启动客户端的环境中配置 EXA_API_KEY、PARALLEL_API_KEY 或 TAVILY_API_KEY。",
-        "", "可选配置：在对话中说“显示 Bookmark Research 的配置”，或“以后只用 Exa 搜索”。",
-        "归档偏好也可通过对话修改；深度研究始终保留任务证据。",
-        "查看配置的终端命令（可从任意目录运行）：",
+        message("   Manual exports become snapshots. For automatic local updates, identify a persistent live directory.",
+                "   手动导出会保存为快照；需要自动更新时，说明这是持续同步目录。"),
+        message("3. For web-only research, provide a topic directly. Research uses the current host model; no extra model address is required.",
+                "3. 只做网页研究时可直接提出主题，无需先导入书签。研究使用当前对话的模型，无需另填模型名称或地址。"),
+        "", message("Local queries require no API key. Web access depends on the selected provider's authentication and limits.",
+                    "本地书签查询不需要 API Key。网页研究使用所选服务，匿名额度和认证要求由服务方决定。"),
+        message("When needed, set EXA_API_KEY, PARALLEL_API_KEY, or TAVILY_API_KEY in the environment that launches the client.",
+                "需要密钥时，在启动客户端的环境中配置 EXA_API_KEY、PARALLEL_API_KEY 或 TAVILY_API_KEY。"),
+        "", message('Optional settings: ask "Show Bookmark Research settings" or "Use only Exa for future searches".',
+                    "可选配置：在对话中说“显示 Bookmark Research 的配置”，或“以后只用 Exa 搜索”。"),
+        message("You can change page archiving preferences in chat. Deep research always preserves its task evidence.",
+                "归档偏好也可通过对话修改；深度研究始终保留任务证据。"),
+        message("Config command (works from any directory):", "查看配置的终端命令（可从任意目录运行）："),
         "  " + shlex.join(guide["settings_command"]),
-        "首次使用与配置说明：" + guide["guide_url"],
+        message("First use and configuration: ", "首次使用与配置说明：") + guide["guide_url"],
+        message("Ask in English or Chinese; specify a different answer/report language when needed. Original quotations are preserved.",
+                "可以用中文或英文提问，也可以指定答复和报告语言；原始引用保留原文。"),
     ])
     print("\n".join(lines), file=sys.stderr)
 
 
-def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=None):
+def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=None, language="auto"):
+    language = resolve_language(language)
     if action == "verify":
         return verify(cli, installed_path)
     current = _marketplace(cli)
@@ -259,7 +318,7 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
             requested = _source(requested["source"])
             commands = []
     commands.append(["plugin", "add", SELECTOR])
-    plan = {"action": action, "source": requested, "dry_run": dry_run,
+    plan = {"action": action, "source": requested, "dry_run": dry_run, "language": language,
             "commands": [[cli.binary, *command, "--json"] for command in commands]}
     if dry_run:
         return plan
@@ -285,33 +344,45 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
         for relative in [Path(".codex-plugin/plugin.json"), *_copy_plan(source_root, include_codex_metadata=True)]:
             if (source_root / relative).read_bytes() != (cached_root / relative).read_bytes():
                 raise RuntimeError("Installed cache differs from the selected source: " + relative.as_posix())
-    result = {**plan, **verified, "next_step": "Start a new Codex thread to load the updated Skill and MCP tools."}
+        for relative in CODEX_HOST_FILES:
+            if read_asset(source_root, relative) != read_asset(cached_root, relative):
+                raise RuntimeError("Installed cache differs from the selected source: " + relative)
+    result = {**plan, **verified, "next_step": _message(language,
+        "Start a new Codex thread to load the updated Skill and MCP tools.", "在 Codex 新建对话以加载更新后的 Skill 和 MCP 工具。")}
     if action == "install":
-        result["getting_started"] = _getting_started(verified["installed_path"], cli.timeout)
+        result["getting_started"] = _getting_started(verified["installed_path"], cli.timeout, language)
     return result
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    language_parser = argparse.ArgumentParser(add_help=False)
+    language_parser.add_argument("--lang", choices=("auto", "en", "zh"), default="auto")
+    preliminary, _ = language_parser.parse_known_args(argv)
+    language = resolve_language(preliminary.lang)
+    message = lambda english, chinese: _message(language, english, chinese)
+    parser = argparse.ArgumentParser(description=message(__doc__, "通过 Codex 原生 CLI 安装、更新或验证 Bookmark Research。"))
+    language_help = message("Installer language; auto follows LC_ALL, LC_MESSAGES, then LANG", "安装器语言；auto 依次读取 LC_ALL、LC_MESSAGES、LANG")
+    parser.add_argument("--lang", choices=("auto", "en", "zh"), default=argparse.SUPPRESS, help=language_help)
     subparsers = parser.add_subparsers(dest="action", required=True)
     for action in ("install", "update", "verify"):
         command = subparsers.add_parser(action)
-        command.add_argument("--codex", default="codex", help="Codex CLI executable, optionally an absolute path")
-        command.add_argument("--timeout", type=int, default=60, help="Timeout for each native command in seconds (1-300)")
+        command.add_argument("--lang", choices=("auto", "en", "zh"), default=argparse.SUPPRESS, help=language_help)
+        command.add_argument("--codex", default="codex", help=message("Codex CLI executable, optionally an absolute path", "Codex CLI 程序名或绝对路径"))
+        command.add_argument("--timeout", type=int, default=60, help=message("Timeout for each native command in seconds (1-300)", "每条原生命令的超时秒数（1–300）"))
         if action == "install":
-            command.add_argument("--source", help="Local marketplace root or Git repository; defaults to this source tree")
-            command.add_argument("--ref", help="Optional Git tag, branch, or commit; local sources must be checked out separately")
+            command.add_argument("--source", help=message("Local marketplace root or Git repository; defaults to this source tree", "本地 marketplace 根目录或 Git 仓库；默认当前源码目录"))
+            command.add_argument("--ref", help=message("Optional Git tag, branch, or commit; local sources must be checked out separately", "可选 Git tag、分支或提交；本地来源需自行 checkout"))
         if action == "verify":
-            command.add_argument("--installed-path", help="Override the native cache path returned by codex plugin add --json")
+            command.add_argument("--installed-path", help=message("Override the native cache path returned by codex plugin add --json", "指定 codex plugin add --json 返回的安装缓存路径"))
         else:
-            command.add_argument("--dry-run", action="store_true", help="Read current registration and print commands without installing")
+            command.add_argument("--dry-run", action="store_true", help=message("Read current registration and print commands without installing", "读取登记状态并预览命令，不执行安装"))
     args = parser.parse_args(argv)
     if not 1 <= args.timeout <= 300:
-        parser.error("--timeout must be between 1 and 300")
+        parser.error(message("--timeout must be between 1 and 300", "--timeout 必须在 1 到 300 之间"))
     try:
         result = manage(args.action, CodexCli(args.codex, args.timeout),
                         source=getattr(args, "source", None), ref=getattr(args, "ref", None),
-                        dry_run=getattr(args, "dry_run", False), installed_path=getattr(args, "installed_path", None))
+                        dry_run=getattr(args, "dry_run", False), installed_path=getattr(args, "installed_path", None), language=language)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(json.dumps({"error": str(error), "verified": False}, ensure_ascii=False), file=sys.stderr)
         return 1

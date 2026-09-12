@@ -25,7 +25,8 @@ class ResearchTests(unittest.TestCase):
         self.engine = Mock()
         self.engine.search.side_effect = self.search_response
         self.engine.fetch.side_effect = self.fetch_response
-        self.sessions = ResearchSessions(self.base / "research", settings=self.settings, engine=self.engine)
+        self.sessions = ResearchSessions(self.base / "research", settings=self.settings, engine=self.engine,
+                                         db_path=self.base / "index.sqlite3")
 
     @staticmethod
     def search_response(targets, providers, limit_per_target):
@@ -64,6 +65,12 @@ class ResearchTests(unittest.TestCase):
     def test_status_is_offline_and_start_keeps_private_scope_out_of_queries(self):
         self.assertEqual(self.sessions.status()["sessions"], [])
         self.assertFalse(self.sessions.directory.exists())
+        from bookmark_index import BookmarkIndex
+        from test_bookmark_index import make_package
+        package = self.base / "private canvas"
+        make_package(package)
+        with BookmarkIndex(self.sessions.db_path) as index:
+            index.sync(package, "my-private-canvas")
         research_id = self.start(scope="PRIVATE_NOTE must stay local", source_ids=["my-private-canvas"])
         self.engine.search.assert_not_called()
         self.assertFalse((self.base / "settings.json").exists())
@@ -253,7 +260,7 @@ class ResearchTests(unittest.TestCase):
         self.assertIn("Content review: rejected", report)
         self.assertEqual(finished["questions"][0]["claim_ids"], ["c2"])
 
-    def test_minimal_bookmark_context_preserves_duplicate_url_instances(self):
+    def test_explicit_subset_context_preserves_duplicates_and_focus_does_not_narrow_whole_scope(self):
         from bookmark_index import BookmarkIndex
         from test_bookmark_index import make_package
         package = self.base / "user canvas"
@@ -264,14 +271,24 @@ class ResearchTests(unittest.TestCase):
             rows = index.search("fixture", targets=["https://example.test/alpha"])["results"]
         self.sessions.db_path = database
         refs = [{key: row[key] for key in ("source_id", "section_id", "item_id")} for row in rows]
-        research_id = self.start(bookmark_refs=refs)
+        whole_id = self.start(bookmark_refs=refs)
+        whole = self.sessions.status(whole_id)
+        self.assertEqual(whole["source_scope"]["mode"], "whole")
+        self.assertEqual(whole["source_scope"]["selected_url_count"], 4)
+        self.assertEqual(whole["source_scope"]["selected_instance_count"], 5)
+        research_id = self.start(bookmark_refs=refs, scope_mode="subset")
         current = self.sessions.status(research_id)
+        self.assertEqual(current["source_scope"]["mode"], "subset")
+        self.assertEqual(current["source_scope"]["selected_url_count"], 1)
+        self.assertEqual(len(current["source_scope"]["omitted_inventory_ids"]), 3)
         self.assertEqual(len(current["bookmark_context"]), 2)
         context = json.loads(Path(current["context_manifest"]).read_text())
         self.assertEqual(len(context["bookmarks"]), 2)
-        self.assertNotIn('"note"', json.dumps(context))
-        self.assertNotIn('"tags"', json.dumps(context))
-        self.assertNotIn('"raw_json"', json.dumps(context))
+        for bookmark in context["bookmarks"]:
+            self.assertNotIn("note", bookmark)
+            self.assertNotIn("tags", bookmark)
+            self.assertNotIn("raw_json", bookmark)
+        self.assertTrue(context["bookmarks"][0]["edges"])
         fetched = self.sessions.fetch(research_id, "linked-page", "q1", ["https://example.test/alpha"])
         self.assertEqual(fetched["sources"][0]["bookmark_refs"], refs)
         self.assertNotIn("fixture", str(self.engine.fetch.call_args))

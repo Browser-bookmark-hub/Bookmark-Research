@@ -29,7 +29,7 @@ class BootstrapTests(unittest.TestCase):
         self.remote = self.base / "remote source"
         export_bundle.export_bundle("codex", self.remote)
         (self.remote / "scripts").mkdir()
-        for name in ("install.py", "export_bundle.py"):
+        for name in ("install.py", "export_bundle.py", "host_assets.py"):
             shutil.copyfile(ROOT / "scripts" / name, self.remote / "scripts" / name)
         (self.remote / "src/bootstrap_probe.py").write_text("value = 'before'\n")
         self.outside = self.base / '中文 cwd $(literal) "quotes"'
@@ -65,8 +65,8 @@ else:
                                 CODEX_HOME=str(self.profile), TMPDIR=str(self.downloads),
                                 BOOKMARK_RESEARCH_DATA_DIR=str(self.data),
                                 BOOKMARK_RESEARCH_CONFIG=str(self.settings),
-                                BOOTSTRAP_TEST_CALLS=str(self.calls), PYTHONDONTWRITEBYTECODE="1")
-        for name in ("GIT_CONFIG_COUNT", "PYTHONPATH", "PYTHONHOME"):
+                                BOOTSTRAP_TEST_CALLS=str(self.calls), PYTHONDONTWRITEBYTECODE="1", LC_ALL="C")
+        for name in ("GIT_CONFIG_COUNT", "PYTHONPATH", "PYTHONHOME", "BOOKMARK_RESEARCH_INSTALL_LANG"):
             self.environment.pop(name, None)
         self.git("init", "--quiet", "--initial-branch=main")
         self.git("config", "user.name", "Bootstrap Test")
@@ -99,6 +99,35 @@ else:
         self.assertEqual(result["commands"][0], [str(self.cli), "plugin", "marketplace", "add", REPOSITORY, "--json"])
         self.assertFalse((self.profile / "config.toml").exists())
         self.assertEqual(len(self.calls.read_text().splitlines()), 2)
+
+    def test_language_selection_reaches_python_and_help_stays_offline(self):
+        self.environment.update(LC_ALL="", LC_MESSAGES="zh_CN.UTF-8", LANG="en_US.UTF-8")
+        self.assertIn("安装器语言", self.run_bootstrap("--help").stdout)
+        self.assertIn("Installer language", self.run_bootstrap("--help", "--lang", "en").stdout)
+        self.assertFalse(self.calls.exists())
+        self.assertEqual(json.loads(self.run_bootstrap("--dry-run").stdout)["language"], "zh")
+        self.assertEqual(json.loads(self.run_bootstrap("--dry-run", "--lang=en").stdout)["language"], "en")
+        self.environment["LC_ALL"] = "C"
+        self.assertIn("Installer language", self.run_bootstrap("--lang", "auto", "--help").stdout)
+
+    def test_language_option_does_not_break_a_historical_installer(self):
+        (self.remote / "scripts/install.py").write_text('''
+import argparse, json
+parser = argparse.ArgumentParser()
+parser.add_argument("action")
+parser.add_argument("--codex")
+parser.add_argument("--timeout")
+parser.add_argument("--source")
+parser.add_argument("--ref")
+parser.add_argument("--dry-run", action="store_true")
+args = parser.parse_args()
+print(json.dumps({"historical_installer": True, "ref": args.ref}))
+''')
+        self.git("add", "scripts/install.py")
+        self.git("commit", "--quiet", "-m", "Installer without language flags")
+        self.git("tag", "historical-installer")
+        result = self.run_bootstrap("install", "--ref", "historical-installer", "--lang", "zh", "--dry-run")
+        self.assertTrue(json.loads(result.stdout)["historical_installer"])
 
     def test_first_install_accepts_tag_and_commit_without_a_github_release(self):
         for ref in ("v0.2.0", self.git("rev-parse", "HEAD")):
@@ -137,7 +166,8 @@ else:
     def test_help_and_invalid_options_do_not_download_or_call_codex(self):
         self.assertIn("GitHub Release pages and ZIP assets are not used", self.run_bootstrap("--help").stdout)
         for args in (("--unknown",), ("update", "--ref", "main"), ("verify", "--dry-run"),
-                     ("--ref", "--upload-pack=bad"), ("--timeout", "0"), ("--timeout", "301")):
+                     ("--ref", "--upload-pack=bad"), ("--timeout", "0"), ("--timeout", "301"),
+                     ("--lang", "fr"), ("--lang=",), ("--lang",)):
             with self.subTest(args=args):
                 failed = self.run_bootstrap(*args, success=False)
                 self.assertNotIn("fetching installer", failed.stderr)

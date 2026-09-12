@@ -11,6 +11,7 @@ import tempfile
 import zipfile
 
 from export_bundle import EXCLUDED_DIRECTORIES, SOURCE_ROOT, _copy_plan, read_plugin_manifest
+from host_assets import HOST_SOURCE_FILES
 
 
 EXTRA_FILES = (
@@ -18,21 +19,27 @@ EXTRA_FILES = (
     ".agents/plugins/marketplace.json",
     "LICENSE",
     "docs/installation.md",
+    "docs/installation.en.md",
+    "docs/bookmark-research-architecture.md",
     "docs/install-design-0.2.0.md",
     "docs/mcp-aggregation-0.2.0.md",
     "docs/provider-smoke-0.2.0.json",
     "docs/research-0.2.0.md",
-    "docs/research-sources-0.2.0.json",
     "docs/validation-0.2.0.md",
+    "docs/validation-0.4.0.md",
     "README.md",
+    "README.zh.md",
     "install.sh",
     "docs/harness-compatibility.md",
     "docs/harness-sources.json",
+    "docs/host-validation.json",
+    "docs/wiki-quality.md",
     "scripts/export_bundle.py",
     "scripts/build_zip.py",
     "scripts/install.py",
+    "scripts/host_assets.py",
     "skills/bookmark-research/agents/openai.yaml",
-)
+) + HOST_SOURCE_FILES
 
 
 def _read_file(path, root):
@@ -53,7 +60,7 @@ def _test_files(source):
     root = source / "tests"
     if root.is_symlink() or not root.is_dir():
         raise ValueError("The verification pack requires a local tests directory")
-    selected = {Path("scripts/verify_fixture.py")}
+    selected = {Path("scripts/verify_fixture.py"), Path("scripts/verify_quality.py")}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(source)
         if any(part.startswith(".") or part.casefold() in EXCLUDED_DIRECTORIES - {"tests", "test"}
@@ -61,7 +68,7 @@ def _test_files(source):
             continue
         if path.is_symlink():
             raise ValueError("Source symlinks are not packaged: " + relative.as_posix())
-        if path.is_file() and (path.suffix == ".py" or
+        if path.is_file() and (path.suffix == ".py" or path.name.endswith(".test.js") or
                               relative.parts[:2] == ("tests", "fixtures")
                               and path.suffix in (".json", ".canvas", ".md", ".txt")):
             selected.add(relative)

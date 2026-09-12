@@ -4,6 +4,7 @@ import copy
 import errno
 import json
 import os
+import re
 import tempfile
 import time
 from contextlib import contextmanager
@@ -53,7 +54,13 @@ class Settings:
         return {"schema_version": 1, "timeout_seconds": 30,
                 "search": {"providers": ["exa", "parallel"], "limit_per_target": 5},
                 "fetch": {"provider": "exa", "max_characters": 12000},
-                "archive": {"enabled": True, "directory": str(cls.data_directory() / "knowledge")}}
+                "archive": {"enabled": True, "directory": str(cls.data_directory() / "knowledge")},
+                "research": {"depth": "auto", "prefer_host_workflows": True,
+                             "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
+                "professional_research": {"enabled": False, "provider": None,
+                    "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
+                    "parallel": {"processor": "pro"}},
+                "wiki": {"directory": str(cls.data_directory() / "wiki")}}
 
     @staticmethod
     def _merge(base, patch):
@@ -72,7 +79,7 @@ class Settings:
         defaults = cls.defaults()
         if set(value) - set(defaults):
             raise ValueError("Unknown settings fields; credentials belong in the process environment")
-        for section in ("search", "fetch", "archive"):
+        for section in ("search", "fetch", "archive", "research", "professional_research", "wiki"):
             if not isinstance(value.get(section), dict) or set(value[section]) != set(defaults[section]):
                 raise ValueError("Invalid settings fields in " + section)
         for label, number, minimum, maximum in (
@@ -94,6 +101,36 @@ class Settings:
         if not isinstance(directory, str) or not directory.strip() or "\x00" in directory:
             raise ValueError("archive.directory must be a nonempty path")
         value["archive"]["directory"] = str(cls.external_path(directory, "Archive directory"))
+        research = value["research"]
+        if research["depth"] not in ("auto", "quick", "agentic", "deep"):
+            raise ValueError("research.depth must be auto, quick, agentic or deep")
+        if type(research["prefer_host_workflows"]) is not bool:
+            raise ValueError("research.prefer_host_workflows must be a boolean")
+        methods = research["methods"]
+        allowed_methods = ("comparative_analysis", "fact_check", "benchmark_review", "wiki_synthesis")
+        if (not isinstance(methods, list) or not 1 <= len(methods) <= len(allowed_methods)
+                or any(not isinstance(method, str) or method not in allowed_methods for method in methods)
+                or len(set(methods)) != len(methods)):
+            raise ValueError("research.methods must select distinct supported analysis methods")
+        services = value["professional_research"]
+        if type(services["enabled"]) is not bool or services["provider"] not in (None, "openai", "parallel"):
+            raise ValueError("professional_research requires enabled boolean and an openai/parallel provider or null")
+        for provider in ("openai", "parallel"):
+            if (not isinstance(services[provider], dict)
+                    or set(services[provider]) != set(defaults["professional_research"][provider])):
+                raise ValueError("Invalid professional_research fields for " + provider)
+        if services["openai"]["model"] not in ("o3-deep-research", "o4-mini-deep-research"):
+            raise ValueError("OpenAI research model must be o3-deep-research or o4-mini-deep-research")
+        limit = services["openai"]["max_tool_calls"]
+        if type(limit) is not int or not 1 <= limit <= 1000:
+            raise ValueError("professional_research.openai.max_tool_calls must be between 1 and 1000")
+        processor = services["parallel"]["processor"]
+        if not isinstance(processor, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", processor):
+            raise ValueError("professional_research.parallel.processor must be a processor name")
+        wiki_directory = value["wiki"]["directory"]
+        if not isinstance(wiki_directory, str) or not wiki_directory.strip() or "\x00" in wiki_directory:
+            raise ValueError("wiki.directory must be a nonempty path")
+        value["wiki"]["directory"] = str(cls.external_path(wiki_directory, "Wiki directory"))
         return value
 
     @staticmethod

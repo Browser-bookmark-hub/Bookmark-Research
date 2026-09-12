@@ -28,6 +28,22 @@ def _read_json(path):
     return json.loads(text)
 
 
+def _checked_input(path, tool, extra=None):
+    from mcp_server import TOOL_SCHEMAS, RpcError, _validate
+    value = _read_json(path)
+    if not isinstance(value, dict):
+        raise ValueError("Input must be a JSON object")
+    extra = extra or {}
+    if set(extra) & set(value):
+        raise ValueError("Positional identifiers must not be repeated in the input file")
+    value = {**value, **extra}
+    try:
+        _validate(TOOL_SCHEMAS[tool], value)
+    except RpcError as error:
+        raise ValueError(str(error)) from None
+    return value
+
+
 def _parser():
     parser = argparse.ArgumentParser(description="Bookmark Canvas queries and aggregated web research")
     parser.add_argument("--db", help="Persistent SQLite file outside the original package and plugin")
@@ -44,11 +60,21 @@ def _parser():
     configure.add_argument("--search-provider", action="append", choices=("exa", "parallel", "tavily"))
     configure.add_argument("--fetch-provider", choices=("exa", "parallel", "tavily"))
     configure.add_argument("--max-characters", type=int)
-    sync = commands.add_parser("sync", help="Register/import a JSON/.canvas package")
+    sync = commands.add_parser("sync", help="Import a directory, ZIP, or single card; keep a reusable snapshot")
     sync.add_argument("package")
     sync.add_argument("--source-id")
+    sync.add_argument("--mode", choices=("snapshot", "live"), help="New exports default to snapshot; Git directories to live; existing sources retain their mode")
+    sync.add_argument("--completeness", choices=("partial", "complete"), help="partial retains absent cards; complete reconciles a full directory")
     status = commands.add_parser("status")
     status.add_argument("source", nargs="?")
+    history = commands.add_parser("history", help="List reusable source snapshot versions")
+    history.add_argument("source")
+    history.add_argument("--limit", type=int, default=20)
+    history.add_argument("--offset", type=int, default=0)
+    watch = commands.add_parser("watch", help="Monitor live sources in this foreground process (MCP starts this automatically)")
+    watch.add_argument("--interval", type=float, default=1.0)
+    watch.add_argument("--debounce", type=float, default=2.0)
+    watch.add_argument("--deletion-grace", type=float, default=5.0)
     search = commands.add_parser("search", help="Literal structured bookmark search")
     search.add_argument("source")
     search.add_argument("--target", action="append", default=[])
@@ -92,10 +118,10 @@ def _parser():
     begin.add_argument("--input", required=True, help="JSON {brief,questions:[{id,question}],budget?,providers?,scope?,source_ids?}")
     inspect = research_commands.add_parser("status", help="List sessions or inspect progress without network calls")
     inspect.add_argument("research_id", nargs="?")
-    inspect.add_argument("--section", choices=("questions", "claims", "sources", "operations", "conflicts", "bookmark_context", "events"))
+    inspect.add_argument("--section", choices=("questions", "claims", "sources", "operations", "conflicts", "bookmark_context", "events", "inventory", "inventory_reviews", "external_runs"))
     inspect.add_argument("--offset", type=int, default=0)
     inspect.add_argument("--limit", type=int, default=20)
-    for name in ("search", "fetch", "record"):
+    for name in ("search", "fetch", "record", "import-evidence"):
         step = research_commands.add_parser(name)
         step.add_argument("research_id")
         step.add_argument("--input", required=True, help="Action JSON or '-' for stdin; research_id comes from the positional argument")
@@ -109,6 +135,62 @@ def _parser():
     finish.add_argument("--summary", required=True)
     finish.add_argument("--status", choices=("completed", "incomplete", "cancelled"), default="completed")
     finish.add_argument("--limitation", action="append")
+    for name in ("inventory", "coverage"):
+        view = research_commands.add_parser(name, help="Read the frozen source scope or remaining evidence gaps")
+        view.add_argument("research_id")
+        view.add_argument("--offset", type=int, default=0)
+        view.add_argument("--limit", type=int, default=100)
+        if name == "inventory":
+            view.add_argument("--inventory-id", action="append")
+        else:
+            view.add_argument("--filter", choices=("all", "missing", "unread", "unreviewed", "blocked", "excluded", "reviewed"))
+    route = research_commands.add_parser("route", help="Select from observed host research capabilities; does not execute")
+    route.add_argument("--input", help="JSON current host/tools/commands, or '-' for stdin")
+    route.add_argument("--host", choices=("codex", "claude_code", "pi", "dsh", "unknown"), default="unknown")
+    route.add_argument("--depth", choices=("auto", "quick", "agentic", "deep"))
+    route.add_argument("--task-shape", choices=("lookup", "investigation", "batch_research"), default="investigation")
+    route.add_argument("--tool", action="append")
+    route.add_argument("--available-command", action="append")
+    route.add_argument("--extension", action="append")
+    route.add_argument("--provider", choices=("openai", "parallel"))
+    service = research_commands.add_parser("service", help="Prepare/start/observe existing professional research runs")
+    service_commands = service.add_subparsers(dest="service_command", required=True)
+    describe = service_commands.add_parser("describe")
+    describe.add_argument("--provider", choices=("openai", "parallel"))
+    for name in ("prepare", "start", "attach"):
+        action = service_commands.add_parser(name)
+        action.add_argument("--input", required=True, help="Explicit request JSON, including research_id")
+    for name in ("status", "result", "cancel", "import"):
+        action = service_commands.add_parser(name)
+        action.add_argument("external_id")
+        if name in ("status", "result"):
+            action.add_argument("--refresh", action="store_true", help="Observe the same provider run once")
+        if name == "result":
+            action.add_argument("--offset", type=int, default=0)
+            action.add_argument("--limit", type=int, default=12000)
+        if name == "import":
+            action.add_argument("--operation-id", required=True)
+            action.add_argument("--question-id")
+    wiki = commands.add_parser("wiki", help="Author and search evidence-linked knowledge outside source packages")
+    wiki.add_argument("--directory")
+    wiki.add_argument("--research-directory")
+    wiki_commands = wiki.add_subparsers(dest="wiki_command", required=True)
+    write = wiki_commands.add_parser("write")
+    write.add_argument("page_id")
+    write.add_argument("--input", required=True, help="JSON {page,change_note,expected_revision?}")
+    get = wiki_commands.add_parser("get")
+    get.add_argument("page_id")
+    get.add_argument("--revision", type=int)
+    lint = wiki_commands.add_parser("lint")
+    lint.add_argument("--page-id")
+    for name in ("list", "search"):
+        view = wiki_commands.add_parser(name)
+        if name == "search":
+            view.add_argument("query")
+        view.add_argument("--offset", type=int, default=0)
+        view.add_argument("--limit", type=int, default=20)
+    evaluation = commands.add_parser("evaluate", help="Compute research metrics from explicit benchmark outputs and judgments")
+    evaluation.add_argument("--input", required=True, help="JSON {suite,runs,judgments?}; '-' for stdin")
     commands.add_parser("serve", help="Run the stdio MCP tool server")
     return parser
 
@@ -121,15 +203,59 @@ def main(argv=None):
             from mcp_server import serve
             serve(str(_database(args.db)), settings=settings)
             return 0
+        if args.command == "watch":
+            from source_watcher import SourceWatcher
+            watcher = SourceWatcher(_database(args.db), interval=args.interval, debounce=args.debounce,
+                deletion_grace=args.deletion_grace,
+                on_change=lambda value: print(json.dumps(value, ensure_ascii=False), flush=True))
+            try:
+                watcher.run()
+            except KeyboardInterrupt:
+                pass
+            finally:
+                watcher.close()
+            if watcher.last_error:
+                raise RuntimeError(watcher.last_error)
+            return 0
         if args.command == "research":
             from research import ResearchSessions
             sessions = ResearchSessions(directory=args.directory, settings=settings, db_path=_database(args.db))
             action = args.research_command
-            if action in ("start", "search", "fetch", "record"):
+            if action == "route":
+                from routing import ResearchRouting
+                payload = _checked_input(args.input, "research_route") if args.input else {
+                    "host": args.host, "depth": args.depth, "task_shape": args.task_shape,
+                    "observed_tools": args.tool, "available_commands": args.available_command,
+                    "installed_extensions": args.extension, "provider": args.provider}
+                result = ResearchRouting(settings).route(**payload)
+            elif action == "service":
+                from research_services import ResearchServices
+                services = ResearchServices(settings=settings, research_sessions=sessions)
+                service_action = args.service_command
+                if service_action in ("prepare", "start", "attach"):
+                    payload = _checked_input(args.input, "research_service_" + service_action)
+                    result = getattr(services, service_action)(**payload)
+                elif service_action == "describe":
+                    result = services.describe(args.provider)
+                elif service_action == "status":
+                    result = services.status(args.external_id, args.refresh)
+                elif service_action == "result":
+                    result = services.result(args.external_id, args.refresh, args.offset, args.limit)
+                elif service_action == "cancel":
+                    result = services.cancel(args.external_id)
+                else:
+                    result = services.import_result(args.external_id, args.operation_id, args.question_id)
+            elif action == "inventory":
+                result = sessions.inventory(args.research_id, args.inventory_id, args.offset, args.limit)
+            elif action == "coverage":
+                result = sessions.coverage(args.research_id, args.filter, args.offset, args.limit)
+            elif action == "import-evidence":
+                result = sessions.import_evidence(**_checked_input(args.input, "research_import_evidence", {"research_id": args.research_id}))
+            elif action in ("start", "search", "fetch", "record"):
                 payload = _read_json(args.input)
                 if not isinstance(payload, dict):
                     raise ValueError("Research input must be an object")
-                allowed = {"start": {"brief", "questions", "budget", "providers", "scope", "source_ids", "bookmark_refs"},
+                allowed = {"start": {"brief", "questions", "budget", "providers", "scope", "source_ids", "bookmark_refs", "scope_mode", "inventory_ids"},
                            "search": {"operation_id", "queries", "providers", "limit_per_target"},
                            "fetch": {"operation_id", "question_id", "urls", "provider", "max_characters"}}
                 required = {"start": {"brief", "questions"}, "search": {"operation_id", "queries"},
@@ -150,6 +276,24 @@ def main(argv=None):
                 result = sessions.source(args.research_id, args.source_id, args.offset, args.limit)
             else:
                 result = sessions.finish(args.research_id, args.summary, args.status, args.limitation)
+        elif args.command == "wiki":
+            from research import ResearchSessions
+            from wiki import WikiStore
+            sessions = ResearchSessions(directory=args.research_directory, settings=settings, db_path=_database(args.db))
+            store = WikiStore(directory=args.directory, settings=settings, research_sessions=sessions)
+            if args.wiki_command == "write":
+                result = store.write(**_checked_input(args.input, "wiki_write", {"page_id": args.page_id}))
+            elif args.wiki_command == "get":
+                result = store.get(args.page_id, args.revision)
+            elif args.wiki_command == "list":
+                result = store.list(args.offset, args.limit)
+            elif args.wiki_command == "search":
+                result = store.search(args.query, args.offset, args.limit)
+            else:
+                result = store.lint(args.page_id)
+        elif args.command == "evaluate":
+            from evaluation import evaluate
+            result = evaluate(**_checked_input(args.input, "evaluate_research"))
         elif args.command == "config":
             if args.config_command == "show":
                 result = settings.describe()
@@ -200,20 +344,28 @@ def main(argv=None):
         elif args.command == "merge-results":
             result = fuse_results(_read_json(args.input))
         else:
+            from source_manager import SourceManager
             with BookmarkIndex(str(_database(args.db))) as index:
+                sources = SourceManager(index)
                 if args.command == "sync":
-                    result = index.sync(args.package, args.source_id)
+                    result = sources.sync(args.package, args.source_id, mode=args.mode, completeness=args.completeness)
                 elif args.command == "status":
-                    result = index.status(args.source)
+                    result = sources.status(args.source)
+                elif args.command == "history":
+                    result = sources.history(args.source, limit=args.limit, offset=args.offset)
                 else:
-                    refresh = None if args.no_refresh else index.refresh(args.source)
-                    if args.command == "search":
-                        result = index.search(args.source, targets=args.target, section=args.section,
-                                              group_id=args.group, folder_id=args.folder, tags=args.tag,
-                                              limit=args.limit, offset=args.offset)
-                    else:
-                        result = index.context(args.source, section=args.section, group_id=args.group,
-                                               item_id=args.item)
+                    refresh = None if args.no_refresh else sources.refresh(args.source)
+                    if refresh and refresh["state"] in ("error", "unavailable"):
+                        raise ValueError(refresh["error"] + "; use --no-refresh to read the saved index")
+                    with index.read_snapshot():
+                        if args.command == "search":
+                            result = index.search(args.source, targets=args.target, section=args.section,
+                                                  group_id=args.group, folder_id=args.folder, tags=args.tag,
+                                                  limit=args.limit, offset=args.offset)
+                        else:
+                            result = index.context(args.source, section=args.section, group_id=args.group,
+                                                   item_id=args.item)
+                        result["source"] = sources.status(args.source)["source"]
                     result["refresh"] = refresh
                     result["stored_snapshot_only"] = args.no_refresh
         print(json.dumps(result, ensure_ascii=False, indent=2))

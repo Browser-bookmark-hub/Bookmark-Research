@@ -1,24 +1,24 @@
 {
   "name": "bookmark-research",
-  "version": "0.2.0",
-  "description": "Query Bookmark Canvas packages, aggregate search MCPs and run durable, evidence-based deep research.",
+  "version": "0.4.0",
+  "description": "Import Bookmark Canvas snapshots or live directories, research complete sources with host workflows, and maintain an evidence-linked Wiki.",
   "author": {
     "name": "kwenxu"
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "书签聚合研究",
-    "shortDescription": "聚合搜索 MCP，保存可继续的深度研究与证据",
-    "longDescription": "以 JSON 和 .canvas 为原始数据维护 SQLite 索引。通过同一个 MCP 聚合 Exa、Parallel 与可选 Tavily，由当前模型推进三层检索，并保存研究预算、正文引用、矛盾与报告。",
+    "displayName": "Bookmark Research · 书签研究",
+    "shortDescription": "Bookmark research with sources · 书签研究与来源核验",
+    "longDescription": "Query canvas snapshots or live directories, research complete sources with host workflows, and save evidence-linked reports and Wiki pages. 保留全部来源与重复书签语境，复用宿主子代理或工作流，结合搜索与可选专业研究 API，核验证据和覆盖，保存报告与 Wiki。",
     "developerName": "kwenxu",
     "category": "Productivity",
     "capabilities": [
       "Interactive"
     ],
     "defaultPrompt": [
-      "分析我指定的书签数据包，概览栏目、分组与连线，并按我提供的目标查询书签。",
-      "用 Exa 和 Parallel 搜索这几个目标，合并重复 URL 并标注来源。",
-      "围绕这些目标开展深度研究，保存子问题、调用预算、来源证据和可继续的研究报告。"
+      "Quick check / 快速查证：Read my selected bookmark and answer with sources. 读取指定书签并带来源回答。",
+      "Compare / 主动搜索：Compare tools in my selected cards and follow evidence gaps. 比较指定卡片并补查证据。",
+      "Deep research / 深度研究：Research every URL in my package; save a report and Wiki. 全量研究并核验覆盖。"
     ]
   },
   "mcpServers": {
@@ -36,7 +36,8 @@
         "XDG_CONFIG_HOME",
         "EXA_API_KEY",
         "PARALLEL_API_KEY",
-        "TAVILY_API_KEY"
+        "TAVILY_API_KEY",
+        "OPENAI_API_KEY"
       ]
     }
   }

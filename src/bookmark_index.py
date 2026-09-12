@@ -8,8 +8,10 @@ import hashlib
 import json
 import math
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 
 def _dump(value):
@@ -368,7 +370,43 @@ class BookmarkIndex:
                 "raw_json": _dump(edge)}))
         return nodes, edges
 
-    def sync(self, package_path, source_id=None):
+    @contextmanager
+    def read_snapshot(self):
+        self.connection.execute("SAVEPOINT bookmark_read")
+        try:
+            yield
+        finally:
+            self.connection.execute("RELEASE SAVEPOINT bookmark_read")
+
+    @contextmanager
+    def transaction(self):
+        """Serialize writers; allow an importer to publish metadata atomically."""
+        nested = self.connection.in_transaction
+        if nested:
+            self.connection.execute("SAVEPOINT bookmark_sync")
+        else:
+            self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+            if nested:
+                self.connection.execute("RELEASE SAVEPOINT bookmark_sync")
+            else:
+                self.connection.commit()
+        except BaseException:
+            if nested:
+                self.connection.execute("ROLLBACK TO SAVEPOINT bookmark_sync")
+                self.connection.execute("RELEASE SAVEPOINT bookmark_sync")
+            else:
+                self.connection.rollback()
+            raise
+
+    def sync(self, package_path, source_id=None, completeness="partial"):
+        with self.transaction():
+            return self._sync(package_path, source_id, completeness)
+
+    def _sync(self, package_path, source_id, completeness):
+        if completeness not in ("partial", "complete"):
+            raise ValueError("completeness must be partial or complete")
         package = Path(package_path).expanduser().resolve()
         if not package.is_dir():
             raise ValueError("Package directory does not exist: " + str(package))
@@ -427,7 +465,7 @@ class BookmarkIndex:
         summary["replaced_canvas_files"] = [relative for relative, record in old_files.items()
             if canvas_path is not None and record["kind"] == "canvas" and relative != canvas_path]
         timestamp = _now()
-        with self.connection:
+        with self.transaction():
             self.connection.execute("""INSERT INTO sources VALUES(?,?,?,?)
                 ON CONFLICT(source_id) DO UPDATE SET package_path=excluded.package_path,last_sync=excluded.last_sync""",
                 (source_id, str(package), timestamp, timestamp))
@@ -462,6 +500,21 @@ class BookmarkIndex:
                     if row["item_id"] not in present_items:
                         self.connection.execute("DELETE FROM items WHERE pk=?", (row["pk"],))
                         summary["items_deleted"] += 1
+            # A complete directory is a mirror. Resolve renames by section ID
+            # first so moving a file preserves item row IDs and revisions.
+            summary["removed_files"] = []
+            if completeness == "complete":
+                for row in self.connection.execute("SELECT section_id,file_path FROM sections WHERE source_id=?", (source_id,)).fetchall():
+                    if row["file_path"] not in observed:
+                        summary["items_deleted"] += self.connection.execute(
+                            "DELETE FROM items WHERE source_id=? AND section_id=?", (source_id, row["section_id"])).rowcount
+                        self.connection.execute("DELETE FROM sections WHERE source_id=? AND section_id=?", (source_id, row["section_id"]))
+                for previous in set(old_files) - observed:
+                    for table in ("memberships", "edges", "nodes"):
+                        self.connection.execute("DELETE FROM %s WHERE source_id=? AND canvas_path=?" % table, (source_id, previous))
+                    self.connection.execute("DELETE FROM files WHERE source_id=? AND file_path=?", (source_id, previous))
+                    summary["removed_files"].append(previous)
+                summary["removed_files"].sort()
             sections = {row["section_id"]: dict(row) for row in self.connection.execute("SELECT * FROM sections WHERE source_id=?", (source_id,))}
             by_file = {}
             for sid, section in sections.items():
@@ -738,6 +791,105 @@ class BookmarkIndex:
         return {"source_id": source_id, "source": source, "sections": section_results,
             "items": items, "nodes": nodes, "groups": [node for node in nodes if node["node_type"] == "group"],
             "edges": edges, "related_nodes": related_nodes, "memberships": memberships}
+
+    def inventory(self, source_ids):
+        """Freeze the complete indexed input, independently of query previews.
+
+        Exact URLs identify research rows; bookmarks remain distinct instances.
+        Copy anchors add appearances of a canonical tree, never extra instances.
+        One SQLite read transaction keeps files, items and canvas links coherent
+        when another client synchronizes the index at the same time.
+        """
+        if not isinstance(source_ids, list) or not source_ids:
+            raise ValueError("source_ids must contain indexed package IDs")
+        identifiers = sorted(set(_string(value, "source_id", True) for value in source_ids))
+        from archive import SourceArchive
+        result = {"schema_version": 1, "index_state": "last_synchronized",
+                  "source_ids": identifiers, "sources": [], "files": [],
+                  "sections": [], "folders": [], "nodes": [], "edges": [],
+                  "memberships": [], "entries": []}
+        by_url = {}
+        self.connection.execute("SAVEPOINT inventory_snapshot")
+        try:
+            for source_id in identifiers:
+                context = self.context(source_id)
+                files = [dict(row) for row in self.connection.execute(
+                    "SELECT source_id,file_path,kind,sha256,revision FROM files "
+                    "WHERE source_id=? ORDER BY file_path", (source_id,))]
+                version_files = [{key: row[key] for key in ("file_path", "kind", "sha256")} for row in files]
+                result["sources"].append({**context["source"], "input_version":
+                    hashlib.sha256(_dump(version_files).encode("utf-8")).hexdigest()})
+                result["files"].extend(files)
+                for collection in ("sections", "nodes", "edges", "memberships"):
+                    result[collection].extend(context[collection])
+                appearances = {}
+                for section in context["sections"]:
+                    if not section["canonical_id"]:
+                        continue
+                    nodes = [node for node in context["nodes"] if node["section_id"] == section["section_id"]]
+                    node_ids = {(node["canvas_path"], node["node_id"]) for node in nodes}
+                    appearance = {key: section[key] for key in
+                        ("section_id", "file_path", "label", "title", "description_md", "is_anchor", "canonical_id")}
+                    appearance["nodes"] = [{"canvas_path": node["canvas_path"], "node_id": node["node_id"]} for node in nodes]
+                    appearance["memberships"] = [member for member in context["memberships"]
+                        if (member["canvas_path"], member["node_id"]) in node_ids]
+                    appearance["edges"] = [edge for edge in context["edges"]
+                        if any((edge["canvas_path"], edge[end]) in node_ids for end in ("from_node", "to_node"))]
+                    appearances.setdefault(section["canonical_id"], []).append(appearance)
+                rows = self.connection.execute("SELECT * FROM items WHERE source_id=? "
+                    "ORDER BY section_id,preorder,item_id", (source_id,)).fetchall()
+                for row in rows:
+                    item = self._item_result(row)
+                    item.update(ancestor_ids=json.loads(row["ancestor_ids_json"]),
+                                revision=row["revision"], preorder=row["preorder"])
+                    if row["item_type"] == "folder":
+                        # Descendants are preserved as individual rows; avoid
+                        # duplicating an entire nested tree at each ancestor.
+                        item["raw_json"] = {key: value for key, value in item["raw_json"].items() if key != "children"}
+                        result["folders"].append(item)
+                        continue
+                    original = row["url"]
+                    if original not in by_url:
+                        try:
+                            retrieval = SourceArchive._key(original)
+                        except (ValueError, UnicodeError):
+                            retrieval = None
+                        try:
+                            scheme = urlsplit(original).scheme
+                        except ValueError:
+                            scheme = ""
+                        by_url[original] = {"id": "u-" + hashlib.sha256(original.encode("utf-8")).hexdigest()[:32],
+                            "original_url": original, "retrieval_url": retrieval,
+                            "url_kind": "web" if retrieval else "local" if scheme == "file" else "unsupported",
+                            "instances": []}
+                    identity = [source_id, row["section_id"], row["item_id"]]
+                    item.update(instance_id="b-" + hashlib.sha256(_dump(identity).encode("utf-8")).hexdigest()[:32],
+                                canonical_section_id=row["section_id"],
+                                appearances=appearances.get(row["section_id"], []))
+                    by_url[original]["instances"].append(item)
+            result["entries"] = sorted(by_url.values(), key=lambda row: row["id"])
+            version = [{key: row[key] for key in ("source_id", "file_path", "kind", "sha256")}
+                       for row in result["files"]]
+            result["input_version"] = hashlib.sha256(_dump(version).encode("utf-8")).hexdigest()
+            result["counts"] = {"unique_urls": len(result["entries"]),
+                "bookmark_instances": sum(len(row["instances"]) for row in result["entries"]),
+                **{key: len(result[key]) for key in ("sources", "files", "sections", "folders", "nodes", "edges", "memberships")}}
+            return result
+        finally:
+            self.connection.execute("RELEASE SAVEPOINT inventory_snapshot")
+
+    def input_version(self, source_ids):
+        """Fingerprint the indexed input without rebuilding the full inventory."""
+        records = []
+        self.connection.execute("SAVEPOINT input_version_snapshot")
+        try:
+            for source_id in sorted(set(source_ids)):
+                self._source(source_id)
+                records.extend(dict(row) for row in self.connection.execute(
+                    "SELECT source_id,file_path,kind,sha256 FROM files WHERE source_id=? ORDER BY file_path", (source_id,)))
+            return hashlib.sha256(_dump(records).encode("utf-8")).hexdigest()
+        finally:
+            self.connection.execute("RELEASE SAVEPOINT input_version_snapshot")
 
     def status(self, source_id=None):
         if source_id is None:

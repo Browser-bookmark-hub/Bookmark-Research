@@ -205,7 +205,58 @@ class SearchProviders:
         return None
 
     @staticmethod
+    def _result_error(result):
+        """Recognize provider error envelopes even when MCP isError is false.
+
+        A keyless endpoint can return a successful HTTP/MCP response containing
+        a quota error. Treat that as a failed retrieval, not an empty result or
+        an unknown search format. Never interpret next_actions as instructions.
+        """
+        candidates = [result.get("structuredContent")]
+        content = result.get("content", [])
+        if isinstance(content, list):
+            for block in content:
+                if not isinstance(block, dict) or block.get("type") != "text":
+                    continue
+                try:
+                    candidates.append(json.loads(block.get("text", "")))
+                except (ValueError, TypeError):
+                    pass
+        codes = {
+            "monthly_cap_reached_bonus_eligible": "quota_exhausted",
+            "monthly_cap_reached": "quota_exhausted",
+            "usage_limit_exceeded": "quota_exhausted",
+            "insufficient_quota": "quota_exhausted",
+            "rate_limit_exceeded": "rate_limited",
+            "rate_limited": "rate_limited",
+            "invalid_api_key": "authentication_required",
+            "missing_api_key": "authentication_required",
+            "unauthorized": "authentication_required",
+        }
+        for value in candidates:
+            if not isinstance(value, dict):
+                continue
+            detail = value.get("error") if isinstance(value.get("error"), dict) else value
+            code = detail.get("code")
+            kind = codes.get(code) if isinstance(code, str) else None
+            if kind is not None:
+                delay = detail.get("retry_after_seconds")
+                delay = delay if type(delay) is int and 0 <= delay <= 86400 else None
+                messages = {"quota_exhausted": "Search provider quota exhausted",
+                            "rate_limited": "Search provider rate limited this request",
+                            "authentication_required": "Search provider requires valid authentication"}
+                return McpError(messages[kind], kind, kind == "rate_limited", retry_after=delay)
+            if value.get("error") and SearchProviders._records(value) is None:
+                return McpError("Search provider returned an error envelope", "tool_error")
+        if result.get("isError") is True:
+            return McpError("Search provider tool reported an error", "tool_error")
+        return None
+
+    @staticmethod
     def _normalize(result):
+        failure = SearchProviders._result_error(result)
+        if failure is not None:
+            raise failure
         rows = SearchProviders._records(result.get("structuredContent"))
         content = result.get("content", [])
         if not isinstance(content, list):
@@ -268,13 +319,16 @@ class SearchProviders:
                 result = client.call_tool(tool["name"], arguments)
                 if not isinstance(result, dict):
                     raise McpError("Provider tool returned an invalid result", "result_format")
+                failure = self._result_error(result)
+                if failure is not None:
+                    raise failure
                 return {"status": "ok", "result": result, "tool": tool["name"], "request_arguments": arguments,
                         "usage": self._usage(client, before, usage)}
             except (RuntimeError, ValueError, OSError) as error:
                 if isinstance(error, McpError):
                     if error.kind in ("session_expired", "schema_mismatch", "tool_unavailable", "protocol_error"):
                         state.catalog = None
-                    if error.kind == "rate_limited" and not skipped:
+                    if error.kind in ("rate_limited", "quota_exhausted") and not skipped:
                         state.cooldown_error = error
                         state.cooldown_until = time.monotonic() + (error.retry_after if error.retry_after is not None else 5)
                 return {"status": "error", **self._failure(error), "skipped_due_to_cooldown": skipped,

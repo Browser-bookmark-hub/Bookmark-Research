@@ -1,0 +1,15 @@
+{
+  "meta": {
+    "name": "bookmark-research",
+    "description": "Read the complete frozen bookmark inventory in groups, independently verify evidence, close coverage gaps, and save a cited report."
+  },
+  "parameters": {
+    "research_id": {"type": "string", "required": true, "description": "Existing research session with a frozen source inventory"},
+    "run_key": {"type": "string", "required": true, "description": "Unique local invocation key; keep it unchanged when the host resumes this run"},
+    "group_size": {"type": "number", "default": 12, "description": "Sources per reading group, from 1 to 50"},
+    "max_gap_rounds": {"type": "number", "default": 1, "description": "Additional reading and verification rounds, from 0 to 4"},
+    "method": {"type": "string", "default": "comparison", "description": "Research method: comparison, fact checking, or benchmark analysis"},
+    "output_language": {"type": "string", "default": "auto", "description": "Output language name or code, such as en or zh. Auto follows the brief/questions, with English as the fallback. Original quotations and identifiers are preserved."},
+    "bridge_path": {"type": "string", "description": "Optional absolute path to hosts/shared/research-call.py when native MCP tools are unavailable"}
+  }
+}

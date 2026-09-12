@@ -28,7 +28,11 @@ class ExportBundleTests(unittest.TestCase):
         self.source = self.base / "source"
         for directory in export_bundle.SHARED_ROOTS:
             shutil.copytree(ROOT / directory, self.source / directory)
+        for relative in export_bundle.SHARED_DOCUMENTS:
+            (self.source / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, self.source / relative)
         shutil.copytree(ROOT / ".codex-plugin", self.source / ".codex-plugin")
+        shutil.copytree(ROOT / "hosts", self.source / "hosts")
         shutil.copy2(ROOT / "LICENSE", self.source / "LICENSE")
         self.outside = self.base / "outside"
         self.outside.mkdir()
@@ -58,19 +62,32 @@ class ExportBundleTests(unittest.TestCase):
 
     def test_each_format_has_its_own_manifest_and_shared_files(self):
         expected_roots = {
-            "codex": {".codex-plugin", ".agents"},
+            "codex": {".codex-plugin", ".agents", "hosts"},
             "agent-plugin": {"plugin.json", "mcp.json"},
-            "claude": {".claude-plugin", ".mcp.json"},
-            "pi": {"package.json"},
-            "dsh": {"cordis.patch.yml"},
+            "claude": {".claude-plugin", ".mcp.json", "hosts", "workflows"},
+            "pi": {"package.json", "hosts", "workflows"},
+            "dsh": {"cordis.patch.yml", "hosts", "workflows"},
         }
         for format_name in export_bundle.FORMATS:
             with self.subTest(format=format_name):
                 output = self.export(format_name)
                 self.assertEqual({p.name for p in output.iterdir()},
-                                 expected_roots[format_name] | {"src", "config", "skills", "README.md", "LICENSE"})
+                                 expected_roots[format_name] | {"src", "config", "skills", "docs", "README.md", "LICENSE"})
                 for required in export_bundle.REQUIRED_FILES:
                     self.assertEqual((output / required).read_bytes(), (self.source / required).read_bytes())
+                self.assertEqual(
+                    [p.relative_to(output).as_posix() for p in (output / "skills").rglob("SKILL.md")],
+                    ["skills/bookmark-research/SKILL.md"],
+                    "Translations must not register duplicate Skills",
+                )
+                for reference in (self.source / "skills/bookmark-research/references").glob("*.md"):
+                    translated = Path("skills/bookmark-research/references/zh") / reference.name
+                    self.assertEqual((output / translated).read_bytes(), (self.source / translated).read_bytes())
+                self.assertEqual((output / "skills/bookmark-research/references/zh/skill-guide.md").read_bytes(),
+                                 (self.source / "skills/bookmark-research/references/zh/skill-guide.md").read_bytes())
+                readme = (output / "README.md").read_text(encoding="utf-8")
+                self.assertIn("[English user guide](docs/user-guide.en.md)", readme)
+                self.assertIn("[中文使用指南](docs/user-guide.md)", readme)
                 self.assertEqual((output / "skills/bookmark-research/agents/openai.yaml").exists(), format_name == "codex")
                 if format_name == "codex":
                     manifest = self.read_json(output, ".codex-plugin/plugin.json")
@@ -91,6 +108,8 @@ class ExportBundleTests(unittest.TestCase):
                 elif format_name == "claude":
                     manifest = self.read_json(output, ".claude-plugin/plugin.json")
                     self.assertEqual(manifest["name"], "bookmark-research")
+                    self.assertEqual(manifest["workflows"], "./workflows")
+                    self.assertIn("export const meta", (output / "workflows/bookmark-research.js").read_text())
                     server = self.read_json(output, ".mcp.json")["mcpServers"]["bookmark-research"]
                     self.assertEqual(server, {"type": "stdio", "command": "python3",
                                               "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.py", "serve"]})
@@ -269,14 +288,15 @@ class DistributionTests(unittest.TestCase):
         self.source = self.base / "source with spaces"
         for directory in export_bundle.SHARED_ROOTS:
             shutil.copytree(ROOT / directory, self.source / directory)
-        for name in build_zip.EXTRA_FILES:
+        for name in dict.fromkeys((*build_zip.EXTRA_FILES, *export_bundle.SHARED_DOCUMENTS)):
             destination = self.source / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, destination)
 
     def test_reproducible_zip_has_integrity_manifest_and_standalone_installer(self):
         for relative in (".env", "config/settings.json", "src/cache/private.py",
-                         "skills/bookmark-research/private.json", "tests/private.canvas"):
+                         "skills/bookmark-research/private.json", "tests/private.canvas",
+                         "docs/research-sources-0.2.0.json"):
             path = self.source / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"private-data-marker")
@@ -289,7 +309,13 @@ class DistributionTests(unittest.TestCase):
             prefix = first["archive_root"] + "/"
             names = {name[len(prefix):] for name in archive.namelist()}
             self.assertTrue({".codex-plugin/plugin.json", ".agents/plugins/marketplace.json",
-                             "scripts/install.py", "install.sh", "MANIFEST.sha256"} <= names)
+                             "scripts/install.py", "install.sh", "MANIFEST.sha256",
+                             "README.md", "README.zh.md", "docs/installation.md",
+                             "docs/installation.en.md", "docs/user-guide.md",
+                             "docs/user-guide.en.md", "docs/instructions.en.md",
+                             "docs/instructions.md", "docs/prompt-reference.en.md",
+                             "docs/prompt-reference.md", "docs/wiki-quality.zh.md",
+                             "skills/bookmark-research/references/zh/skill-guide.md"} <= names)
             checksums = archive.read(prefix + "MANIFEST.sha256").decode("utf-8").splitlines()
             self.assertEqual(len(checksums), len(names) - 1)
             for line in checksums:
@@ -303,11 +329,12 @@ class DistributionTests(unittest.TestCase):
                                 cwd=self.base, text=True, capture_output=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("install,update,verify", result.stdout)
-        result = subprocess.run([sys.executable, "-B", str(source / "scripts/export_bundle.py"),
-                                 "--format", "codex", "--output", str(self.base / "再导出 bookmark-research")],
-                                cwd=self.base, text=True, capture_output=True, timeout=15)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["version"], version)
+        for format_name in export_bundle.FORMATS:
+            result = subprocess.run([sys.executable, "-B", str(source / "scripts/export_bundle.py"),
+                                     "--format", format_name, "--output", str(self.base / ("再导出 " + format_name))],
+                                    cwd=self.base, text=True, capture_output=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["version"], version)
 
     def test_existing_output_and_source_links_are_preserved(self):
         output = self.base / "existing.zip"
@@ -333,6 +360,7 @@ class DistributionTests(unittest.TestCase):
     def test_verification_pack_includes_fixtures_and_runs_offline_after_extraction(self):
         shutil.copytree(ROOT / "tests", self.source / "tests")
         shutil.copy2(ROOT / "scripts/verify_fixture.py", self.source / "scripts/verify_fixture.py")
+        shutil.copy2(ROOT / "scripts/verify_quality.py", self.source / "scripts/verify_quality.py")
         marker = os.urandom(32)
         secret = self.source / "tests/.env"
         secret.write_bytes(marker)
@@ -349,6 +377,10 @@ class DistributionTests(unittest.TestCase):
             names = archive.namelist()
             prefix = packed["archive_root"] + "/"
             self.assertIn(prefix + "scripts/verify_fixture.py", names)
+            self.assertIn(prefix + "scripts/verify_quality.py", names)
+            self.assertIn(prefix + "scripts/host_assets.py", names)
+            self.assertIn(prefix + "hosts/pi/runtime.js", names)
+            self.assertIn(prefix + "tests/host-workflows.test.js", names)
             self.assertIn(prefix + "tests/test_research.py", names)
             self.assertTrue(any(name.startswith(prefix + "tests/fixtures/canvas/") for name in names))
             self.assertTrue(any(name.startswith(prefix + "tests/fixtures/research-scenario.json") for name in names))
@@ -359,7 +391,10 @@ class DistributionTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-B", str(extracted / "scripts/verify_fixture.py"),
                                  "--output", str(self.base / "offline validation")],
                                 cwd=self.base, text=True, capture_output=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", str(extracted / "tests"),
+                                 "-p", "test_host_workflows.py"], cwd=self.base, text=True, capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

@@ -118,6 +118,41 @@ Settings(config).update(json.loads(patch))
         self.assertEqual(saved["fetch"]["provider"], "tavily")
         self.assertNotIn("TAVILY_API_KEY", self.settings.path.read_text())
 
+    def test_old_configuration_inherits_research_defaults_and_new_overrides_persist(self):
+        self.settings.path.parent.mkdir(parents=True)
+        self.settings.path.write_text('{"schema_version":1,"search":{"providers":["exa"]}}')
+        defaults = self.settings.load()
+        self.assertFalse(defaults["professional_research"]["enabled"])
+        self.assertIsNone(defaults["professional_research"]["provider"])
+        self.assertEqual(defaults["wiki"]["directory"], str(self.base / "data/wiki"))
+        self.settings.update({"research": {"depth": "deep", "methods": ["benchmark_review"]},
+            "professional_research": {"enabled": True, "provider": "openai", "openai": {"max_tool_calls": 8}},
+            "wiki": {"directory": str(self.base / "authored-knowledge")}})
+        saved = Settings(self.settings.path).load()
+        self.assertEqual(saved["search"]["providers"], ["exa"])
+        self.assertEqual(saved["professional_research"]["openai"]["model"], "o4-mini-deep-research")
+        self.assertEqual(saved["professional_research"]["openai"]["max_tool_calls"], 8)
+        self.settings.update({"professional_research": {"provider": None}})
+        self.assertIsNone(self.settings.load()["professional_research"]["provider"])
+
+    def test_research_preferences_reject_credentials_bad_methods_and_wiki_in_package(self):
+        invalid = [{"research": {"depth": "exhaustive"}}, {"research": {"methods": []}},
+            {"research": {"methods": ["fact_check", "fact_check"]}},
+            {"research": {"prefer_host_workflows": "yes"}},
+            {"professional_research": {"openai": {"api_key": "never-store"}}},
+            {"professional_research": {"openai": {"max_tool_calls": True}}},
+            {"professional_research": {"provider": "tavily"}},
+            {"professional_research": {"parallel": {"processor": "../invalid"}}},
+            {"wiki": {"directory": "relative-wiki"}}]
+        package = self.base / "package"
+        package.mkdir()
+        (package / "input.canvas").write_text('{"nodes":[],"edges":[]}')
+        invalid.append({"wiki": {"directory": str(package / "wiki")}})
+        for changes in invalid:
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.settings.update(changes)
+        self.assertFalse(self.settings.path.exists())
+
     def test_canvas_plugin_and_symlink_destinations_are_rejected(self):
         package = self.base / "canvas"
         package.mkdir()

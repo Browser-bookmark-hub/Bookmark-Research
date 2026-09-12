@@ -1,0 +1,912 @@
+{
+  "suite": {
+    "schema_version": 1,
+    "suite_id": "research-quality-synthetic-v1",
+    "kind": "synthetic_fixture",
+    "description": "Hand-authored outputs and labels over invented services. No host, model or provider was run. Monetary and timing values are illustrative.",
+    "annotation": "Fixture author supplied gold answers, answer matches, semantic citation labels and report rubric scores. These are not independent human or model ratings.",
+    "sources": [
+      {
+        "source_id": "src-aurora",
+        "url": "https://aurora.example.test/docs",
+        "text": "Aurora supports search, extraction, and reusable sessions."
+      },
+      {
+        "source_id": "src-brook",
+        "url": "https://brook.example.test/docs",
+        "text": "Brook supports search and extraction through reusable sessions. Session lifetime is not specified."
+      },
+      {
+        "source_id": "src-cobalt",
+        "url": "https://cobalt.example.test/docs",
+        "text": "Cobalt offers keyword search. Extraction is not available."
+      },
+      {
+        "source_id": "src-outage",
+        "url": "https://outage.example.test/docs",
+        "text": null,
+        "status": "unavailable"
+      }
+    ],
+    "tasks": [
+      {
+        "task_id": "reusable-services",
+        "prompt": "Using the four frozen fixture records, list every service whose available documentation explicitly supports search, extraction and reusable sessions. Preserve unavailable/uncertain cases.",
+        "gold_answers": [
+          {
+            "id": "aurora",
+            "text": "Aurora",
+            "source_ids": [
+              "src-aurora"
+            ],
+            "quote": "Aurora supports search, extraction, and reusable sessions."
+          },
+          {
+            "id": "brook",
+            "text": "Brook",
+            "source_ids": [
+              "src-brook"
+            ],
+            "quote": "Brook supports search and extraction through reusable sessions. Session lifetime is not specified."
+          }
+        ],
+        "scope_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt",
+          "src-outage"
+        ],
+        "question_ids": [
+          "q-services"
+        ]
+      }
+    ],
+    "rubric": {
+      "id": "research-evidence-rubric",
+      "version": "1",
+      "answer_matching": "A human or explicitly identified model matches each atomic predicted service to one gold entity by identity, accounting for aliases and scope. Use null for an incorrect or unsupported entity; leave unjudged answers absent. Duplicate matches to one gold entity count once under set metrics.",
+      "citation_support": "For each unique claim/source pair, read the actual quoted context and verify entity, time and scope. supported means the text supports the entire claim; unsupported means it contradicts or does not support the claim; uncertain means ambiguity or insufficient context prevents a reliable judgment. A substring/regex match alone is not support. Both unsupported and uncertain remain in the full accuracy denominator.",
+      "report_quality": {
+        "factuality": "0: pervasive unsupported conclusions; 1: major errors; 2: mixed support; 3: minor qualified issues; 4: claims supported within the fixture scope.",
+        "completeness": "0: misses the task; 1: most required answers absent; 2: partial set; 3: complete answers with a minor omission in limitations; 4: complete set plus original-scope gaps.",
+        "uncertainty": "0: hides limitations; 1: misleading certainty; 2: some uncertainty stated; 3: most gaps identified; 4: unavailable sources, ambiguity and bounds all clear."
+      }
+    }
+  },
+  "runs": [
+    {
+      "run_id": "direct-1",
+      "task_id": "reusable-services",
+      "system_id": "fixture-direct",
+      "mode": "host_direct",
+      "comparison_group": "same-frozen-task",
+      "repeat": 1,
+      "controls": {
+        "model": "invented-fixture-model",
+        "tools": [
+          "fixture-search",
+          "fixture-extract"
+        ],
+        "budget": {
+          "max_search_calls": 8,
+          "max_fetch_calls": 4,
+          "max_model_tokens": 12000
+        },
+        "input_version": "fixed-corpus-v1",
+        "time_window": "frozen synthetic documents; no live web",
+        "harness_version": "manual-fixture-v1"
+      },
+      "status": "incomplete",
+      "answers": [
+        {
+          "answer_id": "a1",
+          "text": "Aurora"
+        },
+        {
+          "answer_id": "a2",
+          "text": "Cobalt"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "text": "Aurora supports search, extraction and reusable sessions."
+        },
+        {
+          "claim_id": "c2",
+          "text": "Cobalt supports search, extraction and reusable sessions."
+        }
+      ],
+      "citations": [
+        {
+          "citation_id": "cite1",
+          "claim_id": "c1",
+          "source_id": "src-aurora",
+          "quote": "Aurora supports search, extraction, and reusable sessions."
+        },
+        {
+          "citation_id": "cite2",
+          "claim_id": "c2",
+          "source_id": "src-cobalt",
+          "quote": "Cobalt offers keyword search. Extraction is not available."
+        }
+      ],
+      "coverage": {
+        "accounted_source_ids": [
+          "src-aurora",
+          "src-cobalt"
+        ],
+        "text_source_ids": [
+          "src-aurora",
+          "src-cobalt"
+        ],
+        "reviewed_source_ids": [
+          "src-aurora"
+        ],
+        "answered_question_ids": []
+      },
+      "measurements": {
+        "cost_usd": 0.01,
+        "latency_seconds": 12,
+        "basis": "synthetic",
+        "usage": {
+          "search_calls": 2,
+          "fetch_calls": 2,
+          "model_tokens": 1000
+        }
+      },
+      "report": "Synthetic example output: Aurora, Cobalt. The complete requested set has not been established."
+    },
+    {
+      "run_id": "direct-2",
+      "task_id": "reusable-services",
+      "system_id": "fixture-direct",
+      "mode": "host_direct",
+      "comparison_group": "same-frozen-task",
+      "repeat": 2,
+      "controls": {
+        "model": "invented-fixture-model",
+        "tools": [
+          "fixture-search",
+          "fixture-extract"
+        ],
+        "budget": {
+          "max_search_calls": 8,
+          "max_fetch_calls": 4,
+          "max_model_tokens": 12000
+        },
+        "input_version": "fixed-corpus-v1",
+        "time_window": "frozen synthetic documents; no live web",
+        "harness_version": "manual-fixture-v1"
+      },
+      "status": "incomplete",
+      "answers": [
+        {
+          "answer_id": "a1",
+          "text": "Aurora"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "text": "Aurora supports search, extraction and reusable sessions."
+        }
+      ],
+      "citations": [
+        {
+          "citation_id": "cite1",
+          "claim_id": "c1",
+          "source_id": "src-aurora",
+          "quote": "Aurora supports search, extraction, and reusable sessions."
+        }
+      ],
+      "coverage": {
+        "accounted_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt",
+          "src-outage"
+        ],
+        "text_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt"
+        ],
+        "reviewed_source_ids": [
+          "src-aurora",
+          "src-cobalt"
+        ],
+        "answered_question_ids": []
+      },
+      "measurements": {
+        "cost_usd": 0.02,
+        "latency_seconds": 18,
+        "basis": "synthetic",
+        "usage": {
+          "search_calls": 2,
+          "fetch_calls": 3,
+          "model_tokens": 2000
+        }
+      },
+      "report": "Synthetic example output: Aurora. The complete requested set has not been established."
+    },
+    {
+      "run_id": "workflow-1",
+      "task_id": "reusable-services",
+      "system_id": "fixture-workflow",
+      "mode": "host_workflow",
+      "comparison_group": "same-frozen-task",
+      "repeat": 1,
+      "controls": {
+        "model": "invented-fixture-model",
+        "tools": [
+          "fixture-search",
+          "fixture-extract"
+        ],
+        "budget": {
+          "max_search_calls": 8,
+          "max_fetch_calls": 4,
+          "max_model_tokens": 12000
+        },
+        "input_version": "fixed-corpus-v1",
+        "time_window": "frozen synthetic documents; no live web",
+        "harness_version": "manual-fixture-v1"
+      },
+      "status": "completed",
+      "answers": [
+        {
+          "answer_id": "a1",
+          "text": "Aurora"
+        },
+        {
+          "answer_id": "a2",
+          "text": "Brook"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "text": "Aurora supports search, extraction and reusable sessions."
+        },
+        {
+          "claim_id": "c2",
+          "text": "Brook supports search, extraction and reusable sessions."
+        }
+      ],
+      "citations": [
+        {
+          "citation_id": "cite1",
+          "claim_id": "c1",
+          "source_id": "src-aurora",
+          "quote": "Aurora supports search, extraction, and reusable sessions."
+        },
+        {
+          "citation_id": "cite2",
+          "claim_id": "c2",
+          "source_id": "src-brook",
+          "quote": "Brook supports search and extraction through reusable sessions. Session lifetime is not specified."
+        }
+      ],
+      "coverage": {
+        "accounted_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt",
+          "src-outage"
+        ],
+        "text_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt"
+        ],
+        "reviewed_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt"
+        ],
+        "answered_question_ids": [
+          "q-services"
+        ]
+      },
+      "measurements": {
+        "cost_usd": 0.04,
+        "latency_seconds": 40,
+        "basis": "synthetic",
+        "usage": {
+          "search_calls": 2,
+          "fetch_calls": 3,
+          "model_tokens": 1000
+        }
+      },
+      "report": "Synthetic example output: Aurora, Brook. Source src-outage is unavailable in the fixture."
+    },
+    {
+      "run_id": "workflow-2",
+      "task_id": "reusable-services",
+      "system_id": "fixture-workflow",
+      "mode": "host_workflow",
+      "comparison_group": "same-frozen-task",
+      "repeat": 2,
+      "controls": {
+        "model": "invented-fixture-model",
+        "tools": [
+          "fixture-search",
+          "fixture-extract"
+        ],
+        "budget": {
+          "max_search_calls": 8,
+          "max_fetch_calls": 4,
+          "max_model_tokens": 12000
+        },
+        "input_version": "fixed-corpus-v1",
+        "time_window": "frozen synthetic documents; no live web",
+        "harness_version": "manual-fixture-v1"
+      },
+      "status": "completed",
+      "answers": [
+        {
+          "answer_id": "a1",
+          "text": "Aurora"
+        },
+        {
+          "answer_id": "a2",
+          "text": "Brook"
+        },
+        {
+          "answer_id": "a3",
+          "text": "Cobalt"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "text": "Aurora supports search, extraction and reusable sessions."
+        },
+        {
+          "claim_id": "c2",
+          "text": "Brook supports search, extraction and reusable sessions."
+        },
+        {
+          "claim_id": "c3",
+          "text": "Cobalt supports search, extraction and reusable sessions."
+        }
+      ],
+      "citations": [
+        {
+          "citation_id": "cite1",
+          "claim_id": "c1",
+          "source_id": "src-aurora",
+          "quote": "Aurora supports search, extraction, and reusable sessions."
+        },
+        {
+          "citation_id": "cite2",
+          "claim_id": "c2",
+          "source_id": "src-brook",
+          "quote": "Brook supports search and extraction through reusable sessions. Session lifetime is not specified."
+        },
+        {
+          "citation_id": "cite3",
+          "claim_id": "c3",
+          "source_id": "src-cobalt",
+          "quote": "Cobalt offers keyword search. Extraction is not available."
+        }
+      ],
+      "coverage": {
+        "accounted_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt",
+          "src-outage"
+        ],
+        "text_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt"
+        ],
+        "reviewed_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt"
+        ],
+        "answered_question_ids": [
+          "q-services"
+        ]
+      },
+      "measurements": {
+        "cost_usd": 0.06,
+        "latency_seconds": 48,
+        "basis": "synthetic",
+        "usage": {
+          "search_calls": 2,
+          "fetch_calls": 3,
+          "model_tokens": 2000
+        }
+      },
+      "report": "Synthetic example output: Aurora, Brook, Cobalt. Source src-outage is unavailable in the fixture."
+    },
+    {
+      "run_id": "professional-1",
+      "task_id": "reusable-services",
+      "system_id": "fixture-professional",
+      "mode": "professional_research",
+      "comparison_group": "same-frozen-task",
+      "repeat": 1,
+      "controls": {
+        "model": "invented-fixture-model",
+        "tools": [
+          "fixture-search",
+          "fixture-extract"
+        ],
+        "budget": {
+          "max_search_calls": 8,
+          "max_fetch_calls": 4,
+          "max_model_tokens": 12000
+        },
+        "input_version": "fixed-corpus-v1",
+        "time_window": "frozen synthetic documents; no live web",
+        "harness_version": "manual-fixture-v1"
+      },
+      "status": "incomplete",
+      "answers": [
+        {
+          "answer_id": "a1",
+          "text": "Brook"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "text": "Brook supports search, extraction and reusable sessions."
+        },
+        {
+          "claim_id": "c-lifetime",
+          "text": "Brook sessions persist across process restarts."
+        }
+      ],
+      "citations": [
+        {
+          "citation_id": "cite1",
+          "claim_id": "c1",
+          "source_id": "src-brook",
+          "quote": "Brook supports search and extraction through reusable sessions. Session lifetime is not specified."
+        },
+        {
+          "citation_id": "cite-lifetime",
+          "claim_id": "c-lifetime",
+          "source_id": "src-brook",
+          "quote": "Brook supports search and extraction through reusable sessions. Session lifetime is not specified."
+        }
+      ],
+      "coverage": {
+        "accounted_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-outage"
+        ],
+        "text_source_ids": [
+          "src-aurora",
+          "src-brook"
+        ],
+        "reviewed_source_ids": [
+          "src-brook"
+        ],
+        "answered_question_ids": []
+      },
+      "measurements": {
+        "cost_usd": 0.08,
+        "latency_seconds": 25,
+        "basis": "synthetic",
+        "usage": {
+          "search_calls": 2,
+          "fetch_calls": 2,
+          "model_tokens": 1000
+        }
+      },
+      "report": "Synthetic example output: Brook. The complete requested set has not been established. The output also overstates Brook's restart behavior."
+    },
+    {
+      "run_id": "professional-2",
+      "task_id": "reusable-services",
+      "system_id": "fixture-professional",
+      "mode": "professional_research",
+      "comparison_group": "same-frozen-task",
+      "repeat": 2,
+      "controls": {
+        "model": "invented-fixture-model",
+        "tools": [
+          "fixture-search",
+          "fixture-extract"
+        ],
+        "budget": {
+          "max_search_calls": 8,
+          "max_fetch_calls": 4,
+          "max_model_tokens": 12000
+        },
+        "input_version": "fixed-corpus-v1",
+        "time_window": "frozen synthetic documents; no live web",
+        "harness_version": "manual-fixture-v1"
+      },
+      "status": "completed",
+      "answers": [
+        {
+          "answer_id": "a1",
+          "text": "Aurora"
+        },
+        {
+          "answer_id": "a2",
+          "text": "Brook"
+        }
+      ],
+      "claims": [
+        {
+          "claim_id": "c1",
+          "text": "Aurora supports search, extraction and reusable sessions."
+        },
+        {
+          "claim_id": "c2",
+          "text": "Brook supports search, extraction and reusable sessions."
+        }
+      ],
+      "citations": [
+        {
+          "citation_id": "cite1",
+          "claim_id": "c1",
+          "source_id": "src-aurora",
+          "quote": "Aurora supports search, extraction, and reusable sessions."
+        },
+        {
+          "citation_id": "cite2",
+          "claim_id": "c2",
+          "source_id": "src-brook",
+          "quote": "Brook supports search and extraction through reusable sessions. Session lifetime is not specified."
+        }
+      ],
+      "coverage": {
+        "accounted_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt",
+          "src-outage"
+        ],
+        "text_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt"
+        ],
+        "reviewed_source_ids": [
+          "src-aurora",
+          "src-brook",
+          "src-cobalt"
+        ],
+        "answered_question_ids": [
+          "q-services"
+        ]
+      },
+      "measurements": {
+        "cost_usd": null,
+        "latency_seconds": 55,
+        "basis": "synthetic",
+        "usage": {
+          "search_calls": 2,
+          "fetch_calls": 3,
+          "model_tokens": 2000
+        }
+      },
+      "report": "Synthetic example output: Aurora, Brook. Source src-outage is unavailable in the fixture."
+    }
+  ],
+  "judgments": [
+    {
+      "run_id": "direct-1",
+      "rubric_id": "research-evidence-rubric",
+      "rubric_version": "1",
+      "evaluator": {
+        "kind": "synthetic",
+        "name": "fixture-author-labels",
+        "version": "1"
+      },
+      "answer_matches": [
+        {
+          "answer_id": "a1",
+          "gold_id": "aurora"
+        },
+        {
+          "answer_id": "a2",
+          "gold_id": null
+        }
+      ],
+      "citation_labels": [
+        {
+          "citation_id": "cite1",
+          "label": "supported",
+          "reason": "Synthetic label: all three requested capabilities are stated in the fixed source."
+        },
+        {
+          "citation_id": "cite2",
+          "label": "unsupported",
+          "reason": "Synthetic label: the source explicitly says extraction is unavailable."
+        }
+      ],
+      "report_scores": [
+        {
+          "dimension": "factuality",
+          "score": 1,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "completeness",
+          "score": 1,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "uncertainty",
+          "score": 1,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        }
+      ]
+    },
+    {
+      "run_id": "direct-2",
+      "rubric_id": "research-evidence-rubric",
+      "rubric_version": "1",
+      "evaluator": {
+        "kind": "synthetic",
+        "name": "fixture-author-labels",
+        "version": "1"
+      },
+      "answer_matches": [
+        {
+          "answer_id": "a1",
+          "gold_id": "aurora"
+        }
+      ],
+      "citation_labels": [
+        {
+          "citation_id": "cite1",
+          "label": "supported",
+          "reason": "Synthetic label: all three requested capabilities are stated in the fixed source."
+        }
+      ],
+      "report_scores": [
+        {
+          "dimension": "factuality",
+          "score": 3,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "completeness",
+          "score": 2,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "uncertainty",
+          "score": 3,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        }
+      ]
+    },
+    {
+      "run_id": "workflow-1",
+      "rubric_id": "research-evidence-rubric",
+      "rubric_version": "1",
+      "evaluator": {
+        "kind": "synthetic",
+        "name": "fixture-author-labels",
+        "version": "1"
+      },
+      "answer_matches": [
+        {
+          "answer_id": "a1",
+          "gold_id": "aurora"
+        },
+        {
+          "answer_id": "a2",
+          "gold_id": "brook"
+        }
+      ],
+      "citation_labels": [
+        {
+          "citation_id": "cite1",
+          "label": "supported",
+          "reason": "Synthetic label: all three requested capabilities are stated in the fixed source."
+        },
+        {
+          "citation_id": "cite2",
+          "label": "supported",
+          "reason": "Synthetic label: all three requested capabilities are stated in the fixed source."
+        }
+      ],
+      "report_scores": [
+        {
+          "dimension": "factuality",
+          "score": 4,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "completeness",
+          "score": 4,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "uncertainty",
+          "score": 4,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        }
+      ]
+    },
+    {
+      "run_id": "workflow-2",
+      "rubric_id": "research-evidence-rubric",
+      "rubric_version": "1",
+      "evaluator": {
+        "kind": "synthetic",
+        "name": "fixture-author-labels",
+        "version": "1"
+      },
+      "answer_matches": [
+        {
+          "answer_id": "a1",
+          "gold_id": "aurora"
+        },
+        {
+          "answer_id": "a2",
+          "gold_id": "brook"
+        },
+        {
+          "answer_id": "a3",
+          "gold_id": null
+        }
+      ],
+      "citation_labels": [
+        {
+          "citation_id": "cite1",
+          "label": "supported",
+          "reason": "Synthetic label: all three requested capabilities are stated in the fixed source."
+        },
+        {
+          "citation_id": "cite2",
+          "label": "supported",
+          "reason": "Synthetic label: all three requested capabilities are stated in the fixed source."
+        },
+        {
+          "citation_id": "cite3",
+          "label": "unsupported",
+          "reason": "Synthetic label: the source explicitly says extraction is unavailable."
+        }
+      ],
+      "report_scores": [
+        {
+          "dimension": "factuality",
+          "score": 2,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "completeness",
+          "score": 3,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "uncertainty",
+          "score": 2,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        }
+      ]
+    },
+    {
+      "run_id": "professional-1",
+      "rubric_id": "research-evidence-rubric",
+      "rubric_version": "1",
+      "evaluator": {
+        "kind": "synthetic",
+        "name": "fixture-author-labels",
+        "version": "1"
+      },
+      "answer_matches": [
+        {
+          "answer_id": "a1",
+          "gold_id": "brook"
+        }
+      ],
+      "citation_labels": [
+        {
+          "citation_id": "cite1",
+          "label": "supported",
+          "reason": "Synthetic label: all three requested capabilities are stated in the fixed source."
+        },
+        {
+          "citation_id": "cite-lifetime",
+          "label": "uncertain",
+          "reason": "Synthetic label: reusable sessions are mentioned, but their lifetime and restart behavior are unspecified."
+        }
+      ],
+      "report_scores": [
+        {
+          "dimension": "factuality",
+          "score": 2,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "completeness",
+          "score": 2,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "uncertainty",
+          "score": 2,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        }
+      ]
+    },
+    {
+      "run_id": "professional-2",
+      "rubric_id": "research-evidence-rubric",
+      "rubric_version": "1",
+      "evaluator": {
+        "kind": "synthetic",
+        "name": "fixture-author-labels",
+        "version": "1"
+      },
+      "answer_matches": [
+        {
+          "answer_id": "a1",
+          "gold_id": "aurora"
+        },
+        {
+          "answer_id": "a2",
+          "gold_id": "brook"
+        }
+      ],
+      "citation_labels": [
+        {
+          "citation_id": "cite1",
+          "label": "supported",
+          "reason": "Synthetic label: all three requested capabilities are stated in the fixed source."
+        },
+        {
+          "citation_id": "cite2",
+          "label": "supported",
+          "reason": "Synthetic label: all three requested capabilities are stated in the fixed source."
+        }
+      ],
+      "report_scores": [
+        {
+          "dimension": "factuality",
+          "score": 4,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "completeness",
+          "score": 4,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        },
+        {
+          "dimension": "uncertainty",
+          "score": 4,
+          "reason": "Hand-authored fixture score to exercise the declared rubric; no real model or provider was judged."
+        }
+      ]
+    }
+  ],
+  "expected": {
+    "run_count": 6,
+    "group_count": 1,
+    "answer_f1": {
+      "direct-1": 0.5,
+      "direct-2": 0.6666666666666666,
+      "workflow-1": 1,
+      "workflow-2": 0.8,
+      "professional-1": 0.6666666666666666,
+      "professional-2": 1
+    },
+    "semantic_citation_accuracy": {
+      "direct-1": 0.5,
+      "direct-2": 1,
+      "workflow-1": 1,
+      "workflow-2": 0.6666666666666666,
+      "professional-1": 0.5,
+      "professional-2": 1
+    },
+    "direct_f1_sample_variance": 0.013888888888888888,
+    "workflow_text_coverage": 0.75
+  }
+}

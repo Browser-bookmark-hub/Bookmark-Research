@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "checked_on": "2026-09-11",
+  "scope": "Four-host artifacts, choreography contracts and actual shared stdio MCP. This is not a paid host research run.",
+  "sources": [
+    {
+      "id": "W1",
+      "url": "https://code.claude.com/docs/en/workflows",
+      "retrieved_at": "2026-09-10T14:47:37.789660+00:00",
+      "method": "Exa saved page extraction",
+      "content_kind": "provider_extracted_text",
+      "sha256": "279959e978889d5436be24945aa72f9553fed84c4193ffa6b0c62d4a1d8e3bea",
+      "completeness": "unknown",
+      "origin_freshness": "not_established",
+      "runtime_verification": false
+    },
+    {
+      "id": "W2",
+      "url": "https://claude.com/blog/introducing-dynamic-workflows-in-claude-code",
+      "retrieved_at": "2026-09-10T14:47:37.789660+00:00",
+      "method": "Exa saved page extraction",
+      "content_kind": "provider_extracted_text",
+      "sha256": "04ee8d82a1b4ea47714d88a29e259374ebecb8544c285d18f89838687d497914",
+      "completeness": "unknown",
+      "origin_freshness": "not_established",
+      "runtime_verification": false
+    },
+    {
+      "id": "W3",
+      "url": "https://developers.openai.com/codex/concepts/customization",
+      "retrieved_at": "2026-09-10T14:47:37.789660+00:00",
+      "method": "Exa saved page extraction",
+      "content_kind": "provider_extracted_text",
+      "sha256": "80289c50c991d4ad054a4d4aee4d78fa89b88d010e1a57da543ba4fb56278dee",
+      "completeness": "unknown",
+      "origin_freshness": "not_established",
+      "runtime_verification": false
+    },
+    {
+      "id": "W4",
+      "url": "https://developers.openai.com/codex/workflows",
+      "retrieved_at": "2026-09-10T14:47:37.789660+00:00",
+      "method": "Exa saved page extraction",
+      "content_kind": "provider_extracted_text",
+      "sha256": "7bc97bc8d609c5bfa5df58b1c4248d1b58882023b8ab8aaa904941432c682064",
+      "completeness": "unknown",
+      "origin_freshness": "not_established",
+      "runtime_verification": false
+    },
+    {
+      "id": "W5",
+      "url": "https://pi.dev/packages/pi-subagents-workflows",
+      "retrieved_at": "2026-09-10T14:47:37.789660+00:00",
+      "method": "Exa saved page extraction",
+      "content_kind": "provider_extracted_text",
+      "sha256": "4e7a662a251d0ae7b530731133725f77746661b05d8b2d2e4af42f470b7876d2",
+      "completeness": "unknown",
+      "origin_freshness": "not_established",
+      "runtime_verification": false
+    },
+    {
+      "id": "W6",
+      "url": "https://github.com/nicobailon/pi-subagents",
+      "retrieved_at": "2026-09-10T14:47:37.789660+00:00",
+      "method": "Exa saved page extraction",
+      "content_kind": "provider_extracted_text",
+      "sha256": "9d97907a09bb7cbe110186898c81a92be388a4a69b9fab1f1c0cedefd474e9b2",
+      "completeness": "unknown",
+      "origin_freshness": "not_established",
+      "runtime_verification": false
+    },
+    {
+      "id": "W7",
+      "url": "https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/workflow",
+      "retrieved_at": "2026-09-10T14:47:37.789660+00:00",
+      "method": "Exa saved page extraction",
+      "content_kind": "provider_extracted_text",
+      "sha256": "2b18104e3631bf2e2db68c41e400d936259115bc8236333efd54d9c8eea02eff",
+      "completeness": "unknown",
+      "origin_freshness": "not_established",
+      "runtime_verification": false
+    },
+    {
+      "id": "W8",
+      "url": "https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/workflow/tool-workflow/README.md",
+      "retrieved_at": "2026-09-10T14:47:37.789660+00:00",
+      "method": "Exa saved page extraction",
+      "content_kind": "provider_extracted_text",
+      "sha256": "31676b24d65c6ca5bbcda1a777ee77854b3894700edaedc4f4afd92a9da52fb3",
+      "completeness": "unknown",
+      "origin_freshness": "not_established",
+      "runtime_verification": false
+    }
+  ],
+  "supplementary_sources": [
+    {
+      "id": "W9",
+      "url": "https://learn.chatgpt.com/docs/agent-configuration/subagents",
+      "read_on": "2026-09-11",
+      "content_kind": "html",
+      "sha256": "2ef3debd56838912b1198c4e327c930fca2f75f1978487a57499161fc52e5033",
+      "completeness": "unknown"
+    },
+    {
+      "id": "W10",
+      "url": "https://github.com/nicobailon/pi-subagents/blob/main/docs/workflows.md",
+      "read_on": "2026-09-11",
+      "content_kind": "raw_markdown",
+      "sha256": "9d11adb32bd743ee3320b6ecca544d17165177daf55abdd1c375d9182a83f33d",
+      "completeness": "unknown"
+    },
+    {
+      "id": "W11",
+      "url": "https://github.com/nicobailon/pi-subagents/blob/main/docs/tool-reference.md",
+      "read_on": "2026-09-11",
+      "content_kind": "raw_markdown",
+      "sha256": "9507f30e4013d0967431be18c65b292727bc67351cb987b7a0a8130d831f8017",
+      "completeness": "unknown"
+    }
+  ],
+  "local_capabilities": {
+    "codex": {
+      "version": "0.153.4",
+      "multi_agent": {
+        "stability": "stable",
+        "enabled": true
+      },
+      "session_tools_still_required": true,
+      "installed_plugin_verification": {
+        "base_version": "0.3.0",
+        "marketplace": "personal",
+        "backup_hashes_verified": true,
+        "mcp_transport": "actual installed-cache stdio",
+        "mcp_tool_count": 34,
+        "non_manifest_file_hashes_matched": 36,
+        "codex_host_assets_matched": 3,
+        "cli_fts5": true,
+        "read_only_tool_calls": ["research_route", "research_services"],
+        "network_calls": 0,
+        "database_created": false,
+        "new_thread_required": true
+      },
+      "delegated_skill_acceptance": {
+        "input": "Fresh synthetic canvas; expected answers not read",
+        "bookmark_instances": 7,
+        "original_urls": 6,
+        "local_documents_reviewed": 5,
+        "metadata_claims": 6,
+        "wiki_pages": 2,
+        "accounted_urls": 6,
+        "original_pages_reviewed": 0,
+        "research_status": "incomplete",
+        "input_and_evidence_hashes_verified": true,
+        "provider_calls": 0,
+        "additional_verifier": "Host thread limit reached; disclosed same-agent second review",
+        "live_web_research_verified": false
+      }
+    },
+    "claude": {
+      "version": "2.1.247",
+      "manifest_validation": {
+        "command": "claude plugin validate --strict <temporary-export>",
+        "exit_code": 0,
+        "warnings": 0,
+        "result": "Validation passed",
+        "scope": "Native plugin manifest; not execution of workflow code"
+      },
+      "account_workflow_access_verified": false,
+      "live_client_attempt": {
+        "plugin_loaded": true,
+        "mcp_connected": true,
+        "mcp_tool_count": 34,
+        "workflow_tool_visible": true,
+        "packaged_workflow_command_visible": true,
+        "synthetic_input_urls": 2,
+        "synthetic_bookmark_instances": 3,
+        "initial_isolated_launch": "User authentication was not loaded",
+        "existing_configuration_launch": "Configured model endpoint returned 429 / Service Unavailable",
+        "subagents_started": 0,
+        "reported_cost_usd": 0,
+        "native_workflow_execution_passed": false,
+        "global_configuration_changed": false
+      }
+    },
+    "pi": {
+      "found_in_path": false,
+      "node_version": "22.17.0",
+      "required_node_version": "22.19.0",
+      "required_pi_version": "0.83",
+      "required_pi_subagents_version": "0.43.0",
+      "required_extensions": [
+        "pi-subagents",
+        "pi-subagents-workflows"
+      ],
+      "native_workflow_validator_run": false
+    },
+    "dsh": {
+      "found_in_path": false,
+      "profile_configured": false,
+      "native_workflow_run": false
+    }
+  },
+  "checks": [
+    {
+      "command": "python3 -B -m unittest discover -s tests -p test_host_workflows.py -v",
+      "status": "passed",
+      "tests": 8,
+      "nested_isolated_javascript_checks": 36
+    },
+    {
+      "name": "complete_inventory",
+      "transport": "actual local stdio MCP",
+      "input": "synthetic 207-URL package",
+      "result": "Every page and unique u- ID preserved; groups flatten to the complete inventory; agents_started=0"
+    },
+    {
+      "name": "complete_analysis_artifact",
+      "transport": "actual local stdio MCP",
+      "result": "207 IDs plus child failures persisted as a JSON object outside the package, read back unchanged, SHA-256 verified, replay idempotent"
+    },
+    {
+      "name": "project_registration",
+      "result": "Pi project-scoped registration is idempotent; differing existing definitions and symlinks are preserved and rejected"
+    },
+    {
+      "name": "isolated_choreography",
+      "result": "Reading/verification barriers, complete differences, child failures, fatal errors and full artifact requirements checked using simulated native hooks; Pi forbids nested async helpers"
+    }
+  ],
+  "boundaries": {
+    "global_configuration_changed": false,
+    "host_extensions_installed": false,
+    "paid_model_runs_started": 0,
+    "source_package_write_authorized": false,
+    "complete_paid_host_end_to_end": "not_run",
+    "limits": [
+      "Mutable source branches and provider-extracted text are not pinned host releases or proof of whole-page completeness.",
+      "Pi and DSH were not installed; Node is below the Pi workflow requirement.",
+      "Codex feature state and Claude manifest validation do not prove native tools or account access in an arbitrary session.",
+      "Local correlation IDs beginning local: are not native host run IDs."
+    ]
+  }
+}
