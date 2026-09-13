@@ -14,6 +14,34 @@ Manual export folders can disappear, and a later export can have a different fil
 - Research status compares frozen scope with current indexed input. Wiki reads/lint flag changed bookmark input for review. No automatic webpage fetch, LLM research, evidence rewrite or Wiki publication is performed.
 - Installation discovery probes use an isolated empty data directory, so verifying an installation cannot start monitoring the user's sources. First-use instructions describe the supported input forms and continuous-directory mode.
 
+## Task-driven user simulations (2026-09-14)
+
+Three delegated agents first followed the Skill on real tasks: a single GitHub bookmark check, an Exa/Parallel topic comparison within the supplied Canvas, and a resumable comparison of three ordinary bookmarks. The baseline was frozen at `baf1611`. Each case used isolated data, recorded CLI calls and actual retrieved text. For the revised Skill, the agents rotated to different cases without reading those cases' baseline answers. A fresh fourth agent could not be created because of the host thread limit. These are observed usability cases, not a controlled quality or speed benchmark.
+
+| User need | Baseline friction | Revised behavior observed |
+| --- | --- | --- |
+| Check one known URL | Main Skill plus four references and CLI help before reading; repeated provider text filled the response. | Main Skill alone was sufficient. Two fetches covered the requested facts: the default extract stopped before authentication details, so the agent requested a larger extract. No import, research session or Wiki. |
+| Compare a Canvas topic | One invalid CLI spelling; ten CLI calls, two fetch operations; seven related bookmarks retained. | Ten valid CLI calls, three fetch operations; all seven original URLs attempted, six had usable text. Official-document follow-up answered the topic while retaining the Smithery navigation-only gap. Fourteen substantive table claims passed independent semantic review. No whole-package investigation or Wiki. |
+| Research three ordinary bookmarks | Native inventory was empty; the agent maintained a separate manual list and created an unrequested Wiki. | `research_start.urls` froze all three originals without a Canvas import. Original-source review was 3/3; 17 substantive claims passed independent review of the draft and evidence. The saved report remained `incomplete` with 3/4 questions answered and Reader scanned-PDF OCR evidence still missing. A resume input was supplied; no Wiki was created. |
+
+The main English Skill decreased from **2,163 to 1,254 whitespace-delimited words**. References load by task; professional research remains optional support after the host's first pass. Wiki creation requires a request to retain knowledge there. Ordinary URL lists preserve duplicate positions and unsupported/local entries, and use the same frozen-scope completion checks as Canvas input. During the deep case, an inventory review linked to a supplementary-only claim was atomically rejected, then corrected to cite the original source.
+
+Default `fetch_web` / `fetch-web` now returns one selected text per URL, retaining every attempt's status and archive path. Full provider envelopes remain available through archives or `raw:true` / `--raw`. Reformatting the *same* three saved live responses with identical JSON serialization produced:
+
+| Response | Original JSON characters | Compact characters | Reduction |
+| --- | ---: | ---: | ---: |
+| Single GitHub README | 97,643 | 29,313 | 70.0% |
+| Canvas first fetch | 233,623 | 61,814 | 73.5% |
+| Canvas follow-up fetch | 387,546 | 102,871 | 73.5% |
+
+All eight selected texts matched their archived text and SHA-256 hashes. This measures response length, not latency, token use or research accuracy. Live provider availability and extracted contents differed between runs, and follow-up calls sometimes increased.
+
+Independent baseline review caught unsupported wording introduced by the final summary despite passing quotation/hash checks: treating page output as proof of PDF completeness, omitting same-page counterevidence, and presenting one OCR option as required. The revised instructions require review of the final synthesized answer as well as claims, with corrections before completion. Semantic reliability still depends on the readers and reviewers; the runtime enforces record consistency and scope, not factual truth.
+
+The local Codex source was backed up, re-exported and reinstalled at base version 0.4.0 with an installation-only cachebuster. All 61 source/cache files matched. A fresh stdio process exposed **35 tools**, accepted `research_start.urls` and `fetch_web.raw`, retained two distinct URLs/three instances with duplicate positions, and rejected unread input marked `completed`. The offline check saved an `incomplete` report without creating an index or making network calls. A new conversation loads the updated Skill and catalog.
+
+The full supplied Canvas was also rechecked offline: 207 distinct URLs, 223 instances, all three inventory pages, and all nine original files unchanged. This does not establish review of all 207 webpages. No professional research job, PDF conversion benchmark or new four-host end-to-end acceptance was performed. Raw case artifacts remain outside the repository and distribution.
+
 ## Whole-package scope
 
 The supplied package was read offline through the same index and research inventory APIs. Independent counts and the frozen inventory agree: **223 bookmark instances, 207 distinct original URL strings, 22 folders, 4 sections, 5 canvas nodes and 4 group memberships**. This package has no directed edges; the synthetic fixture separately exercises directed edges and copy cards.
@@ -26,7 +54,7 @@ Both professional-service payloads were also prepared offline from this actual f
 
 ## Automated verification
 
-The consolidated 0.4.0 tree passed **319 tests** in 34.511 seconds, including 63 JavaScript host workflow contract scenarios. Plugin/Skill validators and local document-path checks passed. The plugin manifest, local MCP server identity and remote MCP client identity all use 0.4.0; exporters derive their package versions from the manifest.
+The latest integration tree passed **376 tests** in 39.178 seconds. New regressions cover ordinary URL inventories, duplicate instances, invalid/mixed inputs, pagination, partial-completion rejection, compact-response fidelity and MCP/CLI entry points. Plugin/Skill validators, local document-path checks and the installed-runtime check passed. The earlier consolidated checkpoint passed 319 tests in 34.511 seconds, including 63 JavaScript host workflow contract scenarios. The plugin manifest, local MCP server identity and remote MCP client identity all use 0.4.0; exporters derive their package versions from the manifest.
 
 The source-lifecycle checkpoint passed **313 tests** on Python 3.9.6 / SQLite 3.43.2 with FTS5. This includes 32 source-lifecycle cases and 20 installer cases. The source-lifecycle module was also run independently after the final consistency adjustment, and the installer module was run independently to verify it does not depend on test discovery order.
 

@@ -28,9 +28,9 @@ Split compound statements into independently supportable claims. “This host ha
 - Whether the quotation supports the whole claim, including conditions, quantities and defaults. Text matching proves only that the quote exists.
 - Direct first-party evidence and independent counterevidence. Multiple search providers returning one page do not increase independent-source count.
 
-Save `source_review`, then a `claim` with an exact `quote`. Mark inferences with `inference:true` and explain their factual basis. Do not present inference as a documentation statement. Use `retraction` when evidence fails and revise affected questions; retain both sides of version conflicts and their resolution through `conflict` / `resolution`.
+For a quick fact check, apply the relevant checks and answer with citations; no research session is required. Within a persistent research session, save `source_review`, then a `claim` with an exact `quote`. Mark inferences with `inference:true` and explain their factual basis. Do not present inference as a documentation statement. Use `retraction` when evidence fails and revise affected questions; retain both sides of version conflicts and their resolution through `conflict` / `resolution`.
 
-An independent verifier reads original text and claims, then reports supported/unsupported/uncertain, reasons, counterevidence and inventory/question IDs needing follow-up. Repeating a reader's summary is insufficient. Check `research_coverage` afterward: record completeness and semantic reliability are separate checks.
+For deep research, an independent verifier reads original text, claims and the final draft, then reports supported/unsupported/uncertain, reasons, counterevidence and inventory/question IDs needing follow-up. Check qualifications lost during synthesis: an available method is not necessarily required, and an output field does not alone guarantee completeness. Repeating a reader's summary is insufficient. Correct the draft and affected records before finishing. Check `research_coverage` afterward: record completeness and semantic reliability are separate checks.
 
 ## benchmark_review: establish comparability
 

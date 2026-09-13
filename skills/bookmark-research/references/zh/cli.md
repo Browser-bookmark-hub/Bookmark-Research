@@ -4,6 +4,13 @@
 
 所有命令使用 Python 3.9+ 标准库，stdout 为 JSON。把 `<root>` 替换为本插件实际绝对路径。包路径、来源名、公司名、节点 ID 和 example.com URL 均为占位示例，使用时替换为用户输入或实际查询结果。插件没有预置这些来源或书签。`--db` 与 `--config` 是全局参数，须放在子命令之前。MCP 提供相同核心能力；CLI 是 Pi 或未接 MCP 载体的执行入口。
 
+| MCP | CLI 命令 |
+| --- | --- |
+| `index_status`／`sync_package` | `status`／`sync` |
+| `search_bookmarks`／`get_context` | `search`／`context` |
+| `fetch_web`／`search_web` | `fetch-web`／`search-web` |
+| `research_start`／`research_fetch` | `research start`／`research fetch` |
+
 ```sh
 python3 <root>/src/cli.py doctor
 python3 <root>/src/cli.py sync /absolute/path/to/package --source-id my-canvas
@@ -36,6 +43,8 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 ```
 
 `config show` / `config set` 对应 MCP `get_settings` / `update_settings`。`config set --input /path/to/changes.json`（或 `-` 从 stdin）支持合并部分配置。CLI 标志覆盖同次 JSON 输入中的对应字段。`fetch-web` 默认归档，`--archive` / `--no-archive` 只覆盖本次；后续调用的默认值用 `config set --archive true|false`。其他配置与目录优先级见 [配置与归档](settings-and-archive.md)。
+
+`fetch-web.pages` 按 URL 返回一份正文，保留各次尝试状态和归档路径；`--raw` 返回完整服务响应。`--timeout` 作用于单个服务 HTTP 请求，发现工具和回退可能使总耗时更长。`research fetch` 只接受文档规定的 MCP JSON 字段，不接受 `timeout`。
 
 `providers` 只描述配置；`--probe` 才联网检查握手和工具列表。Exa/Parallel 公共端点是否可匿名使用取决于服务当前限额；可在启动进程前设置 `EXA_API_KEY` / `PARALLEL_API_KEY`。可选 `--provider tavily`：存在 `TAVILY_API_KEY` 时使用 Bearer，否则发送明确 keyless header。工具列出不证明当前凭据能够执行。不要把密钥写进 manifest 或报告。
 
@@ -100,7 +109,7 @@ python3 <root>/src/cli.py research finish <research-id> --summary '已核验的�
 
 默认研究目录与 MCP 相同，位于数据目录 `research/`。CLI 可在 `research` 之后、动作之前传 `--directory /absolute/path/to/research`。换会话时保持该目录一致，按 `status` 返回的 ID 和正文继续。网络步骤要求 `operation_id`，重用同一 ID 读取结果不会重复提交。运行 `research start/status/source/record/finish` 不需要 API key 或网络。
 
-`source_ids` 是真实已同步的包 ID，start 默认冻结完整范围。inventory 与 coverage 必须读取到 next_offset 为 null；`--inventory-id` 可重复指定一批原 URL ID。import-evidence 的 JSON 同 MCP 但省略位置参数里的 research_id，必须是真实正文和 provenance；外部报告不会增加原页覆盖率。
+start 用 `urls:[...]` 接收普通书签，用 `source_ids` 接收已注册画布包，两者默认固定完整原始范围。inventory 与 coverage 必须读取到 next_offset 为 null；`--inventory-id` 可重复指定一批原 URL ID。import-evidence 的 JSON 同 MCP 但省略位置参数里的 research_id，必须是真实正文和 provenance；外部报告不会增加原页覆盖率。
 
 ## 宿主路由与专业研究服务
 

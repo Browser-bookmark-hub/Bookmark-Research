@@ -106,8 +106,9 @@ def _parser():
     fetch = commands.add_parser("fetch-web")
     fetch.add_argument("urls", nargs="+")
     fetch.add_argument("--provider", choices=Settings.PROVIDERS)
-    fetch.add_argument("--timeout", type=int)
+    fetch.add_argument("--timeout", type=int, help="Per provider HTTP request timeout; discovery and fallback can take longer overall")
     fetch.add_argument("--max-characters", type=int)
+    fetch.add_argument("--raw", action="store_true", help="Return full provider envelopes instead of one selected text per URL")
     archival = fetch.add_mutually_exclusive_group()
     archival.add_argument("--archive", dest="archive", action="store_true", default=None)
     archival.add_argument("--no-archive", dest="archive", action="store_false")
@@ -117,7 +118,7 @@ def _parser():
     research.add_argument("--directory", help="Research root outside source packages and plugin; default in the data directory")
     research_commands = research.add_subparsers(dest="research_command", required=True)
     begin = research_commands.add_parser("start", help="Save a brief, questions and budgets without contacting providers")
-    begin.add_argument("--input", required=True, help="JSON {brief,questions:[{id,question}],budget?,providers?,scope?,source_ids?}")
+    begin.add_argument("--input", required=True, help="JSON {brief,questions:[{id,question}],urls? or source_ids?,budget?,providers?,scope?}")
     inspect = research_commands.add_parser("status", help="List sessions or inspect progress without network calls")
     inspect.add_argument("research_id", nargs="?")
     inspect.add_argument("--section", choices=("questions", "claims", "sources", "operations", "conflicts", "bookmark_context", "events", "inventory", "inventory_reviews", "external_runs"))
@@ -258,7 +259,7 @@ def main(argv=None):
                 payload = _read_json(args.input)
                 if not isinstance(payload, dict):
                     raise ValueError("Research input must be an object")
-                allowed = {"start": {"brief", "questions", "budget", "providers", "scope", "source_ids", "bookmark_refs", "scope_mode", "inventory_ids"},
+                allowed = {"start": {"brief", "questions", "budget", "providers", "scope", "source_ids", "bookmark_refs", "scope_mode", "inventory_ids", "urls"},
                            "search": {"operation_id", "queries", "providers", "limit_per_target"},
                            "fetch": {"operation_id", "question_id", "urls", "provider", "max_characters"}}
                 required = {"start": {"brief", "questions"}, "search": {"operation_id", "queries"},
@@ -342,6 +343,9 @@ def main(argv=None):
                 result = engine.probe(args.provider) if args.probe else engine.describe(args.provider)
             elif args.command == "fetch-web":
                 result = engine.fetch(args.urls, args.provider, archive=args.archive, max_characters=args.max_characters)
+                if not args.raw:
+                    from archive import SourceArchive
+                    result = SourceArchive.compact_fetch(result)
             else:
                 payload = _read_json(args.input) if args.input else {
                     "targets": [{"target": q, "query": q} for q in (args.target or [])],

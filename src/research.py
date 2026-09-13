@@ -15,6 +15,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from archive import SourceArchive
 from research_coverage import ResearchCoverage
@@ -192,7 +193,8 @@ class ResearchSessions:
         if section == "operations":
             value.pop("parameters", None)
         if section == "bookmark_context":
-            value = {key: row[key] for key in ("source_id", "section_id", "item_id", "title", "url")}
+            value = {key: row[key] for key in ("source_id", "section_id", "item_id", "title", "url",
+                                              "instance_id", "input_index") if key in row}
         if section == "inventory":
             value["instance_count"] = len(value.pop("instances"))
         for field in ("answer", "question", "statement", "text", "title"):
@@ -248,7 +250,7 @@ class ResearchSessions:
                 "budget_unit": "Reserved provider attempts: one per MCP batch or Jina HTTP request (one Reader request per URL). Search batches also consume a round. Failures and unknown outcomes keep their reservation.",
                 "evidence_note": "Quotes are checked against saved extracts. Relevance, factual support and independence require model review; provider agreement is not confirmation."}
 
-    def _bookmark_scope(self, source_ids, references, scope_mode, inventory_ids):
+    def _bookmark_scope(self, source_ids, references, scope_mode, inventory_ids, urls=None):
         references = [] if references is None else references
         if not isinstance(references, list) or len(references) > 100:
             raise ValueError("bookmark_refs must be a list of at most 100 bookmark references")
@@ -268,6 +270,13 @@ class ResearchSessions:
             if scope_mode != "subset":
                 raise ValueError("inventory_ids selection requires explicit scope_mode=subset")
         source_ids = sorted(set(source_ids + [reference["source_id"] for reference in references]))
+        if urls is not None:
+            if source_ids:
+                raise ValueError("Choose urls or indexed source_ids/bookmark_refs as the original input")
+            if not isinstance(urls, list) or not 1 <= len(urls) <= 10000:
+                raise ValueError("urls must contain 1 to 10000 original bookmark URLs")
+            for url in urls:
+                self._text(url, "Original URL", 8192)
         if source_ids:
             if not self.db_path.is_file():
                 raise ValueError("Sync the bookmark package before selecting source_ids or bookmark_refs")
@@ -285,6 +294,30 @@ class ResearchSessions:
                         "input_version": hashlib.sha256(b"[]").hexdigest(),
                         "entries": [], "counts": {"unique_urls": 0, "bookmark_instances": 0},
                         **{key: [] for key in ("sources", "files", "sections", "folders", "nodes", "edges", "memberships")}}
+            if urls is not None:
+                by_url = {}
+                for position, original in enumerate(urls):
+                    if original not in by_url:
+                        try:
+                            retrieval = SourceArchive._key(original)
+                        except (ValueError, UnicodeError):
+                            retrieval = None
+                        try:
+                            scheme = urlsplit(original).scheme
+                        except ValueError:
+                            scheme = ""
+                        by_url[original] = {"id": "u-" + hashlib.sha256(original.encode("utf-8")).hexdigest()[:32],
+                            "original_url": original, "retrieval_url": retrieval,
+                            "url_kind": "web" if retrieval else "local" if scheme == "file" else "unsupported",
+                            "instances": []}
+                    identity = json.dumps([position, original], ensure_ascii=False).encode("utf-8")
+                    by_url[original]["instances"].append({
+                        "instance_id": "b-" + hashlib.sha256(identity).hexdigest()[:32],
+                        "input_index": position, "url": original})
+                manifest.update(index_state="provided", input_kind="urls",
+                    input_version=hashlib.sha256(json.dumps(urls, ensure_ascii=False).encode("utf-8")).hexdigest(),
+                    entries=sorted(by_url.values(), key=lambda row: row["id"]),
+                    counts={"unique_urls": len(by_url), "bookmark_instances": len(urls)})
         reference_ids = set()
         for reference in references:
             matches = []
@@ -312,6 +345,9 @@ class ResearchSessions:
         context = []
         for entry in entries:
             for item in entry["instances"]:
+                if urls is not None:
+                    context.append({**item, "inventory_id": entry["id"], "index_state": "provided"})
+                    continue
                 record = {key: item[key] for key in ("source_id", "section_id", "item_id", "title", "url", "path", "section_label")}
                 record.update(canonical_section_id=item["canonical_section_id"], inventory_id=entry["id"],
                               index_state="last_synchronized", memberships=[], edges=[])
@@ -321,7 +357,7 @@ class ResearchSessions:
                             if row not in record[key]:
                                 record[key].append(row)
                 context.append(record)
-        selection = {"mode": scope_mode if source_ids else "questions", "input_version": manifest["input_version"],
+        selection = {"mode": scope_mode if source_ids or urls is not None else "questions", "input_version": manifest["input_version"],
                      "input_url_count": len(manifest["entries"]), "selected_url_count": len(entries),
                      "input_instance_count": manifest["counts"]["bookmark_instances"],
                      "selected_instance_count": len(context),
@@ -330,7 +366,7 @@ class ResearchSessions:
         return manifest, entries, context, selection
 
     def start(self, brief, questions, budget=None, providers=None, scope="", source_ids=None,
-              bookmark_refs=None, scope_mode="whole", inventory_ids=None):
+              bookmark_refs=None, scope_mode="whole", inventory_ids=None, urls=None):
         brief = self._text(brief, "Research brief", 12000)
         if not isinstance(questions, list) or not 1 <= len(questions) <= 24:
             raise ValueError("questions must contain 1 to 24 questions")
@@ -353,7 +389,7 @@ class ResearchSessions:
         if not isinstance(source_ids, list) or len(source_ids) > 100:
             raise ValueError("source_ids must be a list of at most 100 indexed package IDs")
         source_ids = list(dict.fromkeys(self._text(value, "Source id", 512) for value in source_ids))
-        manifest, inventory, bookmark_context, selection = self._bookmark_scope(source_ids, bookmark_refs, scope_mode, inventory_ids)
+        manifest, inventory, bookmark_context, selection = self._bookmark_scope(source_ids, bookmark_refs, scope_mode, inventory_ids, urls)
         source_ids = manifest["source_ids"]
         urls_per_call = 1 if fetch_names[0] == "jina" else self.FETCH_BATCH_SIZE
         minimum_fetch_calls = (len(inventory) + urls_per_call - 1) // urls_per_call
@@ -389,7 +425,7 @@ class ResearchSessions:
         state["inventory_manifest_sha256"] = hashlib.sha256((path / "inventory.json").read_bytes()).hexdigest()
         self._write(path / "context.json", {"schema_version": 1, "captured_at": self._now(),
                     "kind": "local_bookmark_metadata", "bookmarks": bookmark_context, "source_scope": selection,
-                    "boundary": "Frozen research scope from the last synchronized index; never automatically sent to web providers. Full input structure is in inventory.json."})
+                    "boundary": "Frozen research input; never automatically sent to web providers. Full input structure is in inventory.json."})
         self._save(path, state)
         return self._summary(path, state)
 
@@ -438,6 +474,8 @@ class ResearchSessions:
         result = {"frozen_input_version": frozen, "current_input_version": None,
                   "state": "not_applicable" if not ids else "unknown", "requires_review": False if not ids else None,
                   "basis": "Last synchronized local index; no webpage refetch or inventory mutation"}
+        if not ids and state.get("inventory"):
+            result["basis"] = "Explicit URL list frozen at research_start; no live source is registered"
         if not ids or not frozen or not self.db_path.is_file():
             return result
         try:
@@ -522,7 +560,7 @@ class ResearchSessions:
         if entries:
             for entry in entries:
                 references.extend({key: item[key] for key in ("source_id", "section_id", "item_id")}
-                                  for item in entry["instances"])
+                                  for item in entry["instances"] if item.get("source_id"))
         else:
             # Legacy explicit-context sessions remain readable and useful.
             for bookmark in state.get("bookmark_context", []):

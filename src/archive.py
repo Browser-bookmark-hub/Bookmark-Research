@@ -178,6 +178,59 @@ class SourceArchive:
             return rows[0], None, "conflicting_provider_results", "unknown"
         return (bodies or candidates)[0]
 
+    @classmethod
+    def compact_fetch(cls, fetched):
+        """Present one selected extract per URL, retaining every attempt's provenance.
+
+        Raw MCP responses may repeat a body in text, structured data and excerpts.
+        Keep those responses in their archives (or explicit raw output), without
+        repeating them in the model's ordinary reading response.
+        """
+        if "result" not in fetched and "attempts" not in fetched:
+            return fetched
+        attempts = fetched.get("attempts", [fetched])
+        selected = {row["url"]: row for row in fetched.get("per_url", [])}
+        pages = {}
+        for attempt in attempts:
+            response = attempt.get("result")
+            if not isinstance(response, dict):
+                continue
+            by_url = {}
+            for row in cls._extract(response, attempt["urls"]):
+                try:
+                    key = cls._key(row["url"])
+                except (ValueError, UnicodeError):
+                    continue
+                by_url.setdefault(key, []).append(row)
+            archive = attempt.get("archive", {})
+            saved = {row["requested_url"]: row for row in archive.get("pages", [])}
+            for url in attempt["urls"]:
+                provider = attempt["provider"]
+                if selected.get(url, {}).get("provider", provider) != provider:
+                    continue
+                row, body, extraction, kind = cls._select(by_url.get(cls._key(url)))
+                if response.get("isError"):
+                    body, extraction = None, "provider_error"
+                metadata = row or {}
+                pages[url] = {"url": url, "provider": provider,
+                    "returned_url": row.get("url") if row else None,
+                    "title": row.get("title") if row else None,
+                    "extraction_status": extraction, "content_kind": kind,
+                    "completeness": "unknown", "retrieved_at": attempt.get("retrieved_at"),
+                    "characters": len(body) if body is not None else 0,
+                    "possibly_truncated": bool(metadata.get("truncated") or (body is not None and
+                        attempt.get("character_limit_applied") and len(body) >= attempt["requested_max_characters"] - 2)),
+                    "provider_published_at": metadata.get("publishedDate") or metadata.get("published_at") or metadata.get("publishedTime"),
+                    "provider_crawled_at": metadata.get("crawled_at") or metadata.get("crawledAt"),
+                    **saved.get(url, {}), "text": body,
+                    "manifest_path": archive.get("manifest_path")}
+        result = {key: value for key, value in fetched.items() if key not in ("result", "attempts")}
+        if "attempts" in fetched:
+            result["attempts"] = [{key: value for key, value in attempt.items() if key != "result"}
+                                  for attempt in attempts]
+        result.update(output_format="compact", pages=[pages[url] for url in fetched.get("urls", []) if url in pages])
+        return result
+
     @staticmethod
     def _write_json(path, value):
         path.write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2) + "\n", encoding="utf-8")

@@ -40,6 +40,48 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(page["completeness"], "unknown")
         self.assertIsNone(page["provider_crawled_at"])
 
+    def test_compact_fetch_returns_one_body_and_preserves_raw_archives_and_failures(self):
+        from web_search import SearchProviders
+        urls = ["https://example.test/page", "https://example.test/missing"]
+        body = "Evidence marker kept exactly.\n" + "Long source content. " * 100
+        data = {"results": [{"url": urls[0], "full_content": body, "excerpts": [body]}],
+                "errors": [{"url": urls[1], "error": "Not available"}]}
+        raw = {"structuredContent": data, "content": [{"type": "text", "text": json.dumps(data)}]}
+        successful = {"provider": "parallel", "urls": urls, "result": raw,
+                      "archive": self.capture(raw, urls), "status": "partial"}
+        outcomes = {"exa": {"status": "error", "error_kind": "timeout", "retryable": True},
+                    "parallel": successful,
+                    "jina": {**successful, "provider": "jina"}}
+        fetched = SearchProviders._fetch_waterfall(urls, list(outcomes), lambda name, pending: outcomes[name])
+        view = SourceArchive.compact_fetch(fetched)
+        self.assertEqual(view["pages"][0]["text"], body)
+        self.assertEqual(view["pages"][0]["provider"], "parallel")
+        self.assertIsNone(view["pages"][1]["text"])
+        self.assertEqual(view["unresolved_urls"], [urls[1]])
+        self.assertEqual(view["attempts"][0]["error_kind"], "timeout")
+        self.assertEqual(json.dumps(view).count("Evidence marker kept exactly."), 1)
+        self.assertTrue(all("result" not in attempt for attempt in view["attempts"]))
+        self.assertEqual(json.loads(Path(successful["archive"]["response_path"]).read_text()), raw)
+        self.assertEqual(Path(view["pages"][0]["body_path"]).read_text(), body)
+        self.assertIn("result", fetched["attempts"][1])
+
+    def test_compact_fetch_without_archive_keeps_text_and_rejects_unidentified_pages(self):
+        url = "https://example.test/page"
+        fetched = {"provider": "exa", "urls": [url], "archive": {"status": "disabled"},
+                   "result": {"structuredContent": {"url": url, "text": "Actual unarchived evidence."}}}
+        view = SourceArchive.compact_fetch(fetched)
+        self.assertEqual(view["pages"][0]["text"], "Actual unarchived evidence.")
+        self.assertIsNone(view["pages"][0]["manifest_path"])
+        self.assertEqual(view["pages"][0]["completeness"], "unknown")
+        fetched["result"]["structuredContent"].update(truncated=True, crawled_at="provider-reported-time")
+        page = SourceArchive.compact_fetch(fetched)["pages"][0]
+        self.assertTrue(page["possibly_truncated"])
+        self.assertEqual(page["provider_crawled_at"], "provider-reported-time")
+        for data in ({"url": "https://other.example.test/", "text": "Wrong page"},
+                     {"url": url, "text": "Sign in to continue"}):
+            fetched["result"] = {"structuredContent": data}
+            self.assertIsNone(SourceArchive.compact_fetch(fetched)["pages"][0]["text"])
+
     def test_structured_batch_preserves_failures_missing_pages_and_excerpts(self):
         urls = ["https://example.test/" + letter for letter in "abcd"]
         raw = {"structuredContent": {"results": [

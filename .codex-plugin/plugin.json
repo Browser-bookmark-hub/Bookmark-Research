@@ -1,7 +1,7 @@
 {
   "name": "bookmark-research",
   "version": "0.4.0",
-  "description": "Import Bookmark Canvas snapshots or live directories, research complete sources with host workflows, and maintain an evidence-linked Wiki.",
+  "description": "Check bookmark URLs or Canvas packages, compare sources with host-led research, and retain verifiable reports.",
   "author": {
     "name": "kwenxu"
   },
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Bookmark Research · 书签研究",
     "shortDescription": "Bookmark research with sources · 书签研究与来源核验",
-    "longDescription": "Query canvas snapshots or live directories, research complete sources with host workflows, and save evidence-linked reports and Wiki pages. 保留全部来源与重复书签语境，复用宿主子代理或工作流，结合搜索与可选专业研究 API，核验证据和覆盖，保存报告与 Wiki。",
+    "longDescription": "Check ordinary bookmark URLs or Canvas packages, compare sources, or investigate the complete input with host-led research. 普通链接可直接查证，画布保留原有语境；按需比较或深研，核验证据与完整覆盖，保存报告，并可整理为 Wiki。",
     "developerName": "kwenxu",
     "category": "Productivity",
     "capabilities": [
@@ -17,8 +17,8 @@
     ],
     "defaultPrompt": [
       "Quick check / 快速查证：Read my selected bookmark and answer with sources. 读取指定书签并带来源回答。",
-      "Compare / 主动搜索：Compare tools in my selected cards and follow evidence gaps. 比较指定卡片并补查证据。",
-      "Deep research / 深度研究：Research every URL in my package; save a report and Wiki. 全量研究并核验覆盖。"
+      "Compare / 主动搜索：Compare tools in my selected bookmarks and follow evidence gaps. 比较指定书签并补查证据。",
+      "Deep research / 深度研究：Research every URL in my bookmark list or package and save a sourced report. 完整研究书签清单或数据包，保留覆盖记录与报告。"
     ]
   },
   "mcpServers": {

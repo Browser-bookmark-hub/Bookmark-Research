@@ -235,8 +235,13 @@ class McpServerTests(unittest.TestCase):
         with mock.patch("web_search.SearchProviders._client", return_value=client):
             fetched = decode_tool(self.call("fetch_web", {"urls": ["https://example.test/page"]}))
             self.assertEqual(fetched["archive"]["status"], "saved")
+            self.assertEqual(fetched["pages"][0]["text"], "Actual page body")
+            self.assertNotIn("result", fetched)
             self.assertEqual(Path(fetched["archive"]["pages"][0]["body_path"]).read_text(), "Actual page body")
             self.assertEqual(client.call_tool.call_args.args[1]["maxCharacters"], 20000)
+            raw = decode_tool(self.call("fetch_web", {"urls": ["https://example.test/page"], "raw": True}))
+            self.assertEqual(raw["result"], client.call_tool.return_value)
+            self.assertNotIn("pages", raw)
             self.call("update_settings", {"changes": {"archive": {"enabled": False}}})
             disabled = decode_tool(self.call("fetch_web", {"urls": ["https://example.test/page"]}))
             self.assertEqual(disabled["archive"]["status"], "disabled")
@@ -308,6 +313,19 @@ class McpServerTests(unittest.TestCase):
         self.assertTrue(Path(finished["artifacts"]["report"]).is_file())
         state = decode_tool(self.call("research_status", {"research_id": research_id}))
         self.assertEqual(state["usage"]["fetch_calls"], 1)
+        self.assertFalse(self.db_path.exists())
+
+    def test_research_start_accepts_url_lists_without_canvas_registration(self):
+        from research import ResearchSessions
+        self.ready()
+        self.server._research_sessions = ResearchSessions(self.base / "research", settings=self.settings, db_path=self.db_path)
+        urls = ["https://example.test/first", "https://example.test/second", "https://example.test/first"]
+        started = decode_tool(self.call("research_start", {"brief": "Read all my links", "urls": urls,
+            "questions": [{"id": "q1", "question": "What do these sources say?"}]}))
+        self.assertEqual(started["source_scope"]["input_url_count"], 2)
+        self.assertEqual(started["source_scope"]["input_instance_count"], 3)
+        inventory = decode_tool(self.call("research_inventory", {"research_id": started["research_id"]}))
+        self.assertEqual({row["original_url"] for row in inventory["items"]}, set(urls))
         self.assertFalse(self.db_path.exists())
 
     def test_classified_provider_failures_set_mcp_error_flag(self):

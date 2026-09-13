@@ -2,7 +2,7 @@
 
 **English** · [中文](zh/research-workflow.md)
 
-This reference incorporates the public protocol guide's S6 rules for web scope, content review and tool routing. See [provenance](package-semantics.md#provenance-and-maintenance). Read it only when page content or online research is needed.
+This reference covers provider selection, retrieval failures and evidence retention, incorporating the public protocol guide's S6 rules. See [provenance](package-semantics.md#provenance-and-maintenance). The main Skill already covers ordinary URL checks; read this when service details are needed.
 
 ## Available integrations
 
@@ -50,7 +50,7 @@ Within one MCP process, remote MCP providers reuse sessions and expiring catalog
 
 Answer simple questions directly. When a research document is needed, save the Markdown report and `sources.json` to the requested location, or a suitable workspace location outside the synced package. The source list records target, query, provider, original URL, retrieval time, actual reading status and evidence location. Cite traceable material.
 
-`fetch_web` archives its actual responses, recognized text and source records in a separate knowledge directory by default. Cite returned `archive.manifest_path` and page `body_path` values (under each `attempts` entry for a waterfall) and inspect archive status. See [settings and archives](settings-and-archive.md) for formats and opt-outs. `search_web` does not read result URLs, and responses from other host MCPs are not intercepted. Page bodies are not stored in the SQLite bookmark index.
+`fetch_web` returns one selected extract per URL in `pages`, retaining attempt statuses and archive metadata. The actual provider envelopes, including alternative extracts, are archived unchanged in a separate knowledge directory by default; `raw:true` (CLI `--raw`) returns those envelopes directly. Cite original URLs and use `pages[].body_path` / `manifest_path` or each attempt's archive for saved evidence. Check archive status; text is still returned when archiving is disabled or fails. See [settings and archives](settings-and-archive.md). `search_web` does not read result URLs, and other host MCP responses are not intercepted. Page bodies are not stored in the bookmark index.
 
 Retrieval time is not publication time, update time or provider-cache time. Failed pages, snippets, provider extracts and text of unknown completeness cannot be described as complete originals. A new fetch for an old investigation receives its actual current date, not the old snapshot date.
 

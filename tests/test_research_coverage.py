@@ -86,6 +86,75 @@ class ResearchCoverageTests(unittest.TestCase):
             "claim_ids": claims})
         return sources, claims
 
+    def test_url_list_freezes_every_instance_without_an_index_or_network(self):
+        urls = [self.url(1), self.url(0), self.url(1), "file:///notes/reference.pdf"]
+        started = self.sessions.start("Review this complete bookmark list", [{"id": "q1", "question": "What do these say?"}],
+            urls=urls, budget={"max_fetch_calls": 0})
+        identifier = started["research_id"]
+        rows, _ = self.all_rows(identifier)
+        scope = started["source_scope"]
+        self.assertEqual((scope["mode"], scope["input_url_count"], scope["input_instance_count"]), ("whole", 3, 4))
+        duplicate = next(row for row in rows if row["original_url"] == self.url(1))
+        self.assertEqual([item["input_index"] for item in duplicate["instances"]], [0, 2])
+        self.assertEqual(len({item["instance_id"] for row in rows for item in row["instances"]}), 4)
+        self.assertEqual(next(row for row in rows if row["url_kind"] == "local")["retrieval_url"], None)
+        self.assertEqual(started["source_ids"], [])
+        self.assertFalse(self.db.exists())
+        self.engine.fetch.assert_not_called()
+        urls.append(self.url(99))
+        reopened = ResearchSessions(self.sessions.directory, settings=self.sessions.settings, db_path=self.db)
+        self.assertEqual(reopened.inventory(identifier)["items"], rows)
+        self.assertFalse(reopened.coverage(identifier)["completion_ready"])
+        self.assertEqual(reopened.coverage(identifier)["metrics"]["accounted_for"], {"count": 0, "total": 3, "rate": 0})
+
+    def test_url_list_uses_the_same_evidence_gate_as_canvas_input(self):
+        identifier = self.sessions.start("Read both originals", [{"id": "q1", "question": "What do both say?"}],
+            urls=[self.url(0), self.url(1), self.url(0)], providers=["exa"])["research_id"]
+        first = self.sessions.fetch(identifier, "first", "q1", [self.url(0)])["sources"][0]
+        self.assertEqual(first["bookmark_refs"], [])
+        self.assertEqual(len(first["inventory_ids"]), 1)
+        claims = [self.review(identifier, first)]
+        self.sessions.record(identifier, {"kind": "answer", "question_id": "q1", "answer": "Only one original reviewed.",
+                                         "claim_ids": claims})
+        coverage = self.sessions.coverage(identifier)
+        self.assertEqual(coverage["metrics"]["substantive_review"], {"count": 1, "total": 2, "rate": 0.5})
+        self.assertFalse(coverage["completion_ready"])
+        with self.assertRaises(ValueError):
+            self.sessions.finish(identifier, "Premature report")
+        second = self.sessions.fetch(identifier, "second", "q1", [self.url(1)])["sources"][0]
+        claims.append(self.review(identifier, second))
+        self.sessions.record(identifier, {"kind": "answer", "question_id": "q1", "answer": "Both originals reviewed.",
+                                         "claim_ids": claims})
+        self.assertTrue(self.sessions.coverage(identifier)["completion_ready"])
+        self.assertEqual(self.sessions.finish(identifier, "Both originals support the answer.")["status"], "completed")
+
+    def test_url_inventory_pagination_subset_and_budget_preserve_original_scope(self):
+        urls = [self.url(index) for index in range(207)]
+        arguments = {"brief": "Review the list", "questions": [{"id": "q1", "question": "What do these say?"}], "urls": urls}
+        whole = self.sessions.start(**arguments)
+        rows, offsets = self.all_rows(whole["research_id"])
+        self.assertEqual(offsets, [0, 100, 200])
+        self.assertEqual(whole["initial_fetch_plan"]["minimum_required"], 26)
+        self.assertEqual(whole["budget"]["max_fetch_calls"], 38)
+        selected = [rows[0]["id"], rows[-1]["id"]]
+        subset = self.sessions.start(**arguments, scope_mode="subset", inventory_ids=selected,
+                                     budget={"max_fetch_calls": 0})
+        self.assertEqual(subset["source_scope"]["input_url_count"], 207)
+        self.assertEqual(subset["source_scope"]["selected_url_count"], 2)
+        self.assertEqual(subset["source_scope"]["omitted_inventory_ids_total"], 205)
+        self.assertEqual(subset["budget"]["max_fetch_calls"], 0)
+        self.assertEqual([row["id"] for row in self.all_rows(subset["research_id"])[0]], selected)
+
+    def test_url_inputs_validate_before_creating_research(self):
+        for options in ({"urls": []}, {"urls": "https://example.test"}, {"urls": [None]},
+                        {"urls": [""]}, {"urls": [self.url(0)] * 10001},
+                        {"urls": [self.url(0)], "source_ids": ["canvas"]},
+                        {"urls": [self.url(0)], "bookmark_refs": [{"source_id": "canvas", "section_id": "s", "item_id": "b"}]}):
+            with self.subTest(options=str(options)[:120]), self.assertRaises(ValueError):
+                self.sessions.start("Invalid input", [{"id": "q1", "question": "What is the input?"}], **options)
+        self.assertFalse(self.sessions.directory.exists())
+        self.assertFalse(self.db.exists())
+
     def test_all_inventory_and_difference_pages_remain_frozen_after_index_refresh(self):
         identifier = self.start(207)
         initial = self.sessions.status(identifier)

@@ -621,7 +621,9 @@ class ResearchTests(unittest.TestCase):
                                     capture_output=True, text=True, cwd=self.base, timeout=20)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             return json.loads(result.stdout)
-        started = run(["start", "--input", "-"], {"brief": "CLI test", "questions": [{"id": "q1", "question": "Any evidence?"}]})
+        started = run(["start", "--input", "-"], {"brief": "CLI test", "questions": [{"id": "q1", "question": "Any evidence?"}],
+                                                   "urls": ["https://example.test/one", "https://example.test/two"]})
+        self.assertEqual(started["source_scope"]["selected_url_count"], 2)
         self.assertEqual(run(["status", started["research_id"]])["questions"][0]["id"], "q1")
         finished = run(["finish", started["research_id"], "--summary", "No evidence collected.", "--status", "incomplete"])
         self.assertTrue(Path(finished["artifacts"]["report"]).is_file())

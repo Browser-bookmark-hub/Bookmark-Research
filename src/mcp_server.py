@@ -84,6 +84,8 @@ TOOL_SCHEMAS = {
         "provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
         "archive": {"type": "boolean"},
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
+        "raw": {"type": "boolean", "default": False,
+                "description": "Return full provider envelopes instead of one selected text per URL. Archives always retain actual responses when enabled."},
     }, ["urls"]),
     "search_providers": _object_schema({
         "probe": {"type": "boolean", "default": False}, "providers": PROVIDERS,
@@ -99,7 +101,7 @@ TOOL_DESCRIPTIONS = {
     "get_context": "Read section headers, bookmark metadata, folder ancestry, geometric group membership and directed canvas edges. Copy anchors share their primary tree. Refresh is enabled by default.",
     "index_status": "Read source modes, original input availability, saved snapshots, pending files, last check/error, counts and local monitor status. Does not refresh or fetch webpages. unchecked means a live directory has not been checked recently.",
     "search_web": "Search with saved primary providers concurrently, then saved fallback providers only for queries with no usable result (defaults: Exa + Parallel, then Tavily + keyed Jina). Missing fallback credentials are skipped. Explicit providers restrict the call to that list. Search snippets are not verified page evidence; result pages are not automatically fetched.",
-    "fetch_web": "Fetch known HTTP(S) URLs. Omit provider to try fetch.provider first, then other saved fetch.providers concurrently for unresolved URLs only (initially Exa, Parallel, Jina Reader). Explicit provider selects one service. Attempts keep separate responses and archives. archive=false disables saving. Extracts need source review; no pages or vectors are added to the bookmark index.",
+    "fetch_web": "Read known URLs; pages contains one selected text per URL, with attempt statuses and archive paths. Omit provider for the saved waterfall (initially Exa then concurrent Parallel/Jina on unresolved URLs); an explicit provider selects one service. raw=true returns full provider envelopes; archive=false disables saving. Review page identity and meaning before citing.",
     "search_providers": "Describe Exa/Parallel/Tavily MCP and Jina HTTP capabilities and authentication per operation. Jina Reader supports anonymous access; Jina Search requires JINA_API_KEY. probe=true discovers MCP catalogs; HTTP mappings are local. Discovery does not prove successful retrieval.",
 }
 
@@ -133,6 +135,8 @@ TOOL_SCHEMAS.update({
         "questions": _array_schema(_object_schema({"id": RESEARCH_ID, "question": _text_schema(4000)},
                                                   ["id", "question"]), 24, 1),
         "providers": PROVIDERS, "source_ids": _array_schema(IDENTIFIER, 100),
+        "urls": {**_array_schema(_text_schema(8192), 10000, 1),
+                 "description": "Original bookmark URL list instead of indexed source_ids. Freezes every URL and duplicate position for coverage; no package import required."},
         "scope_mode": {"type": "string", "enum": ["whole", "subset"]},
         "inventory_ids": dict(_array_schema(RESEARCH_ID, 10000), uniqueItems=True),
         "bookmark_refs": _array_schema(_object_schema({"source_id": IDENTIFIER, "section_id": IDENTIFIER,
@@ -188,7 +192,7 @@ TOOL_SCHEMAS.update({
     }, ["research_id", "summary"]),
 })
 TOOL_DESCRIPTIONS.update({
-    "research_start": "Start host-led research with explicit questions, budgets and a frozen source inventory. Indexed source_ids select their whole packages by default, preserving all URL instances and canvas context. A subset requires scope_mode=subset explicitly. Creates no model or worker and makes no network calls.",
+    "research_start": "Start host-led research with questions, budgets and frozen original inputs. Supply urls for ordinary bookmarks or indexed source_ids for Canvas packages; preserves every URL and duplicate instance by default. A subset requires scope_mode=subset explicitly. With neither input, tracks questions only. Makes no network calls or background worker.",
     "research_status": "List saved research sessions or read a bounded progress overview, including source_freshness against the current indexed input. Requires review when the input changed; frozen evidence is not rewritten. For complete entries, select section and paginate; overview shows at most 20 previews per collection. No network requests. A pending intent is not proof that a research worker is running.",
     "research_search": "Execute one search round using frozen primary providers and fallbacks for unresolved queries. Explicit providers disable fallback. Reserve each provider/question/query before access, including budget-limited fallbacks; inspect unresolved_queries and remaining_attempts. Identical operation_id and arguments replay the saved outcome without resubmission.",
     "research_fetch": "Read URLs and retain each provider's actual response and identified text as session evidence. Omit provider to try session providers in a waterfall: first provider, then remaining providers concurrently for unresolved URLs, reserving each attempt within the fetch budget. Explicit provider selects one service. Inspect unresolved_urls and remaining_providers. Reuse operation_id for safe outcome lookup.",
@@ -469,7 +473,11 @@ class StdioMcpServer:
         if name == "search_web":
             return self._web().search(**arguments)
         if name == "fetch_web":
-            return self._web().fetch(**arguments)
+            from archive import SourceArchive
+            options = dict(arguments)
+            raw = options.pop("raw", False)
+            result = self._web().fetch(**options)
+            return result if raw else SourceArchive.compact_fetch(result)
         if name == "search_providers":
             options = dict(arguments)
             probe = options.pop("probe", False)

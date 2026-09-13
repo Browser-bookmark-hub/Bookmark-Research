@@ -2,7 +2,7 @@
 
 [English](README.md) · **中文**
 
-用自然语言查询 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，保留书签的文件夹、卡片和画布关系，结合 Exa、Parallel、Jina Reader 和 Tavily 调查来源，保存报告与 Wiki。
+用自然语言研究普通书签 URL 或 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，结合 Exa、Parallel、Jina Reader 和 Tavily 查证。简单问题直接读链接；需要保留进度的研究固定完整 URL 清单或数据包，保留重复实例及已有画布语境，交付可续接报告。
 
 Codex、Claude Code、Pi 和 DSH 共用一套 Skill、Python 运行时与本地数据，分别使用对应适配。**0.4.0** 整合全量研究工作流、可选专业研究 API、Wiki 与评测、目录／ZIP／单卡接入、来源版本快照和长期目录增量同步。输入变化后会提示研究／Wiki 复核；英文执行指令配完整中文阅读版，研究输出遵循用户的语言要求。
 

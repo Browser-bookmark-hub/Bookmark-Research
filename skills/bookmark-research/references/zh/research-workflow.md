@@ -2,7 +2,7 @@
 
 [English](../research-workflow.md) · **中文阅读版**
 
-本参考吸收公开协议指南 S6 的联网范围、内容核验与工具路由要求，版本依据见 [阅读协议](package-semantics.md#依据与维护)。仅在需要网页内容或联网研究时读取。
+本参考说明服务选择、读取失败与证据留存，吸收公开协议指南 S6 的规则，依据见 [阅读协议](package-semantics.md#依据与维护)。普通链接查证已在主 Skill 中说明，需要服务细节时再读本文件。
 
 ## 实际接入
 
@@ -50,7 +50,7 @@ Exa Agent、Parallel Task 和 OpenAI Deep Research 是独立研究接口，认�
 
 简单查询直接答复。需要研究文档时，将 Markdown 报告和 `sources.json` 放在用户指定位置；未指定时选当前工作区中同步包之外的位置。来源清单记录目标、query、provider、原 URL、检索时间、实际读取状态和证据位置，报告只引用可回溯的资料。
 
-`fetch_web` 默认将实际响应、可识别正文与来源记录保存到独立知识目录；报告引用返回的 `archive.manifest_path` 和各页 `body_path`（多次尝试时位于各 `attempts` 项内），并检查归档状态。具体格式与关闭选项见 [配置与归档](settings-and-archive.md)。`search_web` 不自动读取命中的 URL；宿主其他 MCP 的返回也不会被自动截获。正文不存入 SQLite 书签索引。
+`fetch_web.pages` 按 URL 返回一份选中的正文，保留各次尝试状态和归档信息。实际服务响应（含其他通道正文）默认原样保存在独立知识目录；`raw:true`（CLI `--raw`）可直接返回完整响应。引用原 URL，通过 `pages[].body_path`／`manifest_path` 或各次尝试的 archive 定位保存证据，检查归档状态；关闭归档或保存失败仍返回正文。具体格式见 [配置与归档](settings-and-archive.md)。`search_web` 不自动读取命中的 URL，其他 MCP 响应不被自动截获，正文不存入书签索引。
 
 检索时间不等于网页发布时间、更新时间或服务缓存生成时间。失败页面、搜索摘要、provider 摘录和完整性未知的提取结果不能写成“已获取完整原文”；旧研究若重新抓取，记录本次日期，不冒充旧快照。
 
