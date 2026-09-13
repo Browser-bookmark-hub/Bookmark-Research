@@ -4,14 +4,14 @@
 
 Users can change settings in conversation. CLI and MCP share one implementation; there is no separate graphical settings page.
 
-Search providers are `exa`, `parallel` and `tavily`, with the first two enabled by default; page reading defaults to Exa. Tavily uses Bearer with `TAVILY_API_KEY`, otherwise a keyless header. Public access depends on current quotas and is not guaranteed. Credentials come only from the process environment.
+Providers are `exa`, `parallel`, `tavily` and `jina`. Search starts with `search.providers` (Exa + Parallel), then `search.fallback_providers` (Tavily + keyed Jina) for unresolved queries; `[]` disables fallback. Reading uses `fetch.provider` first, then other `fetch.providers` concurrently for unresolved URLs (Exa → Parallel + Jina). Jina Reader supports anonymous access; Search requires `JINA_API_KEY`. Tavily uses `TAVILY_API_KEY` or a keyless header. Credentials come only from the process environment; service quotas still apply.
 
 ## Configuration entry points
 
-`get_settings` returns effective settings and `config_path` without creating a file. `update_settings` merges and persists supplied `changes`. Later calls read new settings immediately without restarting MCP. For a request to use only Exa from now on and enable archiving:
+`get_settings` returns effective settings and `config_path` without creating a file. `update_settings` merges and persists supplied `changes`. Later calls read new settings immediately without restarting MCP. For a request to use only Exa for search and enable archiving:
 
 ```json
-{"changes":{"search":{"providers":["exa"]},"archive":{"enabled":true}}}
+{"changes":{"search":{"providers":["exa"],"fallback_providers":[]},"archive":{"enabled":true}}}
 ```
 
 Concurrent CLI/MCP updates use a `.<filename>.lock` next to the config to serialize merges, then atomically replace the file. Updates to different fields do not overwrite each other. The lock file remains; waiting more than 10 seconds returns a timeout.
@@ -22,8 +22,8 @@ The effective configuration shape is below. Replace example `directory` values w
 {
   "schema_version": 1,
   "timeout_seconds": 30,
-  "search": {"providers": ["exa", "parallel"], "limit_per_target": 5},
-  "fetch": {"provider": "exa", "max_characters": 12000},
+  "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5},
+  "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000},
   "archive": {"enabled": true, "directory": "/absolute/path/to/knowledge"},
   "research": {"depth": "auto", "prefer_host_workflows": true,
     "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
@@ -42,7 +42,7 @@ Config path: CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOM
 
 `research.depth` accepts auto/quick/agentic/deep; auto routes by the current `task_shape`. Methods include comparative_analysis, fact_check, benchmark_review and wiki_synthesis. Routing suggests a path without starting agents or changing host settings. Professional services default to disabled and require `OPENAI_API_KEY` or `PARALLEL_API_KEY`; search MCP success does not establish research API authentication. See [services](research-services.md).
 
-Old config files inherit new defaults; only user overrides are saved. Store lasting preferences here instead of changing package `AGENTS.md`. Settings, evidence, Wiki, SQLite and source snapshots stay outside the plugin/package and are not bundled into upgrades. There are no embeddings. Continuous directory checks depend on each source's `mode`, separately from page archiving; see [source lifecycle](source-lifecycle.md).
+Old config files inherit new defaults; only user overrides are saved. An explicit saved `search.providers` list without `fallback_providers` keeps fallback disabled to preserve the earlier provider choice. Set both lists to opt into primary and fallback groups. Store lasting preferences here instead of changing package `AGENTS.md`. Settings, evidence, Wiki, SQLite and source snapshots stay outside the plugin/package and are not bundled into upgrades. There are no embeddings. Continuous directory checks depend on each source's `mode`, separately from page archiving; see [source lifecycle](source-lifecycle.md).
 
 Research output language is a task requirement in the Skill/brief, not a saved setting here. Installer `--lang` controls help/onboarding only. Pass the task's resolved language to workflow `output_language` when delegating.
 

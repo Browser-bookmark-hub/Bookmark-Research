@@ -4,14 +4,14 @@
 
 用户可直接在对话中改配置，CLI 与 MCP 使用同一套实现。当前没有独立图形设置页。
 
-搜索 provider 可选 `exa`、`parallel`、`tavily`，默认前两者；fetch 默认 Exa。Tavily 有 `TAVILY_API_KEY` 时使用 Bearer，否则发送 keyless header；公共访问取决于当时限额，不能保证免密执行。密钥只从进程环境读取。
+provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `search.providers` 指定（Exa + Parallel），无结果查询交给 `search.fallback_providers`（Tavily + 有 key 的 Jina）；设为空数组可关闭回退。读取先用 `fetch.provider`，再将未成功 URL 交给其余 `fetch.providers` 并发，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。密钥只从进程环境读取，公共访问仍受限额影响。
 
 ## 配置入口
 
-`get_settings` 返回有效设置及 `config_path`，只读不创建文件。`update_settings` 接收 `changes`，按字段合并并持久保存；后续调用立即读取新设置，不需重启 MCP。例如用户要求以后仅用 Exa 并打开归档：
+`get_settings` 返回有效设置及 `config_path`，只读不创建文件。`update_settings` 接收 `changes`，按字段合并并持久保存；后续调用立即读取新设置，不需重启 MCP。例如用户要求以后仅用 Exa 搜索并打开归档：
 
 ```json
-{"changes":{"search":{"providers":["exa"]},"archive":{"enabled":true}}}
+{"changes":{"search":{"providers":["exa"],"fallback_providers":[]},"archive":{"enabled":true}}}
 ```
 
 多个 CLI／MCP 进程同时更新同一配置时，通过配置旁的 `.<文件名>.lock` 串行合并，再原子替换配置文件；不同字段的更新不会互相覆盖。锁文件会保留，锁等待超过 10 秒则返回超时。
@@ -22,8 +22,8 @@
 {
   "schema_version": 1,
   "timeout_seconds": 30,
-  "search": {"providers": ["exa", "parallel"], "limit_per_target": 5},
-  "fetch": {"provider": "exa", "max_characters": 12000},
+  "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5},
+  "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000},
   "archive": {"enabled": true, "directory": "/absolute/path/to/knowledge"},
   "research": {"depth": "auto", "prefer_host_workflows": true,
     "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
@@ -42,7 +42,7 @@
 
 `research.depth` 为 auto／quick／agentic／deep；auto 按当前 task_shape 路由。methods 可选 comparative_analysis、fact_check、benchmark_review、wiki_synthesis。路由只给建议，不启动子代理或更改宿主设置。专业服务默认未启用，需独立的 `OPENAI_API_KEY` 或 `PARALLEL_API_KEY`；Search MCP 成功不证明研究 API 已认证，见 [服务参考](research-services.md)。
 
-旧设置文件会继承新增默认值，只保存用户的覆盖字段。长期偏好存这里，不修改数据包 `AGENTS.md`。配置、证据、Wiki、SQLite 和来源快照位于插件及画布包之外，升级不打包这些用户数据。没有 embedding。目录是否持续检查由每个来源的 `mode` 决定，和网页归档开关无关，见 [来源生命周期](source-lifecycle.md)。
+旧设置文件会继承新增默认值，只保存用户的覆盖字段。若显式保存过 `search.providers` 而没有备用字段，则保留原服务范围、关闭回退；同时设置两组列表即可启用首轮与备用分工。长期偏好存这里，不修改数据包 `AGENTS.md`。配置、证据、Wiki、SQLite 和来源快照位于插件及画布包之外，升级不打包这些用户数据。没有 embedding。目录是否持续检查由每个来源的 `mode` 决定，和网页归档开关无关，见 [来源生命周期](source-lifecycle.md)。
 
 ## 一次读取怎样保存
 

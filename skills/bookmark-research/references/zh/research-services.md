@@ -6,7 +6,13 @@ Deep research 是持续调查方法，宿主原生能力和专业服务都是可
 
 ## 配置与入口
 
-先用 `research_services` 读取当前状态，不联网。它只报告配置与环境变量是否存在，`authentication_verified:false` 不能写成“已登录”。OpenAI 使用 `OPENAI_API_KEY`；Parallel 使用 `PARALLEL_API_KEY`。密钥属于启动进程环境，不写入项目、manifest、研究输入或报告。
+先用 `research_services` 读取当前状态，不联网。每家服务返回 `ready_to_start` 和具体缺失的配置／凭据名 `missing`；配置就绪不等于认证已验证，宿主原生研究仍可独立使用。OpenAI 使用 `OPENAI_API_KEY`；Parallel 使用 `PARALLEL_API_KEY`。密钥属于启动进程环境，不写入项目、manifest、研究输入或报告。
+
+选路和准备请求都不会执行研究。按返回的 `next_action` 继续启动一次、通过原 run ID 查询进度、取回完整报告，再导入并审阅原始来源。已保存的研究服务选择优先于通用宿主子代理；显式的宿主工作流偏好仍然有效。
+
+明确失败后，返回的下一步指向 `research_route`。把失败 `route_id` 加入累计的 `failed_routes`，传入当前宿主能力，沿用原研究会话执行下一条可用路线；保留用户明确指定的 provider 限制。未启用或缺凭据的 API 不参与执行；等待中、运行中、结果未知和已取消任务不触发替换。没有合适路线时保留证据、报告缺口。
+
+宿主原生研究 MCP 方面，路由识别实际可见的 Exa `agent_run`，或完整的 Parallel `createDeepResearch` + `getStatus` + `getResultMarkdown`。插件不会安装这些 MCP，工具存在也不证明认证成功。按其实际 schema 调用，用 `research_record` 的 `external_run` 保存返回的 run ID 并更新状态。Exa 通过 `runId` 续查；Parallel 查询原任务，不重复创建。真实报告用 `research_import_evidence` 以 `external_report` 导入，再审阅原来源。这段续接由宿主按 Skill 执行，插件没有本地轮询 worker。
 
 有效设置的 `professional_research` 默认 `enabled:false, provider:null`。用户选择服务后可更新相应配置，例如：
 

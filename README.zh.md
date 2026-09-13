@@ -2,7 +2,7 @@
 
 [English](README.md) · **中文**
 
-用自然语言查询 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，保留书签的文件夹、卡片和画布关系，结合 Exa、Parallel、可选 Tavily 调查来源，保存报告与 Wiki。
+用自然语言查询 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，保留书签的文件夹、卡片和画布关系，结合 Exa、Parallel、Jina Reader 和 Tavily 调查来源，保存报告与 Wiki。
 
 Codex、Claude Code、Pi 和 DSH 共用一套 Skill、Python 运行时与本地数据，分别使用对应适配。**0.4.0** 整合全量研究工作流、可选专业研究 API、Wiki 与评测、目录／ZIP／单卡接入、来源版本快照和长期目录增量同步。输入变化后会提示研究／Wiki 复核；英文执行指令配完整中文阅读版，研究输出遵循用户的语言要求。
 
@@ -53,7 +53,15 @@ python3 scripts/install.py verify --lang zh
 
 不需要固定提示词。完整数据包研究保留所有原始 URL 和重复书签语境；只有明确限定卡片、分组或专题时才缩小范围。搜索摘要、搜索结果的第一页和外部报告都不能代替原始网页审阅。
 
-深度研究可由宿主及其可用子代理／工作流执行，也可委托已配置的 OpenAI Deep Research／Parallel Task API。专业研究服务默认关闭，需要独立凭据；搜索接口可用不代表专业 API 已启用。快速查证不会切换宿主模型的推理模式。
+一个插件保留一个 MCP 聚合入口和一个执行 Skill；后端服务数量与入口数量无关。MCP 内置 Exa、Parallel、Tavily 搜索／读取适配器、Jina HTTP 接口和 OpenAI／Parallel 研究 API 客户端。Skill 负责根据任务选择并执行三种流程：
+
+| 场景 | 默认路径 | 失败或无结果后 |
+| --- | --- | --- |
+| URL 直读 | Exa | 仅把未成功 URL 交给 Parallel + Jina Reader 并发读取。Tavily 提取可加入 `fetch.providers`。 |
+| Agentic Web Search | Exa + Parallel 并发 | 某个查询仍无有效网址时，自动交给 Tavily + 有 key 的 Jina Search；成功查询不重跑。 |
+| Deep Research | 当前可用的宿主工作流、研究 MCP、已启用 API 或宿主多轮调查 | Skill 在明确失败后排除该路线并继续选路；运行中、结果未知或已取消的任务不自动重建。 |
+
+“备用”表示已加入回退列表；“需要配置”表示条件未满足时跳过；“仅调研”表示没有接入，失败也不会自动安装。OpenAI／Parallel 研究 API 默认关闭，需启用并提供凭据。宿主已加载的 Exa `agent_run`、完整 Parallel Task MCP 会被路由识别，实际认证仍以调用结果为准。Scrapling、Firecrawl、MarkItDown 等调研项目没有集成成自动后端。
 
 ## 数据包与保存位置
 
@@ -83,9 +91,11 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 
 ## 搜索、配置与语言
 
-默认搜索 Exa + Parallel，正文读取使用 Exa，普通网页归档开启。可说“显示配置”“以后只用 Exa 搜索”或“这次不要归档”。深度研究始终保存任务证据。
+`search.providers` 为第一轮，`search.fallback_providers` 为无结果时的备用列表；设为空数组可关闭搜索回退。读取单独配置 `fetch.provider` 和 `fetch.providers`。调用时明确指定 provider／providers 则只用指定服务。已有配置若只设置过搜索 providers，会保留原来的服务范围；新研究冻结当时的选择，旧记录重放不会增加请求。瀑布流按轮补缺，同轮服务并发；已发出的请求仍需等待结束或超时。普通网页归档开启，深度研究始终保存任务证据。
 
-网络访问依赖服务方的认证与额度。需要时在启动宿主的环境中设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY` 或专业研究所需的 `OPENAI_API_KEY`。无需给宿主研究额外填写一套模型地址。
+可以读取公开 GitHub 仓库页面、README、文件和 issues；读取 README 不等于遍历整个代码仓库。代码审查按任务选择具体文件或宿主已有 GitHub 工具，插件未额外安装 GitHub MCP。
+
+网络访问依赖服务方的认证与额度。需要时在启动宿主的环境中设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY` 或专业研究所需的 `OPENAI_API_KEY`。无需给宿主研究额外填写一套模型地址。
 
 中英文用户共用一个插件；回答、报告正文和 Wiki 章节跟随用户指定语言。原始引用和 URL 保留原文，译文另列。执行 Skill 和 11 篇方法参考以英文维护，配完整中文阅读对照；子代理和工作流也会接收本次输出语言。详见[指令与提示索引](docs/instructions.md)。工具字段、技术诊断和部分固定元数据标签使用英文。
 

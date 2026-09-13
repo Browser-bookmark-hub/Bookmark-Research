@@ -123,7 +123,7 @@ class ProviderAdapter:
         elif purpose == "fetch":
             candidates = {
                 "exa": {"urls": urls, "maxCharacters": max_characters},
-                "parallel": {"urls": urls, "full_content": False, "session_id": session_id},
+                "parallel": {"urls": urls, "full_content": True, "session_id": session_id},
                 "tavily": {"urls": urls, "extract_depth": "basic", "format": "markdown"},
             }[self.provider]
             core_fields = {"urls"}

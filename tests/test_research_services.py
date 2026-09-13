@@ -106,6 +106,29 @@ class ResearchServicesTests(unittest.TestCase):
         self.assertEqual(external[0]["status"], "queued")
         self.assertTrue(any("external run" in item for item in self.sessions.coverage(self.rid)["completion_blockers"]))
 
+    def test_service_readiness_and_next_actions_distinguish_prepare_start_and_result(self):
+        self.settings.update({"professional_research": {"enabled": False}})
+        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
+            description = self.service.describe("openai")
+            prepared = self.service.prepare(self.rid, "Public research question", provider="openai")
+        self.assertFalse(prepared["ready_to_start"])
+        self.assertEqual(prepared["missing"], ["professional_research.enabled", "OPENAI_API_KEY"])
+        self.assertEqual(description["providers"][0]["missing"], prepared["missing"])
+        self.assertTrue(description["native_research"]["available"])
+        self.transport.request.assert_not_called()
+        self.settings.update({"professional_research": {"enabled": True}})
+        prepared = self.service.prepare(self.rid, "Public research question")
+        self.assertEqual(prepared["next_action"], "research_service_start")
+        self.assertTrue(prepared["payload"]["background"])
+        self.assertFalse(prepared["payload"]["store"])
+        started = self.start()
+        self.assertEqual(started["next_action"]["tool"], "research_service_status")
+        self.assertTrue(started["next_action"]["arguments"]["refresh"])
+        self.transport.request.return_value = openai_response("completed", text="A cited research report.")
+        completed = self.service.status(started["external_id"], refresh=True)
+        self.assertEqual(completed["next_action"]["tool"], "research_service_result")
+        self.assertFalse(completed["next_action"]["arguments"]["refresh"])
+
     def test_replay_uses_original_intent_after_settings_credentials_and_session_change(self):
         first = self.start()
         original = Path(first["request_path"]).read_bytes()
@@ -122,6 +145,22 @@ class ResearchServicesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "different research service request"):
             self.service.start(self.rid, "start-once", "A different question", question_id="q1")
         self.assertEqual(self.transport.request.call_count, 1)
+
+    def test_only_confirmed_service_failure_leads_back_to_routing(self):
+        self.transport.request.return_value = openai_response("failed")
+        failed = self.start()
+        self.assertEqual(failed["next_action"]["tool"], "research_route")
+        self.assertEqual(failed["next_action"]["arguments"]["failed_routes"], ["professional_service:openai"])
+        self.assertEqual(failed["next_action"]["research_id"], self.rid)
+        self.assertEqual(self.transport.request.call_count, 1)
+        self.transport.request.side_effect = ServiceError("timeout", "Synthetic lost response", uncertain=True)
+        unknown = self.start(operation="uncertain")
+        self.assertEqual(unknown["next_action"]["tool"], "research_service_attach")
+        self.transport.request.side_effect = None
+        self.transport.request.return_value = openai_response("cancelled", run_id="resp_cancelled")
+        cancelled = self.start(operation="cancelled")
+        self.assertEqual(cancelled["next_action"]["tool"], "research_status")
+        self.assertEqual(self.transport.request.call_count, 3)
 
     def test_lost_create_response_remains_unknown_and_can_attach_without_restarting(self):
         self.transport.request.side_effect = ServiceError("timeout", "Synthetic lost response", uncertain=True)

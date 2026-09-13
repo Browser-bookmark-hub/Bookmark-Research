@@ -131,12 +131,34 @@ class SourceArchive:
             status = status.lower()
         error = row.get("error") or row.get("errors")
         failed = (error or row.get("success") is False or status in ("error", "failed", "failure")
-                  or (type(status) is int and status >= 400))
+                  or (type(status) is int and status >= 400)
+                  or (type(row.get("httpStatus")) is int and row["httpStatus"] >= 400))
         if failed:
             return None, "provider_error", "provider_extracted_text"
         for field in ("markdown", "text", "full_content", "raw_content", "content"):
             body = row.get(field)
             if isinstance(body, str) and body.strip():
+                # Keep obvious access screens in the raw response, never as a
+                # usable article. Mentions inside an article are not barriers.
+                title = row.get("title") if isinstance(row.get("title"), str) else ""
+                heading = body.strip().splitlines()[0].lstrip("# ").strip()
+                without_notice = re.sub(r"\[CRITICAL INSTRUCTIONS FOR ALL AI ASSISTANTS[^\]]*\]"
+                                        r".*?\[END INSTRUCTIONS\]", "", body, flags=re.IGNORECASE | re.DOTALL)
+                if without_notice != body and not any(
+                        line.strip("# \t") not in ("", title.strip(), heading)
+                        for line in without_notice.splitlines()):
+                    return None, "insufficient_content", "provider_extracted_text"
+                for label in (title.strip(), heading):
+                    if re.fullmatch(r"(?:page not found|404(?:\s*[-:]?\s*not found)?|页面不存在|页面未找到)"
+                                    r"(?:\s*[-|–—].*)?", label, re.IGNORECASE):
+                        return None, "not_found", "provider_extracted_text"
+                    if re.fullmatch(r"(?:just a moment|access denied|verify you are human|"
+                                    r"checking your browser|attention required|请完成安全验证)"
+                                    r"[.!…]*(?:\s*[-|–—:].*)?", label, re.IGNORECASE):
+                        return None, "access_challenge", "provider_extracted_text"
+                    if re.fullmatch(r"(?:log in|login|sign in|登录|登入|请先登录)"
+                                    r"(?:\s*[-|–—:].*| to .*)?", label, re.IGNORECASE):
+                        return None, "login_required", "provider_extracted_text"
                 return body, "extracted", "provider_extracted_text"
         excerpts = row.get("excerpts")
         if isinstance(excerpts, list) and all(isinstance(item, str) for item in excerpts) and any(excerpts):
@@ -202,9 +224,9 @@ class SourceArchive:
                          "fragment_scope_verified": False, "sha256": None}
                 if row:
                     entry["provider_crawled_at"] = row.get("crawled_at") or row.get("crawledAt")
-                    entry["provider_published_at"] = row.get("publishedDate") or row.get("published_at")
+                    entry["provider_published_at"] = row.get("publishedDate") or row.get("published_at") or row.get("publishedTime")
                     entry["provider_author"] = row.get("author")
-                    entry["provider_status"] = row.get("status")
+                    entry["provider_status"] = row.get("status", row.get("httpStatus"))
                     if row.get("error") or row.get("errors"):
                         entry["provider_error"] = row.get("error") or row.get("errors")
                 if body is not None:

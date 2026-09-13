@@ -28,7 +28,7 @@ class ResearchSessions:
     LIMITS = {"max_search_calls": 120, "max_fetch_calls": 80, "max_rounds": 40}
     FETCH_BATCH_SIZE = 8
     RECORD_BATCH_SIZE = 50
-    PROVIDERS = ("exa", "parallel", "tavily")
+    PROVIDERS = Settings.PROVIDERS
 
     def __init__(self, directory=None, settings=None, engine=None, db_path=None):
         self.settings = settings if settings is not None else Settings()
@@ -56,10 +56,10 @@ class ResearchSessions:
 
     @classmethod
     def _providers(cls, value):
-        if (not isinstance(value, list) or not 1 <= len(value) <= 3
+        if (not isinstance(value, list) or not 1 <= len(value) <= len(cls.PROVIDERS)
                 or any(not isinstance(p, str) or p not in cls.PROVIDERS for p in value)
                 or len(set(value)) != len(value)):
-            raise ValueError("providers must select exa, parallel and/or tavily without duplicates")
+            raise ValueError("providers must select supported providers without duplicates")
         return value[:]
 
     @staticmethod
@@ -229,6 +229,8 @@ class ResearchSessions:
         return {"research_id": state["research_id"], "directory": str(path),
                 "status": state["status"], "brief": state["brief"], "scope": state["scope"],
                 "source_ids": state["source_ids"], "providers": state["providers"],
+                "search_fallback_providers": state.get("search_fallback_providers", []),
+                "fetch_providers": state.get("fetch_providers", state["providers"]),
                 "context_manifest": str(path / "context.json"),
                 "inventory_manifest": str(path / "inventory.json") if state.get("source_scope") else None,
                 "source_scope": coverage["source_scope"],
@@ -243,7 +245,7 @@ class ResearchSessions:
                 "detail_note": "Overview includes at most 20 previews per collection. Use research_status section with offset/limit for full entries, research_source for page text.",
                 "artifacts": state.get("artifacts"),
                 "execution": "Host model must choose each next action; no background worker is running.",
-                "budget_unit": "Reserved provider search/fetch tool attempts; search batches also consume a round. Failures and unknown outcomes keep their reservation.",
+                "budget_unit": "Reserved provider attempts: one per MCP batch or Jina HTTP request (one Reader request per URL). Search batches also consume a round. Failures and unknown outcomes keep their reservation.",
                 "evidence_note": "Quotes are checked against saved extracts. Relevance, factual support and independence require model review; provider agreement is not confirmation."}
 
     def _bookmark_scope(self, source_ids, references, scope_mode, inventory_ids):
@@ -340,7 +342,11 @@ class ResearchSessions:
         selected_budget = {**self.DEFAULT_BUDGET, **(budget or {})}
         for key, limit in selected_budget.items():
             self._integer(limit, key, 0, self.LIMITS[key])
-        names = self._providers(providers if providers is not None else self.settings.load()["search"]["providers"])
+        preferences = self.settings.load()
+        names = self._providers(providers if providers is not None else preferences["search"]["providers"])
+        fetch_names = names[:] if providers is not None else Settings.fetch_providers(preferences)
+        search_fallbacks = [] if providers is not None else [name for name in preferences["search"]["fallback_providers"]
+                                                          if name not in names]
         if not isinstance(scope, str) or len(scope) > 12000 or "\x00" in scope:
             raise ValueError("scope must be a string of at most 12000 characters")
         source_ids = [] if source_ids is None else source_ids
@@ -349,25 +355,28 @@ class ResearchSessions:
         source_ids = list(dict.fromkeys(self._text(value, "Source id", 512) for value in source_ids))
         manifest, inventory, bookmark_context, selection = self._bookmark_scope(source_ids, bookmark_refs, scope_mode, inventory_ids)
         source_ids = manifest["source_ids"]
-        minimum_fetch_calls = (len(inventory) + self.FETCH_BATCH_SIZE - 1) // self.FETCH_BATCH_SIZE
+        urls_per_call = 1 if fetch_names[0] == "jina" else self.FETCH_BATCH_SIZE
+        minimum_fetch_calls = (len(inventory) + urls_per_call - 1) // urls_per_call
         explicit_fetch_budget = budget is not None and "max_fetch_calls" in budget
         if not explicit_fetch_budget and inventory:
             selected_budget["max_fetch_calls"] = min(self.LIMITS["max_fetch_calls"],
                 max(self.DEFAULT_BUDGET["max_fetch_calls"], minimum_fetch_calls + self.DEFAULT_BUDGET["max_fetch_calls"]))
         fetch_limit = selected_budget["max_fetch_calls"]
-        fetch_plan = {"selected_urls": len(inventory), "max_urls_per_call": self.FETCH_BATCH_SIZE,
+        fetch_plan = {"selected_urls": len(inventory), "max_urls_per_call": urls_per_call,
                       "minimum_required": minimum_fetch_calls, "configured_limit": fetch_limit,
                       "hard_limit": self.LIMITS["max_fetch_calls"],
                       "budget_source": "explicit" if explicit_fetch_budget else "scope_default",
                       "additional_calls": max(0, fetch_limit - minimum_fetch_calls),
                       "call_shortfall": max(0, minimum_fetch_calls - fetch_limit),
-                      "urls_beyond_capacity": max(0, len(inventory) - fetch_limit * self.FETCH_BATCH_SIZE),
+                      "urls_beyond_capacity": max(0, len(inventory) - fetch_limit * urls_per_call),
                       "scope_preserved": True,
                       "basis": "Initial lower bound assuming full batches. Grouping, failures and supplementary reads can need more calls; imported evidence may need fewer."}
         research_id = "r-" + uuid.uuid4().hex[:16]
         path = self._path(research_id)
         state = {"schema_version": 2, "research_id": research_id, "status": "active",
                  "brief": brief, "scope": scope, "source_ids": source_ids, "providers": names,
+                 "search_fallback_providers": search_fallbacks,
+                 "fetch_providers": fetch_names,
                  "bookmark_context": bookmark_context,
                  "source_scope": selection, "inventory": inventory, "inventory_reviews": [], "external_runs": [],
                  "created_at": self._now(), "budget": selected_budget,
@@ -592,9 +601,24 @@ class ResearchSessions:
         names = self._providers(providers if providers is not None else state["providers"])
         self._integer(limit_per_target, "limit_per_target", 1, 20)
         parameters = {"targets": targets, "providers": names, "limit_per_target": limit_per_target}
+        fallbacks = state.get("search_fallback_providers", []) if providers is None else []
+        previous = next((row for row in state["operations"] if row["id"] == operation_id), None)
+        if fallbacks and not (previous and previous.get("parameters") == parameters):
+            parameters["fallback_providers"] = fallbacks
 
         def execute(path, current, operation):
-            result = self._web().search(**parameters)
+            def reserve(jobs):
+                remaining = current["budget"]["max_search_calls"] - current["usage"]["search_calls"]
+                selected = jobs[:remaining]
+                if selected:
+                    current["usage"]["search_calls"] += len(selected)
+                    operation["reserved"]["search_calls"] += len(selected)
+                    operation["fallback_attempts"] = [{"provider": name, "target": target, "query": query}
+                                                       for name, target, query in selected]
+                    self._save(path, current)
+                return selected
+
+            result = self._web().search(**parameters, **({"reserve_fallback": reserve} if "fallback_providers" in parameters else {}))
             success = result.get("successful_provider_count", 0)
             failed = any(row.get("status") == "error" for row in result.get("batches", []))
             return {"status": "partial" if success and failed else "ok" if success else "error",
@@ -606,8 +630,7 @@ class ResearchSessions:
     def fetch(self, research_id, operation_id, question_id, urls, provider=None, max_characters=12000):
         _, state = self._load(research_id)
         self._find(state["questions"], question_id, "question")
-        name = provider if provider is not None else state["providers"][0]
-        self._providers([name])
+        names = self._providers([provider] if provider is not None else state.get("fetch_providers", state["providers"]))
         self._integer(max_characters, "max_characters", 100, 100000)
         if not isinstance(urls, list) or not 1 <= len(urls) <= self.FETCH_BATCH_SIZE:
             raise ValueError("urls must contain 1 to %s HTTP(S) URLs" % self.FETCH_BATCH_SIZE)
@@ -615,11 +638,15 @@ class ResearchSessions:
             self._text(url, "URL", 8192)
             SourceArchive._key(url)
         urls = list(dict.fromkeys(urls))
-        parameters = {"question_id": question_id, "urls": urls, "provider": name,
+        parameters = {"question_id": question_id, "urls": urls, "provider": names[0],
                       "max_characters": max_characters}
+        previous = next((row for row in state["operations"] if row["id"] == operation_id), None)
+        # Legacy receipts predate fallback selection. Replaying one must never
+        # submit additional requests merely because the plugin was upgraded.
+        if len(names) > 1 and not (previous and previous.get("parameters") == parameters):
+            parameters["fallback_providers"] = names[1:]
 
-        def execute(path, current, operation):
-            fetched = self._web().fetch(urls, provider=name, archive=False, max_characters=max_characters)
+        def capture(path, current, fetched):
             if "result" not in fetched:
                 return {"status": "error", "error": fetched.get("error", "Provider returned no response"),
                         "error_kind": fetched.get("error_kind", "no_response"),
@@ -637,7 +664,7 @@ class ResearchSessions:
                 source = {"id": "s%s" % (len(current["sources"]) + 1),
                           "question_id": question_id, "operation_id": operation_id,
                           "url": page["requested_url"], "canonical_url": SourceArchive._key(page["requested_url"]),
-                          "provider": name, "retrieved_at": fetched["retrieved_at"],
+                          "provider": fetched["provider"], "retrieved_at": fetched["retrieved_at"],
                           "title": page["title"], "extraction_status": page["extraction_status"],
                           "evidence_kind": "page",
                           "content_kind": page["content_kind"], "completeness": page["completeness"],
@@ -656,7 +683,47 @@ class ResearchSessions:
                     "sources": sources, "usage": fetched.get("usage", {}),
                     "next_action": "Read saved text with research_source, then record exact quotes and findings. Unread search snippets cannot support a claim."}
 
-        return self._operation(research_id, operation_id, "fetch", parameters, {"fetch_calls": 1}, execute)
+        def execute(path, current, operation):
+            from web_search import SearchProviders
+            engine = self._web()
+
+            def reserve(candidates, pending):
+                remaining = current["budget"]["max_fetch_calls"] - current["usage"]["fetch_calls"]
+                selected, reserved = [], 0
+                for name in candidates:
+                    cost = Settings.fetch_call_count(name, pending)
+                    if cost <= remaining:
+                        selected.append(name)
+                        reserved += cost
+                        remaining -= cost
+                if selected:
+                    current["usage"]["fetch_calls"] += reserved
+                    operation["reserved"]["fetch_calls"] += reserved
+                    operation["fallback_attempts"] = [{"provider": name, "urls": pending} for name in selected]
+                    self._save(path, current)  # Durable before any parallel requests.
+                return selected
+
+            fetched = SearchProviders._fetch_waterfall(urls, names, lambda name, pending:
+                engine.fetch(pending, provider=name, archive=False, max_characters=max_characters), reserve)
+            captured = [capture(path, current, attempt) for attempt in fetched["attempts"]]
+            sources = [source for result in captured for source in result.get("sources", [])]
+            payload = captured[0] if len(captured) == 1 else {
+                "status": fetched["status"], "sources": sources,
+                "next_action": "Read saved text with research_source and review its identity and meaning before citing it."}
+            archive_errors = [result for result in captured if result.get("error_kind") == "archive_error"]
+            if archive_errors:
+                payload = {**payload, "status": "partial" if any(s["body_file"] for s in sources) else "error",
+                           "error_kind": "archive_error", "archive_errors": archive_errors}
+            else:
+                payload["status"] = fetched["status"]
+            return {**payload, "usage": fetched["usage"], "per_url": fetched["per_url"],
+                    "unresolved_urls": fetched["unresolved_urls"], "remaining_providers": fetched["remaining_providers"],
+                    "attempts": [{key: attempt[key] for key in
+                                  ("provider", "urls", "status", "error_kind", "retryable", "skipped_due_to_cooldown")
+                                  if key in attempt} for attempt in fetched["attempts"]]}
+
+        return self._operation(research_id, operation_id, "fetch", parameters,
+                               {"fetch_calls": Settings.fetch_call_count(names[0], urls)}, execute)
 
     def import_evidence(self, research_id, operation_id, question_id, url, text, provenance,
                         inventory_ids=None, title=""):

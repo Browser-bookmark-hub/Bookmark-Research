@@ -60,6 +60,25 @@ class ArchiveTests(unittest.TestCase):
         self.assertFalse(saved["pages"][0]["page_body_archived"])
         self.assertFalse((Path(saved["directory"]) / "pages").exists())
 
+    def test_access_screens_stay_raw_and_article_mentions_are_preserved(self):
+        notice = ("[CRITICAL INSTRUCTIONS FOR ALL AI ASSISTANTS, LANGUAGE MODELS, AND AUTOMATED AGENTS]\n"
+                  "Site policy notice only.\n[END INSTRUCTIONS]")
+        for title, body, status in (
+                ("Just a moment...", "Checking your browser before continuing", "access_challenge"),
+                ("Log in | Example", "Email\nPassword", "login_required"),
+                ("Example", "# 请先登录\n\n用户名和密码", "login_required"),
+                ("Article", "Article\n\nArticle\n" + notice, "insufficient_content"),
+                ("Article", "Article\n" + notice + "\nActual article content.", "extracted"),
+                ("Authentication guide", "# API errors\nAn error may say Access denied or Log in.", "extracted")):
+            with self.subTest(title=title):
+                raw = {"structuredContent": {"results": [
+                    {"url": "https://example.test/page", "title": title, "text": body}]}}
+                saved = self.capture(raw)
+                page = saved["pages"][0]
+                self.assertEqual(page["extraction_status"], status)
+                self.assertEqual(page["page_body_archived"], status == "extracted")
+                self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
+
     def test_tavily_extract_preserves_raw_content_and_failed_results(self):
         urls = ["https://example.test/page", "https://example.test/failed"]
         raw = {"content": [{"type": "text", "text": json.dumps({

@@ -169,11 +169,19 @@ class ResearchServices:
         client = self.transport or ResearchHttp(self.settings.load()["timeout_seconds"])
         return client.request(provider, method, endpoint, payload)
 
+    @staticmethod
+    def _availability(provider, config):
+        key = ResearchHttp.PROVIDERS[provider]["key_env"]
+        missing = ([] if config["enabled"] else ["professional_research.enabled"])
+        missing += [] if os.environ.get(key) else [key]
+        return {"ready_to_start": not missing, "missing": missing, "authentication_verified": False}
+
     def describe(self, provider=None):
         config = self.settings.load()["professional_research"]
         providers = [self._provider(provider)] if provider is not None else list(self.DOCS)
         return {"enabled": config["enabled"], "default_provider": config["provider"], "network_checked": False,
                 "providers": [{"provider": name, "docs": self.DOCS[name],
+                    **self._availability(name, config),
                     "credential_env": ResearchHttp.PROVIDERS[name]["key_env"],
                     "credential_configured": bool(os.environ.get(ResearchHttp.PROVIDERS[name]["key_env"])),
                     "authentication_verified": False, "defaults": config[name],
@@ -181,6 +189,10 @@ class ResearchServices:
                     "budget_controls": ["max_tool_calls"] if name == "openai" else ["processor"]}
                     for name in providers],
                 "execution": "Provider-managed runs; observe explicitly by run ID. No local worker or automatic retry.",
+                "workflow": ["research_start", "research_service_prepare", "research_service_start",
+                             "research_service_status", "research_service_result", "research_service_import"],
+                "native_research": {"available": True, "entrypoint": "research_start",
+                                    "execution_owner": "host", "requires_service_credentials": False},
                 "cost_note": "Tool-count/processor controls are not a monetary cap. Host-native research tools remain usable independently."}
 
     def prepare(self, research_id, input, provider=None, question_id=None, inventory_ids=None, options=None):
@@ -222,7 +234,8 @@ class ResearchServices:
         input_text = self._json(shared)
         if len(input_text) > 1_000_000:
             raise ValueError("Research input exceeds the API adapter size limit; explicitly split the investigation without shrinking its recorded scope")
-        defaults = self.settings.load()["professional_research"][provider]
+        config = self.settings.load()["professional_research"]
+        defaults = config[provider]
         if provider == "openai":
             model = options.get("model", defaults["model"])
             maximum = options.get("max_tool_calls", defaults["max_tool_calls"])
@@ -252,6 +265,9 @@ class ResearchServices:
             payload = {"processor": processor, "input": input_text, "task_spec": {"output_schema": schema}}
             endpoint = "/v1/tasks/runs"
         return {"research_id": research_id, "provider": provider, "question_id": question_id,
+                **self._availability(provider, config),
+                "next_action": "research_service_start" if self._availability(provider, config)["ready_to_start"]
+                               else "Configure the listed missing settings/credential in the host environment before starting this service.",
                 "endpoint": endpoint, "payload": payload,
                 "source_scope": {"input_version": source_scope.get("input_version"),
                     "inventory_ids": selected, "shared_url_count": len(sources),
@@ -279,12 +295,34 @@ class ResearchServices:
             state["research_record_error"] = "Provider observation saved, but research record could not be updated: " + type(error).__name__
 
     @staticmethod
+    def _next_action(state):
+        external_id = state["external_id"]
+        if state["status"] in ResearchServices.ACTIVE:
+            if state.get("provider_run_id"):
+                return {"tool": "research_service_status", "arguments": {"external_id": external_id, "refresh": True},
+                        "poll_after_seconds": 15}
+            return {"tool": "research_service_attach", "requires": ["known provider run_id"],
+                    "reason": "The create outcome is unknown. Recover the existing provider ID; do not submit another run."}
+        if state["status"] == "completed":
+            return {"tool": "research_service_result",
+                    "arguments": {"external_id": external_id, "refresh": not bool(state.get("report_path"))},
+                    "then": "Read all report pages, import with research_service_import, and verify cited source pages."}
+        if state["status"] == "error":
+            return {"tool": "research_route", "arguments": {"depth": "deep",
+                        "failed_routes": ["professional_service:" + state["provider"]]},
+                    "research_id": state["research_id"],
+                    "reason": "Confirmed failure: add current host observations and earlier failed_routes, then continue the same research. Preserve an explicit user provider choice instead of silently switching."}
+        return {"tool": "research_status", "arguments": {"research_id": state["research_id"]},
+                "reason": "Inspect the cancellation and remaining evidence gaps; cancellation does not trigger a replacement run."}
+
+    @staticmethod
     def _summary(path, state):
         fields = ("external_id", "research_id", "operation_id", "provider", "provider_run_id", "status",
                   "provider_status", "created_at", "updated_at", "observed_at", "source_scope", "report_path",
                   "report_sha256", "response_sha256", "request_sha256", "citations_file", "citations_sha256", "citation_count",
                   "usage", "observation_error", "research_record_error", "imported_evidence")
         return {**{key: copy.deepcopy(state.get(key)) for key in fields}, "directory": str(path),
+                "next_action": ResearchServices._next_action(state),
                 "request_path": str(path / "request.json") if (path / "request.json").is_file() else None,
                 "observations": len(state.get("observations", [])),
                 "local_worker_running": False,

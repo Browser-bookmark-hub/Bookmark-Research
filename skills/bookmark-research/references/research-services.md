@@ -6,7 +6,7 @@ Deep research is a sustained investigation method. Native host capabilities and 
 
 ## Settings and entry points
 
-Call `research_services` to inspect status offline. It reports configuration and whether environment variables exist. `authentication_verified:false` must not be described as “logged in.” OpenAI uses `OPENAI_API_KEY`; Parallel uses `PARALLEL_API_KEY`. Keys belong in the launching process environment, never project files, manifests, research inputs or reports.
+Call `research_services` to inspect status offline. Each provider reports `ready_to_start` and concrete `missing` settings/credential names; readiness is configuration, not verified authentication. Native host research remains available independently. OpenAI uses `OPENAI_API_KEY`; Parallel uses `PARALLEL_API_KEY`. Keys belong in the launching process environment, never project files, manifests, research inputs or reports.
 
 Effective `professional_research` defaults to `enabled:false, provider:null`. After the user selects a service, update its settings as needed:
 
@@ -38,6 +38,12 @@ Cloud services cannot read local filesystem paths or reach local stdio MCPs. Ope
 
 Once the concrete request is within existing user authorization, call `research_service_start` with the same fields as prepare plus a stable `operation_id`. Do not ask again for already-authorized service use. Creation saves `external_id` and the actual provider run ID. The provider owns background execution; the plugin has no polling loop.
 
+Follow `next_action` from each run observation: query an active run with `refresh:true`, retrieve the completed report, or recover a known run ID after an uncertain creation. Continue through report import and original-source review; neither `research_route` nor `research_service_prepare` executes the research. A saved service preference takes priority over generic host subagents; an explicit host-workflow preference still applies.
+
+On a confirmed error, the returned next action points to `research_route`. Add the failed `route_id` to earlier `failed_routes`, supply current host observations, and execute the next available route in the same research session. Do not drop the user's explicit provider restriction. Disabled or uncredentialed APIs are unavailable; pending, running, unknown and cancelled runs do not trigger fallback. If no eligible route remains, retain the evidence and report gaps.
+
+For host-native research MCPs, routing recognizes observed Exa `agent_run` or Parallel `createDeepResearch` + `getStatus` + `getResultMarkdown`. These MCPs are not installed by this plugin, and tool presence does not verify authentication. Use their actual schemas; record each returned run ID and subsequent states with `research_record` kind `external_run`. Resume Exa through `runId`; observe an existing Parallel task instead of creating another. Import the actual report with `research_import_evidence` as `external_report`, then review original sources. This continuation is executed by the host following the Skill, not a local polling worker.
+
 | Action | Tool / behavior |
 | --- | --- |
 | Prepare | `research_service_prepare`; no network call or billed creation. |
@@ -51,7 +57,7 @@ Once the concrete request is within existing user authorization, call `research_
 
 A timeout or lost create response can leave `unknown_outcome`. Retain the original operation ID and inspect status. Attach a known real run ID to recover; do not create another possibly billed task with a new ID. Disconnecting or stopping observation is not remote cancellation. Failed status/result observations retain the last trustworthy state. Parallel result requests use a 1-second server wait; a timeout may still mean running.
 
-OpenAI defaults to `store:false`, `background:true`. Background tasks use the provider's temporary retrieval retention, not a permanent cloud archive; save returned results promptly. No cancellation endpoint has been confirmed for Parallel Task in this adapter's checked interface. Do not invent successful cancellation.
+OpenAI defaults to `store:false`, `background:true`, a supported combination. The current background guide describes roughly ten minutes of temporary storage for asynchronous polling; save returned results promptly. No cancellation endpoint has been confirmed for Parallel Task in this adapter's checked interface. Do not invent successful cancellation.
 
 ## Return reports to the evidence workflow
 

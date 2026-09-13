@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -16,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from web_search import SearchProviders
 from remote_mcp import McpError
 from settings import Settings
+from jina import JinaClient
 
 
 EXA_SEARCH = {"name": "web_search_exa", "inputSchema": {"properties": {
@@ -25,6 +27,8 @@ PARALLEL_SEARCH = {"name": "web_search", "inputSchema": {"properties": {
     "required": ["objective", "search_queries"]}}
 EXA_FETCH = {"name": "web_fetch_exa", "inputSchema": {"properties": {
     "urls": {"type": "array"}, "maxCharacters": {"type": "number"}}, "required": ["urls"]}}
+PARALLEL_FETCH = {"name": "web_fetch", "inputSchema": {"properties": {
+    "urls": {"type": "array"}}, "required": ["urls"]}}
 TAVILY_SEARCH = {"name": "tavily_search", "inputSchema": {"type": "object", "properties": {
     "query": {"type": "string"}, "max_results": {"type": "integer"},
     "search_depth": {"type": "string", "enum": ["basic", "advanced"]},
@@ -189,7 +193,7 @@ class SearchProviderTests(unittest.TestCase):
                                      "errors": [{"url": "https://b.example", "error": "unavailable"}]}}
         value.call_tool.return_value = raw
         with patch.object(self.engine, "_client", return_value=value):
-            result = self.engine.fetch(["https://a.example", "https://b.example"])
+            result = self.engine.fetch(["https://a.example", "https://b.example"], provider="exa")
         self.assertEqual(result["result"], raw)
         self.assertIn("freshness", result)
         self.assertEqual(value.call_tool.call_args.args[1]["urls"], result["urls"])
@@ -352,7 +356,7 @@ class SearchProviderTests(unittest.TestCase):
         self.assertEqual(arguments[0]["session_id"], arguments[1]["session_id"])
         self.assertEqual(len(arguments[0]["session_id"]), 32)
         self.assertNotIn("model_name", arguments[0])
-        self.assertFalse(arguments[1]["full_content"])
+        self.assertTrue(arguments[1]["full_content"])
 
     def test_catalog_probe_does_not_reset_a_tool_rate_limit(self):
         value = Mock()
@@ -373,7 +377,7 @@ class SearchProviderTests(unittest.TestCase):
         value.list_tools.return_value = [EXA_FETCH]
         value.call_tool.side_effect = McpError("MCP HTTP 404", "session_expired", True, http_status=404)
         with patch.object(self.engine, "_client", return_value=value):
-            result = self.engine.fetch(["https://example.test/"])
+            result = self.engine.fetch(["https://example.test/"], provider="exa")
         self.assertEqual(result["status"], "error")
         self.assertEqual(result["error_kind"], "session_expired")
         self.assertEqual(result["usage"]["tool_calls"], 1)
@@ -386,7 +390,7 @@ class SearchProviderTests(unittest.TestCase):
         value.list_tools.return_value = [{"name": "web_fetch_exa", "inputSchema": {
             "properties": {"url": {"type": "string"}}, "required": ["url"]}}]
         with patch.object(self.engine, "_client", return_value=value):
-            result = self.engine.fetch(["https://one.example/", "https://two.example/"], archive=False)
+            result = self.engine.fetch(["https://one.example/", "https://two.example/"], provider="exa", archive=False)
         self.assertEqual(result["error_kind"], "schema_mismatch")
         self.assertEqual(result["usage"]["tool_calls"], 0)
         value.call_tool.assert_not_called()
@@ -409,7 +413,88 @@ class SearchProviderTests(unittest.TestCase):
         self.assertFalse(fetched["character_limit_applied"])
         self.assertEqual(fetched["usage"]["tool_calls"], 1)
 
+    def test_fetch_waterfall_parallel_fallback_only_receives_unresolved_urls(self):
+        self.settings.update({"fetch": {"providers": ["exa", "parallel", "tavily"]}})
+        urls = ["https://example.test/" + letter for letter in "abcd"]
+        clients = {}
+        for name, schema in (("exa", EXA_FETCH), ("parallel", PARALLEL_FETCH), ("tavily", TAVILY_FETCH)):
+            clients[name] = Mock()
+            clients[name].list_tools.return_value = [schema]
+        original = {"structuredContent": {"results": [
+            {"url": urls[0], "text": "Primary article"},
+            {"url": urls[2], "excerpts": ["Only an excerpt"]},
+            {"url": urls[3], "text": "# Log in\n\nEmail and password"}],
+            "errors": [{"url": urls[1], "error": "Timed out"}]}}
+        clients["exa"].call_tool.return_value = original
+        barrier = threading.Barrier(2)
+
+        def fallback(tool, arguments):
+            self.assertEqual(arguments["urls"], urls[1:])
+            barrier.wait(timeout=2)  # A serial implementation cannot pass.
+            rows = [{"url": urls[1], "text": "Fallback article from " + tool}]
+            if tool == "tavily_extract":
+                rows.append({"url": urls[2], "text": "Full article"})
+            return {"structuredContent": {"results": rows}}
+
+        for name in ("parallel", "tavily"):
+            clients[name].call_tool.side_effect = fallback
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.fetch(urls + [urls[0]])
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual(result["unresolved_urls"], [urls[3]])
+        self.assertEqual([row["provider"] for row in result["per_url"][:3]], ["exa", "parallel", "tavily"])
+        self.assertEqual(result["per_url"][3]["extraction_status"], "login_required")
+        self.assertEqual(result["usage"]["tool_calls"], 3)
+        self.assertEqual([a["provider"] for a in result["attempts"]], ["exa", "parallel", "tavily"])
+        for attempt in result["attempts"]:
+            self.assertEqual(json.loads(Path(attempt["archive"]["response_path"]).read_text()), attempt["result"])
+        self.assertEqual(result["attempts"][0]["result"], original)
+
+    def test_fetch_waterfall_stops_after_primary_success(self):
+        value = Mock()
+        value.list_tools.return_value = [EXA_FETCH]
+        value.call_tool.return_value = {"structuredContent": {"results": [
+            {"url": "https://example.test/", "text": "Actual page"}]}}
+        with patch.object(self.engine, "_client", return_value=value) as client:
+            result = self.engine.fetch(["https://example.test/"], archive=False)
+        self.assertEqual(result["status"], "ok")
+        client.assert_called_once_with("exa")
+        self.assertEqual(result["usage"]["tool_calls"], 1)
+
+    def test_fetch_waterfall_retains_an_identified_barrier_after_transport_failure(self):
+        self.settings.update({"fetch": {"providers": ["exa", "parallel"]}})
+        exa, parallel = Mock(), Mock()
+        exa.list_tools.return_value, parallel.list_tools.return_value = [EXA_FETCH], [PARALLEL_FETCH]
+        exa.call_tool.side_effect = McpError("Timed out", "timeout", True)
+        parallel.call_tool.return_value = {"structuredContent": {"results": [
+            {"url": "https://example.test/", "text": "# Just a moment...\nChecking your browser"}]}}
+        with patch.object(self.engine, "_client", side_effect={"exa": exa, "parallel": parallel}.__getitem__):
+            result = self.engine.fetch(["https://example.test/"], archive=False)
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["per_url"][0]["extraction_status"], "access_challenge")
+        self.assertEqual(result["unresolved_urls"], ["https://example.test/"])
+        self.assertEqual(result["attempts"][0]["error_kind"], "timeout")
+
+    def test_fetch_waterfall_keeps_cooldown_and_selected_provider_scope(self):
+        self.settings.update({"fetch": {"providers": ["exa", "parallel"]}})
+        exa, parallel = Mock(), Mock()
+        exa.list_tools.return_value, parallel.list_tools.return_value = [EXA_FETCH], [PARALLEL_FETCH]
+        exa.call_tool.side_effect = McpError("Rate limited", "rate_limited", True, retry_after=60)
+        parallel.call_tool.side_effect = lambda tool, args: {"structuredContent": {"results": [
+            {"url": url, "text": "Actual page"} for url in args["urls"]]}}
+        with patch.object(self.engine, "_client", side_effect={"exa": exa, "parallel": parallel}.__getitem__):
+            first = self.engine.fetch(["https://example.test/"], archive=False)
+            second = self.engine.fetch(["https://example.test/next"], archive=False)
+        self.assertEqual(first["status"], "ok")
+        self.assertEqual(second["status"], "ok")
+        self.assertEqual(first["usage"]["tool_calls"], 2)
+        self.assertEqual(second["usage"]["tool_calls"], 1)
+        self.assertTrue(second["attempts"][0]["skipped_due_to_cooldown"])
+        self.assertEqual(exa.call_tool.call_count, 1)
+        self.assertEqual(parallel.call_tool.call_count, 2)
+
     def test_providers_run_concurrently_and_same_provider_calls_are_serial(self):
+        self.settings.update({"search": {"fallback_providers": []}})
         barrier = threading.Barrier(2)
         guard = threading.Lock()
         active, maximum, calls = {}, {}, {}
@@ -441,6 +526,7 @@ class SearchProviderTests(unittest.TestCase):
         self.assertTrue(all(client.list_tools.call_count == 1 for client in clients.values()))
 
     def test_real_transport_usage_is_per_operation_and_not_mixed_between_providers(self):
+        self.settings.update({"search": {"fallback_providers": []}})
         requests = []
         def opened(request, timeout):
             body = json.loads(request.data)
@@ -465,6 +551,159 @@ class SearchProviderTests(unittest.TestCase):
         with patch.object(self.engine, "_client", side_effect=RuntimeError("URL contains private-key-placeholder")):
             result = self.engine.search([{"target": "A", "query": "a"}], ["exa"])
         self.assertNotIn("private-key-placeholder", json.dumps(result))
+
+    def test_search_empty_missing_auth_and_useful_results_remain_distinct(self):
+        clients = {name: Mock() for name in ("exa", "parallel", "jina")}
+        clients["exa"].list_tools.return_value = [EXA_SEARCH]
+        clients["parallel"].list_tools.return_value = [PARALLEL_SEARCH]
+        clients["exa"].call_tool.return_value = {"structuredContent": {"results": []}}
+        clients["parallel"].call_tool.return_value = {"structuredContent": {"results": [
+            {"url": "https://example.test/source", "text": "Useful discovery"}]}}
+        with patch.dict("os.environ", {"JINA_API_KEY": ""}), \
+                patch.object(self.engine, "_client", side_effect=clients.get):
+            result = self.engine.search([{"target": "topic", "query": "topic"}], ["exa", "parallel", "jina"])
+        self.assertEqual([batch["result_state"] for batch in result["batches"]], ["empty", "nonempty", "failed"])
+        self.assertEqual(result["targets"][0]["results"][0]["url"], "https://example.test/source")
+        self.assertEqual(result["batches"][2]["error_kind"], "authentication_required")
+        self.assertEqual(result["batches"][2]["usage"]["http_requests"], 0)
+        clients["jina"].call.assert_not_called()
+
+    def test_search_falls_back_only_for_unresolved_queries_and_skips_missing_keys(self):
+        clients = {name: Mock() for name in ("exa", "parallel", "tavily")}
+        for name, schema in (("exa", EXA_SEARCH), ("parallel", PARALLEL_SEARCH), ("tavily", TAVILY_SEARCH)):
+            clients[name].list_tools.return_value = [schema]
+        clients["exa"].call_tool.side_effect = lambda name, args: {"structuredContent": {"results":
+            [{"url": "https://example.test/original"}] if args["query"] == "good" else []}}
+        clients["parallel"].call_tool.side_effect = McpError("Unavailable", "tool_error")
+        clients["tavily"].call_tool.return_value = {"structuredContent": {"results": [{"url": "https://example.test/backup"}]}}
+        with patch.dict("os.environ", {"JINA_API_KEY": ""}), \
+                patch.object(self.engine, "_client", side_effect=clients.__getitem__) as connected:
+            result = self.engine.search([{"target": "A", "query": "good"}, {"target": "B", "query": "missing"}])
+        self.assertEqual([row["results"][0]["url"] for row in result["targets"]],
+                         ["https://example.test/original", "https://example.test/backup"])
+        clients["tavily"].call_tool.assert_called_once()
+        self.assertEqual(clients["tavily"].call_tool.call_args.args[1]["query"], "missing")
+        self.assertNotIn("jina", [call.args[0] for call in connected.call_args_list])
+        self.assertEqual(result["routing"]["skipped_providers"],
+                         [{"provider": "jina", "reason": "authentication_required", "missing": ["JINA_API_KEY"]}])
+        self.assertEqual(result["usage"]["tool_calls"], 5)
+        self.assertEqual(result["unresolved_queries"], [])
+
+    def test_search_fallbacks_run_concurrently_and_invalid_urls_cannot_stop_them(self):
+        barrier = threading.Barrier(2)
+        calls = []
+
+        def execute(provider, purpose, query, limit):
+            calls.append((provider, query))
+            if provider in ("tavily", "jina"):
+                barrier.wait(timeout=3)
+                rows = [{"url": "https://example.test/" + provider}]
+            else:
+                rows = [{"url": "file:///not-a-web-result"}]
+            return {"status": "ok", "result": {"structuredContent": {"results": rows}},
+                    "usage": {**self.engine._empty_usage(), "tool_calls": 1}}
+
+        with patch.dict("os.environ", {"JINA_API_KEY": "synthetic-presence"}), \
+                patch.object(self.engine, "_execute", side_effect=execute):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        self.assertEqual(set(calls), {(name, "q") for name in ("exa", "parallel", "tavily", "jina")})
+        self.assertEqual([row["result_state"] for row in result["batches"]], ["failed", "failed", "nonempty", "nonempty"])
+        self.assertEqual(len(result["targets"][0]["results"]), 2)
+        self.assertEqual(result["unresolved_queries"], [])
+
+    def test_explicit_search_providers_disable_automatic_fallback(self):
+        client = Mock()
+        client.list_tools.return_value = [EXA_SEARCH]
+        client.call_tool.return_value = {"structuredContent": {"results": []}}
+        with patch.object(self.engine, "_client", return_value=client) as connected:
+            result = self.engine.search([{"target": "A", "query": "q"}], providers=["exa"])
+        connected.assert_called_once_with("exa")
+        self.assertEqual(result["routing"]["fallback_providers"], [])
+        self.assertEqual(result["unresolved_queries"], [{"target": "A", "query": "q"}])
+
+    def test_jina_parallel_reader_preserves_raw_success_and_rejects_error_pages(self):
+        urls = ["https://example.test/" + name for name in ("article", "missing", "failed")]
+        barrier = threading.Barrier(3)
+        original = {"code": 200, "data": {"url": urls[0], "title": "Article", "content": "Actual article text",
+                                          "publishedTime": "2026-09-13", "httpStatus": 200}}
+
+        def opened(request, timeout):
+            barrier.wait(timeout=3)
+            self.assertIsNone(request.get_header("Authorization"))
+            if request.full_url.endswith("failed"):
+                raise urllib.error.HTTPError(request.full_url, 429, "private upstream message", {}, None)
+            value = original if request.full_url.endswith("article") else {"code": 200, "data": {
+                "url": urls[1], "title": "Page Not Found - Example", "content": "Popular unrelated pages"}}
+            return io.BytesIO(json.dumps(value).encode())
+
+        opener = Mock()
+        opener.open.side_effect = opened
+        with patch.dict("os.environ", {"JINA_API_KEY": ""}), patch("jina.urllib.request.build_opener", return_value=opener):
+            result = self.engine.fetch(urls, provider="jina")
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual([row["extraction_status"] for row in result["per_url"]], ["extracted", "not_found", "provider_error"])
+        self.assertEqual(result["usage"]["tool_calls"], 3)
+        self.assertEqual(result["usage"]["http_requests"], 3)
+        self.assertEqual(result["usage"]["initialize_requests"], 0)
+        self.assertEqual(result["usage"]["list_requests"], 0)
+        saved = json.loads(Path(result["archive"]["response_path"]).read_text())
+        self.assertEqual(json.loads(saved["content"][0]["text"]), original)
+        self.assertEqual(result["archive"]["pages"][0]["provider_published_at"], "2026-09-13")
+        self.assertNotIn("private upstream message", json.dumps(result))
+
+    def test_jina_keyed_search_uses_encoded_query_and_keeps_credentials_off_output(self):
+        opener = Mock()
+        opener.open.return_value = io.BytesIO(json.dumps({"code": 200, "data": [
+            {"url": "https://example.test/", "title": "Result", "content": "A snippet"}]}).encode())
+        with patch.dict("os.environ", {"JINA_API_KEY": "synthetic-secret"}), \
+                patch("jina.urllib.request.build_opener", return_value=opener):
+            result = self.engine.search([{"target": "topic", "query": "a & b"}], ["jina"])
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.full_url, "https://s.jina.ai/?q=a+%26+b")
+        self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-secret")
+        self.assertEqual(result["successful_provider_count"], 1)
+        self.assertNotIn("synthetic-secret", json.dumps(result))
+
+    def test_jina_oversized_or_error_envelopes_do_not_hide_other_urls(self):
+        urls = ["https://example.test/" + name for name in ("good", "oversized", "auth")]
+        def opened(request, timeout):
+            if request.full_url.endswith("oversized"):
+                return io.BytesIO(b"x" * 1_000_000)
+            value = {"code": 401, "message": "private"} if request.full_url.endswith("auth") else {
+                "code": 200, "data": {"url": urls[0], "content": "Good text"}}
+            return io.BytesIO(json.dumps(value).encode())
+        opener = Mock()
+        opener.open.side_effect = opened
+        with patch("jina.urllib.request.build_opener", return_value=opener):
+            result = self.engine.fetch(urls, "jina", archive=False)
+        self.assertEqual(result["successful_url_count"], 1)
+        failures = result["result"]["structuredContent"]["failed_results"]
+        self.assertEqual([row["error_kind"] for row in failures], ["response_too_large", "authentication_required"])
+
+    def test_fetch_routes_do_not_follow_search_only_settings(self):
+        self.settings.update({"search": {"providers": ["tavily"]}})
+        description = self.engine.describe()
+        self.assertEqual(description["default_providers"], ["tavily"])
+        self.assertEqual(description["default_fetch_providers"], ["exa", "parallel", "jina"])
+        with patch.dict("os.environ", {"JINA_API_KEY": ""}):
+            operations = self.engine.describe(["jina"])["providers"][0]["operations"]
+        self.assertEqual(operations["search"]["missing"], ["JINA_API_KEY"])
+        self.assertEqual(operations["fetch"]["missing"], [])
+
+    def test_default_fetch_uses_jina_text_when_other_mcp_returns_no_body(self):
+        urls = ["https://example.test/original", "https://example.test/fallback"]
+        exa, parallel = Mock(), Mock()
+        exa.list_tools.return_value, parallel.list_tools.return_value = [EXA_FETCH], [PARALLEL_FETCH]
+        exa.call_tool.return_value = {"structuredContent": {"results": [{"url": urls[0], "text": "Original body"}]}}
+        parallel.call_tool.return_value = {"structuredContent": {"results": []}}
+        reader = JinaClient()
+        with patch.object(reader, "_request", return_value={"code": 200, "data": {"url": urls[1], "content": "Reader body"}}) as read, \
+                patch.object(self.engine, "_client", side_effect={"exa": exa, "parallel": parallel, "jina": reader}.__getitem__):
+            result = self.engine.fetch(urls, archive=False)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([row["provider"] for row in result["per_url"]], ["exa", "jina"])
+        read.assert_called_once()
+        self.assertEqual(read.call_args.args[0], "https://r.jina.ai/" + urls[1])
 
 
 if __name__ == "__main__":

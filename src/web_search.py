@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from remote_mcp import McpError, McpHttpClient
 from provider_adapters import ProviderAdapter
-from search_results import fuse_results
+from search_results import _canonical_url, fuse_results
 from settings import Settings
 
 
@@ -28,7 +28,7 @@ class _ProviderState:
 
 
 class SearchProviders:
-    """Aggregate existing provider tools; no model, crawler, or OAuth implementation."""
+    """Aggregate retrieval providers; no model, crawler, or OAuth implementation."""
 
     SCHEMA_CACHE_SECONDS = 300
     MAX_CATALOG_BYTES = 1_000_000
@@ -57,9 +57,22 @@ class SearchProviders:
 
     def describe(self, providers=None):
         names = self._selected(providers) if providers is not None else list(self.registry["providers"])
-        return {"probe_performed": False, "default_providers": self.settings.load()["search"]["providers"],
+        preferences = self.settings.load()
+        return {"probe_performed": False, "default_providers": preferences["search"]["providers"],
+                "search_fallback_providers": preferences["search"]["fallback_providers"],
+                "default_fetch_providers": Settings.fetch_providers(preferences),
                 "providers": [{"provider": name, **self.registry["providers"][name],
-                               "availability": "not_probed", "authentication_state": self._authentication(name)} for name in names],
+                               "availability": "not_probed", "authentication_state": self._authentication(name),
+                               "operations": {purpose: {"credential_required": bool(variable),
+                                   "credential_configured": bool(os.environ.get(variable)) if variable else None,
+                                   "default_role": ("primary" if name in preferences["search"]["providers"] else
+                                       "fallback" if name in preferences["search"]["fallback_providers"] else "not_selected") if purpose == "search" else
+                                       ("primary" if name == preferences["fetch"]["provider"] else
+                                        "fallback" if name in preferences["fetch"]["providers"] else "not_selected"),
+                                   "missing": [variable] if variable and not os.environ.get(variable) else []}
+                                   for purpose in ("search", "fetch")
+                                   for variable in [self.registry["providers"][name].get("required_env", {}).get(purpose)]}}
+                              for name in names],
                 "schema_cache_seconds": self.SCHEMA_CACHE_SECONDS,
                 "note": "Configuration is not proof of connection, authentication, or service availability. No OAuth flow is implemented."}
 
@@ -91,7 +104,11 @@ class SearchProviders:
         state = self._states[provider]
         with state.lock:
             if state.client is None or state.identity != identity:
-                state.client = McpHttpClient(info["url"], headers=headers, timeout=timeout)
+                if info.get("transport") == "http":
+                    from jina import JinaClient
+                    state.client = JinaClient(headers=headers, timeout=timeout)
+                else:
+                    state.client = McpHttpClient(info["url"], headers=headers, timeout=timeout)
                 state.identity = identity
                 state.catalog = None
                 state.cooldown_error, state.cooldown_until = None, 0
@@ -152,6 +169,12 @@ class SearchProviders:
         with state.lock:
             client, before, usage = None, None, self._empty_usage()
             try:
+                if self.registry["providers"][provider].get("transport") == "http":
+                    return {"provider": provider, "status": "not_probed", "tools": [],
+                            "network_probe_performed": False, "catalog_source": "documented_http_api",
+                            "capabilities": {purpose: {"status": "supported", "execution_verified": False}
+                                             for purpose in ("search", "fetch")},
+                            "authentication_state": self._authentication(provider), "usage": usage}
                 client = self._client(provider)
                 before = self._snapshot(client)
                 tools = self._catalog(provider, client, usage, refresh=True)
@@ -171,11 +194,11 @@ class SearchProviders:
 
     def probe(self, providers=None):
         names = self._selected(providers)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(names))) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as pool:
             results = list(pool.map(self._probe_one, names))
         return {"probe_performed": True, "providers": results,
                 "successful_provider_count": sum(row["status"] == "ok" for row in results),
-                "note": "Probes perform initialize/tools/list, never search, extraction or research. Advertised tools do not prove execution authorization."}
+                "note": "MCP probes perform initialize/tools/list; HTTP providers report their local API mapping without a request. Neither proves successful retrieval."}
 
     def _tool(self, provider, purpose, tools):
         return self._adapter(provider).select(purpose, tools)
@@ -288,6 +311,10 @@ class SearchProviders:
         for row in rows:
             if not isinstance(row, dict) or not isinstance(row.get("url"), str):
                 continue
+            try:
+                _canonical_url(row["url"])
+            except ValueError:
+                continue
             snippet = row.get("snippet") or row.get("text") or row.get("content") or row.get("excerpts") or ""
             if isinstance(snippet, list):
                 snippet = "\n".join(x for x in snippet if isinstance(x, str))
@@ -308,15 +335,23 @@ class SearchProviders:
             try:
                 client = self._client(provider)
                 before = self._snapshot(client)
+                credential = self.registry["providers"][provider].get("required_env", {}).get(purpose)
+                if credential and not os.environ.get(credential):
+                    raise McpError("This operation requires " + credential, "authentication_required")
                 if state.cooldown_error is not None and time.monotonic() < state.cooldown_until:
                     skipped = True
                     raise state.cooldown_error
-                catalog = self._catalog(provider, client, usage)
-                adapter = self._adapter(provider)
-                tool = adapter.select(purpose, catalog)
-                arguments = adapter.arguments(tool, purpose, query, urls, limit, max_characters, self.session_id)
-                usage["tool_calls"] += 1
-                result = client.call_tool(tool["name"], arguments)
+                if self.registry["providers"][provider].get("transport") == "http":
+                    tool = {"name": self.registry["providers"][provider][purpose + "_tools"][0]}
+                    arguments = {"query": query} if purpose == "search" else {"urls": urls}
+                    result = client.call(purpose, **arguments)
+                else:
+                    catalog = self._catalog(provider, client, usage)
+                    adapter = self._adapter(provider)
+                    tool = adapter.select(purpose, catalog)
+                    arguments = adapter.arguments(tool, purpose, query, urls, limit, max_characters, self.session_id)
+                    usage["tool_calls"] += 1
+                    result = client.call_tool(tool["name"], arguments)
                 if not isinstance(result, dict):
                     raise McpError("Provider tool returned an invalid result", "result_format")
                 failure = self._result_error(result)
@@ -330,7 +365,8 @@ class SearchProviders:
                         state.catalog = None
                     if error.kind in ("rate_limited", "quota_exhausted") and not skipped:
                         state.cooldown_error = error
-                        state.cooldown_until = time.monotonic() + (error.retry_after if error.retry_after is not None else 5)
+                        delay = 300 if error.kind == "quota_exhausted" else 5
+                        state.cooldown_until = time.monotonic() + (error.retry_after if error.retry_after is not None else delay)
                 return {"status": "error", **self._failure(error), "skipped_due_to_cooldown": skipped,
                         "tool": tool["name"] if tool else None, "request_arguments": arguments,
                         "usage": self._usage(client, before, usage)}
@@ -341,20 +377,50 @@ class SearchProviders:
                 "retrieved_at": datetime.now(timezone.utc).isoformat()}
         outcome = self._execute(provider, "search", query=query, limit=limit)
         if outcome["status"] == "error":
-            return {**base, **outcome, "results": []}
+            return {**base, **outcome, "results": [], "result_state": "failed"}
         try:
             result = outcome.pop("result")
-            return {**base, **outcome, "results": self._normalize(result)[:limit]}
+            rows = self._normalize(result)[:limit]
+            return {**base, **outcome, "results": rows, "result_state": "nonempty" if rows else "empty"}
         except (RuntimeError, ValueError, OSError) as error:
-            return {**base, **outcome, "status": "error", "results": [], **self._failure(error)}
+            return {**base, **outcome, "status": "error", "results": [], "result_state": "failed", **self._failure(error)}
 
     def _search_provider(self, work):
         provider, queries, limit = work
         return [self._search_one((provider, target, query, limit)) for target, query in queries]
 
-    def search(self, targets, providers=None, limit_per_target=None):
+    def _search_batches(self, jobs, limit):
+        grouped = {}
+        for provider, target, query in jobs:
+            grouped.setdefault(provider, []).append((target, query))
+        # One worker per provider avoids starving independent providers with
+        # multiple queued calls waiting for the same provider's session lock.
+        work = [(provider, queries, limit) for provider, queries in grouped.items()]
+        if not work:
+            return []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(work)) as pool:
+            return [batch for results in pool.map(self._search_provider, work) for batch in results]
+
+    @staticmethod
+    def _unresolved_queries(queries, batches):
+        found = set()
+        for batch in batches:
+            if batch.get("status") != "ok":
+                continue
+            for row in batch.get("results", []):
+                try:
+                    _canonical_url(row.get("url"))
+                except (ValueError, AttributeError):
+                    continue
+                found.add((batch["target"], batch["query"]))
+                break
+        return [pair for pair in queries if pair not in found]
+
+    def search(self, targets, providers=None, limit_per_target=None, *, fallback_providers=None,
+               reserve_fallback=None):
+        preferences = self.settings.load()
         if limit_per_target is None:
-            limit_per_target = self.settings.load()["search"]["limit_per_target"]
+            limit_per_target = preferences["search"]["limit_per_target"]
         if not isinstance(targets, list) or not 1 <= len(targets) <= 12:
             raise ValueError("targets must contain 1 to 12 target/query objects")
         if type(limit_per_target) is not int or not 1 <= limit_per_target <= 20:
@@ -369,17 +435,37 @@ class SearchProviders:
                 raise ValueError("Target or query is too long")
             queries.append((row["target"].strip(), row["query"].strip()))
         queries = list(dict.fromkeys(queries))
-        names = self._selected(providers)
-        # One worker per provider prevents a queue of same-provider locks from
-        # occupying the pool and starving an independent provider.
-        work = [(name, queries, limit_per_target) for name in names]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(3, len(work))) as pool:
-            batches = [batch for provider_batches in pool.map(self._search_provider, work) for batch in provider_batches]
+        names = self._selected(preferences["search"]["providers"] if providers is None else providers)
+        if fallback_providers is None:
+            fallback_providers = preferences["search"]["fallback_providers"] if providers is None else []
+        if not isinstance(fallback_providers, list):
+            raise ValueError("fallback_providers must be a list of names")
+        fallbacks = [name for name in self._selected(fallback_providers) if name not in names] if fallback_providers else []
+        batches = self._search_batches([(name, target, query) for name in names for target, query in queries], limit_per_target)
+        pending = self._unresolved_queries(queries, batches)
+        skipped, jobs = [], []
+        if pending:
+            for name in fallbacks:
+                credential = self.registry["providers"][name].get("required_env", {}).get("search")
+                if credential and not os.environ.get(credential):
+                    skipped.append({"provider": name, "reason": "authentication_required", "missing": [credential]})
+                else:
+                    jobs.extend((name, target, query) for target, query in pending)
+        selected = reserve_fallback(jobs) if jobs and reserve_fallback is not None else jobs
+        unattempted = [job for job in jobs if job not in selected]
+        batches.extend(self._search_batches(selected, limit_per_target))
+        unresolved = self._unresolved_queries(queries, batches)
         fused = fuse_results({"batches": batches, "targets": list(dict.fromkeys(t for t, _ in queries)),
                               "limit_per_target": limit_per_target})
         return {**fused, "batches": batches,
+                "routing": {"mode": "parallel_then_fallback" if fallbacks else "parallel",
+                            "primary_providers": names, "fallback_providers": fallbacks,
+                            "fallback_triggered": bool(pending and fallbacks), "skipped_providers": skipped},
+                "unresolved_queries": [{"target": target, "query": query} for target, query in unresolved],
+                "remaining_attempts": [{"provider": name, "target": target, "query": query, "reason": "budget"}
+                                       for name, target, query in unattempted if (target, query) in unresolved],
                 "usage": {key: sum(batch["usage"][key] for batch in batches) for key in self.USAGE_FIELDS},
-                "retry_policy": "No automatic tool retries. Cooldown may skip a provider after a rate limit; failed attempts remain visible.",
+                "retry_policy": "Try configured fallback providers only for queries with no usable URL from the primary group. Each provider/target/query is attempted once; failures remain visible and cooldown may skip calls.",
                 "freshness": "retrieved_at is retrieval time; origin freshness is not established",
                 "evidence_note": "Provider agreement is not independent fact verification; read source pages."}
 
@@ -398,7 +484,8 @@ class SearchProviders:
         coverage = []
         for url in urls:
             _, body, extraction, kind = SourceArchive._select(by_url.get(SourceArchive._key(url)))
-            status = "ok" if body is not None else ("error" if extraction == "provider_error" else "unverified")
+            status = "ok" if body is not None and kind != "provider_excerpts" else (
+                "error" if extraction == "provider_error" else "unverified")
             coverage.append({"url": url, "status": status, "extraction_status": extraction,
                              "content_kind": kind, "characters": len(body) if body is not None else 0,
                              "complete_page_verified": False})
@@ -407,8 +494,63 @@ class SearchProviders:
                  ("error" if all(row["status"] == "error" for row in coverage) else "unverified"))
         return {"status": status, "per_url": coverage, "successful_url_count": successful}
 
+    @classmethod
+    def _fetch_waterfall(cls, urls, providers, fetch_one, reserve_fallback=None):
+        """Try the preferred provider, then the selected alternatives concurrently."""
+        attempts, coverage = [], {}
+
+        def quality(row):
+            return (row["status"] == "ok", row.get("characters", 0) > 0,
+                    row["extraction_status"] not in ("request_failed", "unrecognized_or_not_returned"))
+
+        for stage, names in enumerate((providers[:1], providers[1:])):
+            pending = [url for url in urls if coverage.get(url, {}).get("status") != "ok"]
+            if not pending or not names:
+                break
+            if stage and reserve_fallback is not None:
+                names = reserve_fallback(names, pending)
+            if not names:
+                break
+
+            def run(name):
+                try:
+                    fetched = fetch_one(name, pending)
+                except (RuntimeError, OSError, ValueError) as error:
+                    fetched = {"status": "error", **cls._failure(error), "usage": cls._empty_usage()}
+                fetched = {**fetched, "provider": name, "urls": pending}
+                if "result" in fetched:
+                    fetched.update(cls._fetch_coverage(fetched["result"], pending))
+                else:
+                    fetched["per_url"] = [{"url": url, "status": "unverified",
+                                           "extraction_status": "request_failed", "characters": 0}
+                                          for url in pending]
+                return fetched
+
+            if len(names) == 1:
+                batch = [run(names[0])]
+            else:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=len(names)) as pool:
+                    batch = list(pool.map(run, names))
+            attempts.extend(batch)
+            for fetched in batch:
+                for row in fetched["per_url"]:
+                    # Provider order breaks ties; a later failure never erases
+                    # usable text, and successful primary URLs leave the queue.
+                    if row["url"] not in coverage or quality(row) > quality(coverage[row["url"]]):
+                        coverage[row["url"]] = {**row, "provider": fetched["provider"]}
+        unresolved = [url for url in urls if coverage[url]["status"] != "ok"]
+        successful = len(urls) - len(unresolved)
+        return {"mode": "waterfall", "urls": urls, "providers": providers, "attempts": attempts,
+                "status": "ok" if not unresolved else "partial" if successful else "error",
+                "per_url": [coverage[url] for url in urls], "successful_url_count": successful,
+                "unresolved_urls": unresolved,
+                "remaining_providers": [name for name in providers if name not in {a["provider"] for a in attempts}]
+                                       if unresolved else [],
+                "usage": {key: sum(a.get("usage", {}).get(key, 0) for a in attempts) for key in cls.USAGE_FIELDS}}
+
     def fetch(self, urls, provider=None, archive=None, max_characters=None):
         preferences = self.settings.load()
+        automatic = provider is None
         provider = preferences["fetch"]["provider"] if provider is None else provider
         archive = preferences["archive"]["enabled"] if archive is None else archive
         max_characters = preferences["fetch"]["max_characters"] if max_characters is None else max_characters
@@ -427,9 +569,14 @@ class SearchProviders:
             parsed = urlsplit(url)
             if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username is not None or parsed.password is not None:
                 raise ValueError("Every URL must be HTTP(S) without embedded credentials")
+        urls = list(dict.fromkeys(urls))
+        if automatic:
+            names = self._selected(Settings.fetch_providers(preferences))
+            fetched = self._fetch_waterfall(urls, names, lambda name, pending:
+                self.fetch(pending, provider=name, archive=archive, max_characters=max_characters))
+            return fetched["attempts"][0] if len(fetched["attempts"]) == 1 else fetched
         from archive import SourceArchive
         store = SourceArchive(preferences["archive"]["directory"]) if archive else None
-        urls = list(dict.fromkeys(urls))
         outcome = self._execute(provider, "fetch", urls=urls, max_characters=max_characters)
         arguments = outcome["request_arguments"]
         fetched = {"provider": provider, "urls": urls, **outcome,

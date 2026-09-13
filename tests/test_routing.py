@@ -89,6 +89,60 @@ class RoutingTests(unittest.TestCase):
             with self.subTest(arguments=arguments), self.assertRaises(ValueError):
                 self.router.route(**arguments)
 
+    def test_deep_service_preference_leads_to_the_real_lifecycle(self):
+        self.settings.update({"professional_research": {"enabled": True, "provider": "parallel"}})
+        with patch.dict(os.environ, {"PARALLEL_API_KEY": "synthetic-presence"}):
+            result = self.router.route(depth="deep", host="codex", observed_tools=["spawn_agent"])
+        self.assertEqual(result["selected"]["route"], "professional_service")
+        self.assertEqual(result["selected"]["provider"], "parallel")
+        self.assertEqual(result["next_action"]["tool"], "research_start")
+        steps = result["workflow"]
+        self.assertLess(steps.index("research_service_prepare"), steps.index("research_service_start"))
+        self.assertLess(steps.index("research_service_start"), steps.index("research_service_result"))
+        self.assertLess(steps.index("research_service_import"), steps.index("research_source"))
+        self.assertFalse(result["execution_started"])
+
+    def test_missing_deep_api_does_not_disable_native_research_or_silently_replace_explicit_api(self):
+        native = self.router.route(depth="deep")
+        self.assertEqual(native["selected"]["route"], "host_iterative_research")
+        self.assertIn("research_fetch", native["workflow"])
+        explicit = self.router.route(provider="openai", task_shape="lookup")
+        self.assertEqual(explicit["depth"], "deep")
+        self.assertIsNone(explicit["selected"])
+        self.assertEqual(explicit["next_action"]["tool"], "research_services")
+        self.assertEqual(explicit["next_action"]["arguments"], {"provider": "openai"})
+
+    def test_observed_research_mcp_is_used_then_excluded_after_confirmed_failure(self):
+        arguments = {"depth": "deep", "host": "codex", "observed_tools": ["mcp__exa__agent_run"]}
+        first = self.router.route(**arguments)
+        self.assertEqual(first["selected"]["route_id"], "host_research_mcp:exa")
+        self.assertIn("mcp__exa__agent_run", first["workflow"])
+        self.assertIn("research_import_evidence", first["workflow"])
+        self.assertFalse(first["selected"]["authentication_verified"])
+        fallback = self.router.route(**arguments, failed_routes=[first["selected"]["route_id"]])
+        self.assertEqual(fallback["selected"]["route_id"], "host_iterative_research")
+        self.assertIn("unknown_outcome", fallback["fallback"]["hold_on"])
+        exhausted = self.router.route(**arguments, failed_routes=[first["selected"]["route_id"], "host_iterative_research"])
+        self.assertIsNone(exhausted["selected"])
+        self.assertFalse(exhausted["execution_started"])
+
+    def test_task_mcp_requires_observed_creation_status_and_result_tools(self):
+        tools = ["mcp__parallel__createDeepResearch", "mcp__parallel__getStatus", "mcp__parallel__getResultMarkdown"]
+        self.assertEqual(self.router.route(depth="deep", observed_tools=tools[:1])["selected"]["route"], "host_iterative_research")
+        self.assertEqual(self.router.route(depth="deep", observed_tools=tools)["selected"]["route_id"], "host_research_mcp:parallel")
+
+    def test_default_service_can_fall_back_but_explicit_service_remains_exclusive(self):
+        self.settings.update({"professional_research": {"enabled": True, "provider": "openai"}})
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic", "PARALLEL_API_KEY": "synthetic"}):
+            first = self.router.route(depth="deep")
+            self.assertEqual(first["selected"]["route_id"], "professional_service:openai")
+            fallback = self.router.route(depth="deep", failed_routes=[first["selected"]["route_id"]])
+            self.assertEqual(fallback["selected"]["route_id"], "professional_service:parallel")
+            explicit = self.router.route(provider="openai", failed_routes=[first["selected"]["route_id"]])
+        self.assertIsNone(explicit["selected"])
+        self.assertEqual(explicit["fallback"]["remaining_routes"], [])
+        self.assertTrue(explicit["fallback"]["explicit_provider_is_exclusive"])
+
 
 if __name__ == "__main__":
     unittest.main()

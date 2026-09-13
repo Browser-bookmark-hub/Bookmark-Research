@@ -142,12 +142,87 @@ class ResearchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.claim(research_id)
 
+    def test_jina_reserves_each_url_before_network_and_replays_without_resubmission(self):
+        urls = ["https://example.test/a", "https://example.test/b"]
+        limited = self.start(providers=["jina"], budget={"max_fetch_calls": 1})
+        with self.assertRaisesRegex(ValueError, "budget exhausted"):
+            self.sessions.fetch(limited, "too-many", "q1", urls)
+        self.engine.fetch.assert_not_called()
+
+        research_id = self.start(providers=["exa", "jina", "parallel"], budget={"max_fetch_calls": 3})
+        def fetch(urls, provider, archive, max_characters):
+            result = self.fetch_response(urls, provider, archive, max_characters)
+            if provider == "exa":
+                result["result"] = {"structuredContent": {"results": []}}
+            else:
+                self.assertEqual(provider, "jina")
+                state = self.sessions.status(research_id)
+                self.assertEqual(state["usage"]["fetch_calls"], 3)
+                result["usage"]["tool_calls"] = len(urls)
+            return result
+        self.engine.fetch.side_effect = fetch
+        result = self.sessions.fetch(research_id, "bounded", "q1", urls)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["usage"]["tool_calls"], 3)
+        self.assertEqual([call.kwargs["provider"] for call in self.engine.fetch.call_args_list], ["exa", "jina"])
+        self.assertTrue(self.sessions.fetch(research_id, "bounded", "q1", urls)["replayed"])
+        self.assertEqual(self.engine.fetch.call_count, 2)
+
+    def test_new_session_freezes_separate_fetch_defaults_and_old_session_keeps_its_providers(self):
+        research_id = self.start(providers=None)
+        current = self.sessions.status(research_id)
+        self.assertEqual(current["providers"], ["exa", "parallel"])
+        self.assertEqual(current["search_fallback_providers"], ["tavily", "jina"])
+        self.assertEqual(current["fetch_providers"], ["exa", "parallel", "jina"])
+        self.settings.update({"fetch": {"provider": "tavily", "providers": ["tavily"]}})
+        self.assertEqual(self.sessions.status(research_id)["fetch_providers"], current["fetch_providers"])
+        path, state = self.sessions._load(research_id)
+        state.pop("fetch_providers")  # An existing pre-upgrade session.
+        state.pop("search_fallback_providers")
+        self.sessions._save(path, state)
+        self.assertEqual(self.sessions.status(research_id)["fetch_providers"], ["exa", "parallel"])
+        self.assertEqual(self.sessions.status(research_id)["search_fallback_providers"], [])
+
+    def test_search_fallback_budget_is_durable_partial_and_replay_keeps_frozen_routes(self):
+        from web_search import SearchProviders
+        self.sessions.engine = SearchProviders(settings=self.settings)
+        research_id = self.start(providers=None, budget={"max_search_calls": 5})
+        queries = [{"question_id": "q1", "query": query} for query in ("first", "second")]
+        calls = []
+
+        def execute(provider, purpose, query, limit):
+            calls.append((provider, query))
+            rows = []
+            if provider == "tavily":
+                saved = json.loads((self.sessions.directory / research_id / "state.json").read_text())
+                self.assertEqual(saved["usage"]["search_calls"], 5)
+                self.assertEqual(saved["operations"][0]["reserved"]["search_calls"], 5)
+                self.assertEqual(saved["operations"][0]["status"], "pending")
+                self.assertEqual(query, "first")
+                rows = [{"url": "https://example.test/recovered"}]
+            return {"status": "ok", "result": {"structuredContent": {"results": rows}},
+                    "usage": {**SearchProviders._empty_usage(), "tool_calls": 1}}
+
+        with patch.dict("os.environ", {"JINA_API_KEY": ""}), \
+                patch.object(self.sessions.engine, "_execute", side_effect=execute):
+            first = self.sessions.search(research_id, "with-fallback", queries)
+            self.settings.update({"search": {"fallback_providers": []}})
+            replay = self.sessions.search(research_id, "with-fallback", queries)
+        self.assertEqual(len(calls), 5)
+        self.assertTrue(replay["replayed"])
+        self.assertEqual(first["result"], replay["result"])
+        self.assertEqual(first["result"]["unresolved_queries"], [{"target": "q1", "query": "second"}])
+        self.assertEqual(first["result"]["remaining_attempts"],
+                         [{"provider": "tavily", "target": "q1", "query": "second", "reason": "budget"}])
+        self.assertEqual(self.sessions.status(research_id)["usage"]["rounds"], 1)
+        self.assertEqual(self.sessions.status(research_id)["search_fallback_providers"], ["tavily", "jina"])
+
     def test_structured_transport_failure_and_archive_error_keep_receipts(self):
         research_id = self.start()
         self.engine.fetch.side_effect = None
         self.engine.fetch.return_value = {"status": "error", "error": "MCP HTTP 401", "error_kind": "authentication",
                                           "usage": {"tool_calls": 0}, "retryable": False}
-        failure = self.fetch(research_id, "unauthenticated")
+        failure = self.fetch(research_id, "unauthenticated", provider="exa")
         self.assertEqual(failure["error_kind"], "authentication")
         self.assertEqual(self.sessions.status(research_id)["operations"][0]["status"], "error")
         self.engine.fetch.return_value = self.fetch_response(["https://example.test/docs"], "exa", False, 12000)
@@ -157,6 +232,80 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(failure["provider_outcome"]["result"], self.engine.fetch.return_value["result"])
         self.assertTrue(self.fetch(research_id, "archive-failed")["replayed"])
         self.assertEqual(self.engine.fetch.call_count, 2)
+
+    def test_waterfall_reserves_only_available_budget_and_preserves_each_response(self):
+        research_id = self.start(providers=["exa", "parallel", "tavily"], budget={"max_fetch_calls": 2})
+        urls = ["https://example.test/good", "https://example.test/failed"]
+        raw_responses = {}
+
+        def fetch(urls, provider, archive, max_characters):
+            result = self.fetch_response(urls, provider, archive, max_characters)
+            if provider == "exa":
+                result["result"]["structuredContent"]["results"].pop()
+                result["result"]["structuredContent"]["errors"] = [{"url": urls[-1], "error": "Timeout"}]
+            else:
+                self.assertEqual(provider, "parallel")
+                self.assertEqual(urls, ["https://example.test/failed"])
+                persisted = json.loads((self.sessions.directory / research_id / "state.json").read_text())
+                self.assertEqual(persisted["usage"]["fetch_calls"], 2)
+                self.assertEqual(persisted["operations"][0]["reserved"]["fetch_calls"], 2)
+                self.assertEqual(persisted["operations"][0]["status"], "pending")
+            raw_responses[provider] = result["result"]
+            return result
+
+        self.engine.fetch.side_effect = fetch
+        result = self.sessions.fetch(research_id, "waterfall", "q1", urls)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["usage"]["tool_calls"], 2)
+        self.assertEqual([source["provider"] for source in result["sources"]], ["exa", "exa", "parallel"])
+        for source in result["sources"]:
+            raw = json.loads((self.sessions.directory / research_id / source["response_file"]).read_text())
+            self.assertEqual(raw, raw_responses[source["provider"]])
+        reopened = ResearchSessions(self.sessions.directory, settings=self.settings, engine=self.engine)
+        self.assertTrue(reopened.fetch(research_id, "waterfall", "q1", urls)["replayed"])
+        self.assertEqual(self.engine.fetch.call_count, 2)
+        self.assertEqual(reopened.status(research_id)["usage"]["fetch_calls"], 2)
+
+    def test_waterfall_budget_stop_keeps_remaining_providers_visible(self):
+        research_id = self.start(budget={"max_fetch_calls": 1})
+        self.engine.fetch.side_effect = None
+        self.engine.fetch.return_value = {"status": "error", "error": "Timed out", "error_kind": "timeout"}
+        result = self.fetch(research_id)
+        self.assertEqual(result["status"], "error")
+        self.assertEqual(result["unresolved_urls"], ["https://example.test/docs"])
+        self.assertEqual(result["remaining_providers"], ["parallel"])
+        self.assertEqual(self.engine.fetch.call_count, 1)
+        self.assertEqual(self.sessions.status(research_id)["usage"]["fetch_calls"], 1)
+
+    def test_waterfall_interruption_keeps_group_reservation_without_resubmitting(self):
+        research_id = self.start(providers=["exa", "parallel", "tavily"], budget={"max_fetch_calls": 3})
+
+        def interrupted(urls, provider, archive, max_characters):
+            if provider == "exa":
+                return {"status": "error", "error_kind": "timeout"}
+            persisted = json.loads((self.sessions.directory / research_id / "state.json").read_text())
+            self.assertEqual(persisted["usage"]["fetch_calls"], 3)
+            self.assertEqual(len(persisted["operations"][0]["fallback_attempts"]), 2)
+            raise SystemExit("Simulated interruption after reservation")
+
+        self.engine.fetch.side_effect = interrupted
+        with self.assertRaises(SystemExit):
+            self.fetch(research_id)
+        calls = self.engine.fetch.call_count
+        reopened = ResearchSessions(self.sessions.directory, settings=self.settings, engine=self.engine)
+        result = reopened.fetch(research_id, "read-1", "q1", ["https://example.test/docs"])
+        self.assertTrue(result["replayed"])
+        self.assertEqual(result["operation"]["status"], "pending")
+        self.assertEqual(reopened.status(research_id)["usage"]["fetch_calls"], 3)
+        self.assertEqual(self.engine.fetch.call_count, calls)
+
+    def test_legacy_single_provider_receipt_replays_without_adding_fallbacks(self):
+        research_id = self.start()
+        self.engine.fetch.side_effect = None
+        self.engine.fetch.return_value = {"status": "error", "error_kind": "timeout"}
+        self.fetch(research_id, provider="exa")
+        self.assertTrue(self.fetch(research_id)["replayed"])
+        self.assertEqual(self.engine.fetch.call_count, 1)
 
     def test_fetch_archives_raw_response_and_paginates_verified_extract(self):
         self.settings.update({"archive": {"enabled": False}})

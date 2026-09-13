@@ -18,6 +18,8 @@
       "native_research": {
         "url": "https://mcp.exa.ai/mcp?tools=agent_run",
         "tools": ["agent_run"],
+        "required_tools": ["agent_run"],
+        "workflow_tools": ["agent_run"],
         "authentication_required": true,
         "mode": "host_native_mcp",
         "note": "Opt-in Exa Agent; resumable with runId. Not part of the default search/extraction catalog."
@@ -39,12 +41,27 @@
       "native_research": {
         "url": "https://task-mcp.parallel.ai/mcp",
         "tools": ["createDeepResearch", "createTaskGroup", "getStatus", "getResultMarkdown"],
+        "required_tools": ["createDeepResearch", "getStatus", "getResultMarkdown"],
+        "workflow_tools": ["createDeepResearch", "getStatus", "getResultMarkdown"],
         "authentication_required": true,
         "mode": "host_native_mcp",
         "docs": "https://docs.parallel.ai/integrations/mcp/task-mcp",
         "note": "A separate authenticated asynchronous Task MCP; Search MCP capability probes do not contact it."
       },
       "docs": "https://docs.parallel.ai/integrations/mcp/search-mcp"
+    },
+    "jina": {
+      "label": "Jina Reader / Search",
+      "url": "https://r.jina.ai/",
+      "search_url": "https://s.jina.ai/",
+      "transport": "http",
+      "search_tools": ["jina_search"],
+      "fetch_tools": ["jina_reader"],
+      "direct_client": true,
+      "optional_bearer_env": "JINA_API_KEY",
+      "required_env": {"search": "JINA_API_KEY"},
+      "authentication": "Reader supports anonymous rate-limited webpage/PDF extraction. Search requires JINA_API_KEY. Uses the HTTP APIs, not the hosted Jina MCP, whose anonymous reading is not established.",
+      "docs": "https://jina.ai/reader/"
     },
     "tavily": {
       "label": "Tavily",

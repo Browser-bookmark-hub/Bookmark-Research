@@ -38,7 +38,7 @@ class SettingsTests(unittest.TestCase):
         second = Settings(self.settings.path)
         second.update({"fetch": {"max_characters": 25000}})
         result = self.settings.load()
-        self.assertEqual(result["search"], {"providers": ["exa"], "limit_per_target": 5})
+        self.assertEqual(result["search"], {"providers": ["exa"], "fallback_providers": [], "limit_per_target": 5})
         self.assertFalse(result["archive"]["enabled"])
         self.assertEqual(result["fetch"]["max_characters"], 25000)
         stored = json.loads(self.settings.path.read_text())
@@ -103,6 +103,8 @@ Settings(config).update(json.loads(patch))
     def test_unknown_fields_bad_types_and_credentials_fail_without_writes(self):
         invalid = [{"api_key": "do-not-store"}, {"archive": {"enabled": "false"}},
                    {"search": {"providers": ["unknown"]}}, {"search": {"providers": ["exa", "exa"]}},
+                   {"search": {"fallback_providers": ["unknown"]}}, {"search": {"fallback_providers": "tavily"}},
+                   {"search": {"fallback_providers": ["tavily", "tavily"]}},
                    {"fetch": {"max_characters": True}}, {"fetch": {"max_characters": 100001}},
                    {"timeout_seconds": 0}, {"schema_version": 2}, {"archive": {"directory": "relative/path"}},
                    {"wiki": {"enabled": True}}, {"search": []}]
@@ -122,6 +124,7 @@ Settings(config).update(json.loads(patch))
         self.settings.path.parent.mkdir(parents=True)
         self.settings.path.write_text('{"schema_version":1,"search":{"providers":["exa"]}}')
         defaults = self.settings.load()
+        self.assertEqual(defaults["search"]["fallback_providers"], [])
         self.assertFalse(defaults["professional_research"]["enabled"])
         self.assertIsNone(defaults["professional_research"]["provider"])
         self.assertEqual(defaults["wiki"]["directory"], str(self.base / "data/wiki"))

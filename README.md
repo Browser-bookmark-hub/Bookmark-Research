@@ -4,7 +4,7 @@
 
 [![Codex: Skill + MCP](https://img.shields.io/badge/Codex-Skill_%2B_MCP-111827)](#client-support) [![Claude Code: Skill + MCP](https://img.shields.io/badge/Claude_Code-Skill_%2B_MCP-D97757)](#client-support) [![Pi: Skill + CLI](https://img.shields.io/badge/Pi-Skill_%2B_CLI-7C3AED)](#client-support) [![DSH: MCP adapter](https://img.shields.io/badge/DSH-MCP_adapter-2563EB)](#client-support)
 
-Query your [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) data package in natural language, preserve its folder and card context, and research multiple targets through Exa, Parallel, and optional Tavily. **Codex, Claude Code, Pi, and DSH** share the same Skill and Python runtime, with a separate integration for each client.
+Query your [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) data package in natural language, preserve its folder and card context, and research multiple targets through Exa, Parallel, Jina Reader and Tavily. **Codex, Claude Code, Pi, and DSH** share the same Skill and Python runtime, with a separate integration for each client.
 
 **0.4.0** combines whole-package host workflows, optional research APIs, reviewed Wiki pages and evaluation with reusable source snapshots. It imports directories, ZIPs and individual cards, and monitors registered live directories while the MCP process runs. Stable source IDs survive new export paths. Full mirrors and partial exports use separate deletion rules. Research inventories and evidence remain frozen; changed input prompts research and Wiki review. English execution instructions have complete Chinese reading copies, and research output follows the user's language requirements.
 
@@ -24,7 +24,7 @@ Installer help and onboarding follow the system locale: Chinese locales select C
 
 The execution Skill and all 11 method references are maintained in English, with complete Chinese reading copies. The [instruction index](docs/instructions.en.md) links both versions and the full host prompt reference. Delegated research carries the task's output language; one shared Skill serves both languages.
 
-**No configuration or API key is required for local bookmark queries.** The defaults use Exa + Parallel for web search, Exa for page reading, and automatic page archiving; web access depends on each provider's authentication and limits. Existing preferences are retained. See [first use and optional settings](docs/installation.en.md#first-use-and-data-locations).
+**No configuration or API key is required for local bookmark queries.** Search starts with Exa + Parallel and falls back to Tavily + keyed Jina only for queries without usable results. Reading tries Exa, then Parallel + Jina Reader for unresolved URLs. Page archiving is enabled. Explicit providers restrict a call to those services; web access depends on authentication and limits. Existing provider overrides are retained. See [first use and optional settings](docs/installation.en.md#first-use-and-data-locations).
 
 ```sh
 # Update the registered source, then verify it
@@ -54,7 +54,7 @@ For **Claude Code, Pi, DSH**, or a downloaded ZIP, follow the [installation guid
 | **Skill** | [`skills/bookmark-research/SKILL.md`](skills/bookmark-research/SKILL.md) | Guides package reading, local queries, source verification, and research reports |
 | **MCP server** | [`src/mcp_server.py`](src/mcp_server.py), started with `python3 src/cli.py serve` | One local `bookmark-research` server with the [shared tool catalog](#mcp-tools) |
 | **Python CLI** | [`src/cli.py`](src/cli.py) | Runs the same queries and research workflows directly, including from Pi |
-| **Web providers** | [`config/providers.json`](config/providers.json) and [`src/provider_adapters.py`](src/provider_adapters.py) | Exa, Parallel and optional Tavily behind one MCP; schema checks, session reuse and visible partial failures |
+| **Web providers** | [`config/providers.json`](config/providers.json), [`src/provider_adapters.py`](src/provider_adapters.py), [`src/jina.py`](src/jina.py) | Exa, Parallel, Jina HTTP and Tavily behind one MCP; schema checks, session reuse and visible partial failures |
 | **Research and coverage** | [`src/research.py`](src/research.py), [`src/research_coverage.py`](src/research_coverage.py) | Complete source inventory, all bookmark instances, budgets, evidence, substantive review and reports |
 | **Host workflows** | [`hosts/`](hosts/) and [`src/routing.py`](src/routing.py) | Native Codex delegation, Claude workflow, Pi extension recipe and DSH workflow adapter |
 | **Professional research** | [`src/research_services.py`](src/research_services.py) | Optional provider-owned background tasks, saved run IDs and secondary-report import |
@@ -93,9 +93,11 @@ flowchart LR
   M --> E[Exa MCP]
   M --> P[Parallel MCP]
   M --> T[Optional Tavily MCP]
+  M --> JR[Jina Reader / Search HTTP]
   E --> R[Merge per target and retain sources]
   P --> R
   T --> R
+  JR --> R
   S --> H[Host subagents or existing workflows]
   S --> A[Optional professional research API]
   H --> M
@@ -162,6 +164,10 @@ This version has no embeddings, vector database or background page monitoring. R
 
 These modes follow [OpenAI's web search guide](https://developers.openai.com/api/docs/guides/tools-web-search). Having a URL does not determine whether a model reasons. `research_route` recommends an entrypoint from reported current tools and commands without launching it. Professional APIs have separate authentication and lifecycle contracts; anonymous Search MCP access does not authorize a Task API.
 
+One MCP entry point aggregates several backend services, and one Skill executes all three workflows. Reading defaults to Exa followed by concurrent Parallel + Jina Reader fallback for unresolved URLs; Tavily extraction can be added to `fetch.providers`. Search starts with Exa + Parallel, then calls `search.fallback_providers` (Tavily + keyed Jina) concurrently only for queries with no usable URL. Missing fallback credentials are skipped; successful results stay intact. Set the search fallback list to `[]` to disable it. An existing saved search provider list without a fallback field retains its original service scope.
+
+Deep Research recognizes observed Exa `agent_run` and complete Parallel Task MCP tools, enabled OpenAI/Parallel API clients, and host investigation workflows. After a confirmed failure, the Skill passes cumulative `failed_routes` to select and execute the next route in the same investigation. Running, unknown and cancelled jobs are not replaced, and an explicit provider remains exclusive. Routing itself launches nothing; API execution follows prepare → start → status → result → import. These APIs require separate enablement and credentials. Scrapling, Firecrawl and MarkItDown remain researched projects, not integrated fallback backends. Public GitHub pages can be read, but a README fetch does not inspect the whole repository.
+
 Read the [deep research guide](skills/bookmark-research/references/deep-research.md) for inputs and CLI examples. `research_start` freezes the complete indexed packages selected by `source_ids`; a subset requires explicit `scope_mode:"subset"`. Paginate `research_inventory` to the end. `bookmark_refs` identify focus items without silently narrowing whole-package scope.
 
 `research_search` and `research_fetch` reserve retrieval attempts; repeating the same `operation_id` returns its recorded outcome. The default fetch budget accounts for the selected input size: 207 URLs require at least 26 full batches and receive 38 calls, within an 80-call limit. Explicit budgets are retained; insufficient capacity is reported without removing URLs. These controls do not measure or limit invisible host/model calls.
@@ -218,7 +224,7 @@ The [shared Skill](skills/bookmark-research/SKILL.md) guides the agent's workflo
 | `search_bookmarks` | Query bookmarks for multiple targets while retaining item context |
 | `get_context` | Read section, card, group, connection, and item-ancestor context |
 | `search_providers` | List configured web providers |
-| `search_web` | Search through Exa / Parallel / Tavily and merge results per target |
+| `search_web` | Search through Exa / Parallel / Tavily / keyed Jina and merge results per target |
 | `fetch_web` | Read known URLs and optionally archive responses and page text |
 | `get_settings` | Read current settings and storage paths |
 | `update_settings` | Update persistent settings |
@@ -242,12 +248,13 @@ The [shared Skill](skills/bookmark-research/SKILL.md) guides the agent's workflo
 | --- | --- |
 | **Exa** | Built into the MCP server and CLI for search and URL reading |
 | **Parallel** | Built into the MCP server and CLI for search and URL reading |
-| **Tavily** | Optional built-in search/extract adapter; `TAVILY_API_KEY` uses Bearer, otherwise explicit keyless mode |
+| **Jina** | HTTP Reader supports anonymous webpage/PDF reading; Search requires `JINA_API_KEY`. The hosted Jina MCP is not used. |
+| **Tavily** | Built-in search fallback and selectable extraction; `TAVILY_API_KEY` uses Bearer, otherwise explicit keyless mode |
 | **GitHub** | Use the host's existing GitHub MCP or `gh` for repository-specific tasks. No GitHub MCP is bundled; public pages can also be read through Exa / Parallel. |
 
-All three providers run through the plugin's own MCP or CLI; additional host MCP registrations are unnecessary for these search and fetch tools. Defaults remain Exa and Parallel. Anonymous/keyless access and quotas depend on each service's policy; pass credentials through `EXA_API_KEY`, `PARALLEL_API_KEY`, or `TAVILY_API_KEY` in the launching environment. Local queries work offline.
+All four retrieval providers run through the plugin's own MCP or CLI; additional host MCP registrations are unnecessary. Search starts with Exa + Parallel and uses configured fallbacks for unresolved queries; reading falls back to Parallel + Jina after Exa. Anonymous/keyless access and quotas depend on each service's policy; optional credentials use `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY` or `JINA_API_KEY` in the launching environment. Local queries work offline.
 
-`search_providers` describes configuration without network access; `probe:true` discovers actual tools and compatible schemas, without proving permission to execute them. Each MCP process reuses provider sessions and a bounded tool catalog. Tool calls are not automatically replayed after errors. See [MCP architecture and observed service behavior](docs/mcp-aggregation-0.2.0.md), including the initial Exa connection failure and its explicit follow-up verification.
+`search_providers` describes configuration without network access; `probe:true` discovers remote MCP tools, while Jina's HTTP mapping remains explicitly `not_probed`. Discovery does not prove successful retrieval. Each MCP process reuses remote sessions and a bounded tool catalog. Calls are not automatically replayed after errors. See [MCP architecture and observed service behavior](docs/mcp-aggregation-0.2.0.md) for the initial implementation and checks.
 
 ### Package rules and AGENTS.md
 

@@ -14,6 +14,8 @@ from pathlib import Path
 class Settings:
     """Load on each operation so MCP clients can change preferences without restart."""
 
+    PROVIDERS = ("exa", "parallel", "tavily", "jina")
+
     def __init__(self, path=None):
         config_home = self._xdg_home("XDG_CONFIG_HOME", Path.home() / ".config")
         selected = path or os.environ.get("BOOKMARK_RESEARCH_CONFIG") or config_home / "bookmark-research/settings.json"
@@ -52,8 +54,9 @@ class Settings:
     @classmethod
     def defaults(cls):
         return {"schema_version": 1, "timeout_seconds": 30,
-                "search": {"providers": ["exa", "parallel"], "limit_per_target": 5},
-                "fetch": {"provider": "exa", "max_characters": 12000},
+                "search": {"providers": ["exa", "parallel"],
+                           "fallback_providers": ["tavily", "jina"], "limit_per_target": 5},
+                "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000},
                 "archive": {"enabled": True, "directory": str(cls.data_directory() / "knowledge")},
                 "research": {"depth": "auto", "prefer_host_workflows": True,
                              "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
@@ -89,12 +92,14 @@ class Settings:
                 ("fetch.max_characters", value["fetch"]["max_characters"], 100, 100000)):
             if type(number) is not int or not minimum <= number <= maximum:
                 raise ValueError("%s must be an integer between %s and %s" % (label, minimum, maximum))
-        providers = value["search"]["providers"]
-        if (not isinstance(providers, list) or not 1 <= len(providers) <= 3
-                or any(p not in ("exa", "parallel", "tavily") for p in providers) or len(set(providers)) != len(providers)):
-            raise ValueError("search.providers must select exa, parallel and/or tavily without duplicates")
-        if value["fetch"]["provider"] not in ("exa", "parallel", "tavily"):
-            raise ValueError("fetch.provider must be exa, parallel or tavily")
+        for section, field, minimum in (("search", "providers", 1), ("fetch", "providers", 1),
+                                        ("search", "fallback_providers", 0)):
+            providers = value[section][field]
+            if (not isinstance(providers, list) or not minimum <= len(providers) <= len(cls.PROVIDERS)
+                    or any(p not in cls.PROVIDERS for p in providers) or len(set(providers)) != len(providers)):
+                raise ValueError(section + "." + field + " must select supported providers without duplicates")
+        if value["fetch"]["provider"] not in cls.PROVIDERS:
+            raise ValueError("fetch.provider must select a supported provider")
         if type(value["archive"]["enabled"]) is not bool:
             raise ValueError("archive.enabled must be a boolean")
         directory = value["archive"]["directory"]
@@ -134,6 +139,16 @@ class Settings:
         return value
 
     @staticmethod
+    def fetch_providers(preferences):
+        return list(dict.fromkeys([preferences["fetch"]["provider"]] + preferences["fetch"]["providers"]))
+
+    @staticmethod
+    def fetch_call_count(provider, urls):
+        # Reader has one HTTP request per URL; the other providers batch URLs
+        # in one MCP tool call. Reserve this before any network work begins.
+        return len(urls) if provider == "jina" else 1
+
+    @staticmethod
     def _unique_object(pairs):
         result = {}
         for key, value in pairs:
@@ -151,7 +166,14 @@ class Settings:
         return value
 
     def load(self):
-        return self._validate(self._merge(self.defaults(), self._read()))
+        stored = self._read()
+        merged = self._merge(self.defaults(), stored)
+        search = stored.get("search", {})
+        if isinstance(search, dict) and "providers" in search and "fallback_providers" not in search:
+            # An earlier explicit provider list must not silently gain services
+            # on upgrade. Users can opt into a separate fallback list.
+            merged["search"]["fallback_providers"] = []
+        return self._validate(merged)
 
     def describe(self):
         return {"config_path": str(self.path), "config_exists": self.path.is_file(), "settings": self.load()}

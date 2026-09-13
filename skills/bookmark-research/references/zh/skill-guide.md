@@ -49,14 +49,16 @@ JSON/.canvas 是事实来源；SQLite 保存派生索引和来源登记，原始
 ## 网页问题
 
 - **快速查证**：明确 URL 用 `fetch_web`，需要发现来源时用一轮 `search_web` 后读取关键页面。Non-reasoning 描述模型的搜索方式，不能仅凭是否有 URL 判断推理能力；不保证服务会实时访问原站。
-- **Agentic search**：由宿主模型拆目标、组织查询、阅读和补查。独立专题使用当前可调用的子代理；重复的分组、核验和补查可交给宿主已有工作流。执行与子代理生命周期属于宿主。
+- **Agentic search**：由宿主模型拆目标、组织查询、阅读和补查。省略 `providers` 可自动补查无结果查询；检查 `unresolved_queries`、`routing.skipped_providers` 和预算不足的 `remaining_attempts`，保留各路成功结果。空结果与调用失败分别处理；独立工作仅在委派可用且获准时交给子代理或工作流。
 - **Deep research**：需要持续、多轮调查或研究报告时，读 [深度研究流程](deep-research.md)。按问题选择原生研究、宿主研究工作流或 [专业研究服务](research-services.md)。专业服务是可选路线；有搜索 MCP 不等于有研究 API 认证。
 
 多来源任务读 [宿主工作流](host-workflows.md)。可用 `research_route` 传当前实际可见的 tools、commands、extensions，得到建议；它不会启动执行。Codex 使用原生委派，Claude 使用已加载的 Dynamic Workflow，Pi 使用已加载扩展，DSH 使用已配置引擎。不凭宿主名称推断已启用的能力，也不把文档确认、组件发现和真实运行混为一谈。Claude 的 `/deep-research` 需要明确调用；在提示词中写 `ultracode` 不能替代真实调用条件。
 
+深度任务选路时纳入宿主已有研究 MCP；路由识别 Exa `agent_run` 和完整 Parallel Task MCP。按已有授权执行所选流程；明确失败后记录原因，将 `route_id` 累计加入 `failed_routes` 并重新选路，沿用原研究会话。保留用户明确的 provider 选择。运行中、被中断／结果未知或已取消任务不触发替换，先续查原 ID；运行记录和报告导入见 [研究服务](research-services.md)。没有合适路线或预算时停止换路，报告证据缺口。
+
 需要比较产品、事实核验或分析排行榜时，读 [研究方法](research-methods.md)，把选中的方法与问题交给读者和独立核验者。采用现成 SDK 的条件是确有无宿主程序化需求；插件不实现调度器、代理池或后台 worker。
 
-联网前读 [研究与服务接入规则](research-workflow.md)，按实际可用工具和用户范围执行。默认 Exa + Parallel，可按需选择 Tavily；配置与工具发现不证明实际调用已获授权。仅查询本地时无需读取联网参考或探测远程服务。
+联网前读 [研究与服务接入规则](research-workflow.md)，按实际可用工具和用户范围执行。搜索先 Exa + Parallel，无结果查询再交给 Tavily + 有 key 的 Jina；读取先 Exa，未成功 URL 再交给 Parallel + Jina Reader。搜索首轮、搜索备用与读取列表分别配置；缺 Jina Search 凭据会跳过，Reader 支持匿名。仅查询本地时无需读取联网参考或探测远程服务。
 
 涉及 GitHub 仓库、issue、代码或 Git 同步时，读 [GitHub 与同步边界](github-and-sync.md)。插件没有内置 GitHub MCP；优先使用宿主实际具备且适用于任务的 GitHub 工具，公开网页也可用 `fetch_web` 读取。
 
@@ -67,7 +69,7 @@ JSON/.canvas 是事实来源；SQLite 保存派生索引和来源登记，原始
 1. 同步包后用实际索引的 `source_ids` 调用 `research_start`；默认 `scope_mode:"whole"` 冻结完整来源。`bookmark_refs` 可以标记关注点，不能隐式缩成这些书签。确需限定来源时显式 `scope_mode:"subset"`，交付中报告选中与未选中项。
 2. 用 `research_inventory` 跟随 `next_offset` 读完来源清单。区分数据包 `source_id`、原始 URL 的 `u-...` inventory ID、正文快照的 `sN` evidence ID。分组沿用全部 inventory ID；分批和并发仅改变执行方式。
 3. 从原 URL 获取正文（或导入宿主实际取得的正文），读 `research_source` 后做 `source_review`、引用结论和 `inventory_review`。搜索摘要、仅导入文件、成功结束的子代理和外部报告的引文列表都不能替代原页审阅。
-4. 由独立步骤复核结论与引用，再用 `research_coverage` 取得尚未读取／审阅的差集并继续。失败或登录受限写 `blocked` 与具体原因；有依据的范围外／非内容项写 `excluded` 与原因。不能通过批量排除或只记失败来宣称整包研究完成。
+4. 由独立步骤复核结论与引用，再用 `research_coverage` 取得尚未读取／审阅的差集并继续。省略 `research_fetch.provider` 可在会话服务和预算内回退；检查 `attempts`、`unresolved_urls`、`remaining_providers` 后再记录具体阻碍。`blocked` 表示未解决的证据缺口，不证明 URL 永久不可访问。有依据的范围外／非内容项写 `excluded` 与原因；不能通过批量排除或只记失败来宣称整包研究完成。
 
 首次读取预算随 URL 数给出下界；查看 `initial_fetch_plan`，每次可批量读取至多 8 个 URL。显式预算原样保留，不足时保留完整清单、说明缺口；预算不覆盖宿主自身或外部服务看不到的消耗。
 

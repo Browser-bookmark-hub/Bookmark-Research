@@ -16,7 +16,7 @@ from settings import Settings
 PROTOCOLS = ("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
 MAX_MESSAGE_CHARS = 256 * 1024
 MAX_RESULT_CHARS = 2 * 1024 * 1024
-PROVIDER_NAMES = ("exa", "parallel", "tavily")
+PROVIDER_NAMES = Settings.PROVIDERS
 
 
 def _text_schema(maximum=2048):
@@ -32,12 +32,14 @@ def _object_schema(properties, required=()):
 
 
 IDENTIFIER = _text_schema(512)
-PROVIDERS = dict(_array_schema({"type": "string", "enum": list(PROVIDER_NAMES)}, 3, 1), uniqueItems=True)
+PROVIDERS = dict(_array_schema({"type": "string", "enum": list(PROVIDER_NAMES)}, len(PROVIDER_NAMES), 1), uniqueItems=True)
 SETTINGS_SCHEMA = _object_schema({
     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60},
     "search": _object_schema({"providers": PROVIDERS,
+        "fallback_providers": {**PROVIDERS, "minItems": 0},
         "limit_per_target": {"type": "integer", "minimum": 1, "maximum": 20}}),
     "fetch": _object_schema({"provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
+        "providers": PROVIDERS,
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000}}),
     "archive": _object_schema({"enabled": {"type": "boolean"}, "directory": _text_schema(4096)}),
     "research": _object_schema({"depth": {"type": "string", "enum": ["auto", "quick", "agentic", "deep"]},
@@ -96,9 +98,9 @@ TOOL_DESCRIPTIONS = {
     "search_bookmarks": "Search bookmark metadata with literal title/URL/note/tag/folder-path matching and exact SQL scopes. Targets have independent totals and pages; this is not semantic webpage-body retrieval. Refresh checks live directories by default; snapshots remain usable after the original export disappears. Inspect source.state for pending changes or errors. refresh=false uses the last synchronized index, not an arbitrary historical version.",
     "get_context": "Read section headers, bookmark metadata, folder ancestry, geometric group membership and directed canvas edges. Copy anchors share their primary tree. Refresh is enabled by default.",
     "index_status": "Read source modes, original input availability, saved snapshots, pending files, last check/error, counts and local monitor status. Does not refresh or fetch webpages. unchecked means a live directory has not been checked recently.",
-    "search_web": "Search the requested targets through selected public web providers, using saved defaults when options are omitted (initially Exa and Parallel). Search snippets are not verified full-page evidence; search does not automatically fetch or archive result pages.",
-    "fetch_web": "Fetch known HTTP(S) URLs using saved defaults. By default, archive the actual provider response, identified Markdown extracts and provenance outside the canvas package. archive=false disables saving for this call. Extraction may be partial. Does not add pages or vectors to the bookmark index.",
-    "search_providers": "Describe configured Exa/Parallel/Tavily provider metadata without network access by default. probe=true explicitly performs capability discovery; discovery does not prove execution permission or successful retrieval.",
+    "search_web": "Search with saved primary providers concurrently, then saved fallback providers only for queries with no usable result (defaults: Exa + Parallel, then Tavily + keyed Jina). Missing fallback credentials are skipped. Explicit providers restrict the call to that list. Search snippets are not verified page evidence; result pages are not automatically fetched.",
+    "fetch_web": "Fetch known HTTP(S) URLs. Omit provider to try fetch.provider first, then other saved fetch.providers concurrently for unresolved URLs only (initially Exa, Parallel, Jina Reader). Explicit provider selects one service. Attempts keep separate responses and archives. archive=false disables saving. Extracts need source review; no pages or vectors are added to the bookmark index.",
+    "search_providers": "Describe Exa/Parallel/Tavily MCP and Jina HTTP capabilities and authentication per operation. Jina Reader supports anonymous access; Jina Search requires JINA_API_KEY. probe=true discovers MCP catalogs; HTTP mappings are local. Discovery does not prove successful retrieval.",
 }
 
 RESEARCH_ID = _text_schema(80)
@@ -188,8 +190,8 @@ TOOL_SCHEMAS.update({
 TOOL_DESCRIPTIONS.update({
     "research_start": "Start host-led research with explicit questions, budgets and a frozen source inventory. Indexed source_ids select their whole packages by default, preserving all URL instances and canvas context. A subset requires scope_mode=subset explicitly. Creates no model or worker and makes no network calls.",
     "research_status": "List saved research sessions or read a bounded progress overview, including source_freshness against the current indexed input. Requires review when the input changed; frozen evidence is not rewritten. For complete entries, select section and paginate; overview shows at most 20 previews per collection. No network requests. A pending intent is not proof that a research worker is running.",
-    "research_search": "Execute and save one search round for specified research questions. Reserve one search attempt per unique provider/question/query before access. Reusing operation_id with identical arguments returns the recorded outcome without resubmission.",
-    "research_fetch": "Read selected URLs for a research question and persist actual responses and identifiable text in this session's evidence directory. This research tool always retains evidence, independently of fetch_web archiving settings. Reuse operation_id for safe outcome lookup.",
+    "research_search": "Execute one search round using frozen primary providers and fallbacks for unresolved queries. Explicit providers disable fallback. Reserve each provider/question/query before access, including budget-limited fallbacks; inspect unresolved_queries and remaining_attempts. Identical operation_id and arguments replay the saved outcome without resubmission.",
+    "research_fetch": "Read URLs and retain each provider's actual response and identified text as session evidence. Omit provider to try session providers in a waterfall: first provider, then remaining providers concurrently for unresolved URLs, reserving each attempt within the fetch budget. Explicit provider selects one service. Inspect unresolved_urls and remaining_providers. Reuse operation_id for safe outcome lookup.",
     "research_source": "Read a saved research source by ID with pagination and SHA-256 verification. This reads extracted text, which may be partial; it does not contact a provider.",
     "research_record": "Prefer entries for 1-50 evidence records in one call. Provide exactly one of entry or entries. A batch validates in order and saves atomically; any invalid entry saves nothing. Returns compact IDs in input order. Use batch_id for safe retries with identical entries. Only single entry supports resume/external_run; resume preserves prior reports and budgets. Kinds have different required fields; see deep-research.md. Quote matching proves presence, not entailment.",
     "research_inventory": "Read the frozen original URL scope with stable inventory IDs, all bookmark instances and context. Paginate until next_offset is null; a page is not the whole research scope.",
@@ -228,6 +230,7 @@ TOOL_SCHEMAS.update({
         "observed_tools": _array_schema(_text_schema(300), 1000),
         "available_commands": _array_schema(_text_schema(300), 1000),
         "installed_extensions": _array_schema(_text_schema(300), 1000),
+        "failed_routes": dict(_array_schema(_text_schema(300), 1000), uniqueItems=True),
         "provider": SERVICE_PROVIDER,
     }),
     "research_services": _object_schema({"provider": SERVICE_PROVIDER}),
@@ -257,7 +260,7 @@ TOOL_SCHEMAS.update({
         "judgments": _array_schema(OPEN_OBJECT, 1000)}, ["suite", "runs"]),
 })
 TOOL_DESCRIPTIONS.update({
-    "research_route": "Recommend quick, agentic or deep research using caller-reported current host tools/commands. Distinguishes Claude workflows, DSH blocking workflows, Pi extensions and Codex subagents. Does not launch work, install extensions or enable ultracode.",
+    "research_route": "Select research from observed host workflows, Exa Agent/Parallel Task MCP tools, configured APIs or native iterative research. After a confirmed failure, pass cumulative failed_routes from route_id to select the next path. Active/unknown runs must be observed, not replaced. Explicit provider is exclusive. Returns steps for the host to execute; this call starts no work.",
     "research_services": "Describe optional OpenAI Deep Research and Parallel Task API configuration. No network access; configured credentials are not proof of authentication. These APIs are separate from anonymous Search MCP access.",
     "research_service_prepare": "Prepare the exact provider payload and source scope without network access. Only the explicit input and source URLs are shared; local bookmark notes, paths and files are not uploaded. Inspect this payload before starting a service run.",
     "research_service_start": "Start one configured, authenticated provider research run and save its reference. operation_id prevents automatic duplicate submission, including lost responses. Remote execution belongs to the provider; the plugin starts no worker or polling loop.",

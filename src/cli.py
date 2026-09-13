@@ -57,8 +57,10 @@ def _parser():
     configure.add_argument("--input", help="Partial settings JSON file, or '-' for stdin")
     configure.add_argument("--archive", choices=("true", "false"))
     configure.add_argument("--archive-dir")
-    configure.add_argument("--search-provider", action="append", choices=("exa", "parallel", "tavily"))
-    configure.add_argument("--fetch-provider", choices=("exa", "parallel", "tavily"))
+    configure.add_argument("--search-provider", action="append", choices=Settings.PROVIDERS)
+    configure.add_argument("--search-fallback-provider", action="append", choices=Settings.PROVIDERS)
+    configure.add_argument("--fetch-provider", choices=Settings.PROVIDERS)
+    configure.add_argument("--fetch-fallback-provider", action="append", choices=Settings.PROVIDERS)
     configure.add_argument("--max-characters", type=int)
     sync = commands.add_parser("sync", help="Import a directory, ZIP, or single card; keep a reusable snapshot")
     sync.add_argument("package")
@@ -103,7 +105,7 @@ def _parser():
     web.add_argument("--timeout", type=int)
     fetch = commands.add_parser("fetch-web")
     fetch.add_argument("urls", nargs="+")
-    fetch.add_argument("--provider", choices=("exa", "parallel", "tavily"))
+    fetch.add_argument("--provider", choices=Settings.PROVIDERS)
     fetch.add_argument("--timeout", type=int)
     fetch.add_argument("--max-characters", type=int)
     archival = fetch.add_mutually_exclusive_group()
@@ -152,6 +154,7 @@ def _parser():
     route.add_argument("--tool", action="append")
     route.add_argument("--available-command", action="append")
     route.add_argument("--extension", action="append")
+    route.add_argument("--failed-route", action="append")
     route.add_argument("--provider", choices=("openai", "parallel"))
     service = research_commands.add_parser("service", help="Prepare/start/observe existing professional research runs")
     service_commands = service.add_subparsers(dest="service_command", required=True)
@@ -226,7 +229,7 @@ def main(argv=None):
                 payload = _checked_input(args.input, "research_route") if args.input else {
                     "host": args.host, "depth": args.depth, "task_shape": args.task_shape,
                     "observed_tools": args.tool, "available_commands": args.available_command,
-                    "installed_extensions": args.extension, "provider": args.provider}
+                    "installed_extensions": args.extension, "provider": args.provider, "failed_routes": args.failed_route}
                 result = ResearchRouting(settings).route(**payload)
             elif action == "service":
                 from research_services import ResearchServices
@@ -309,7 +312,9 @@ def main(argv=None):
                         ("archive", "enabled", None if args.archive is None else args.archive == "true"),
                         ("archive", "directory", args.archive_dir),
                         ("search", "providers", args.search_provider),
+                        ("search", "fallback_providers", args.search_fallback_provider),
                         ("fetch", "provider", args.fetch_provider),
+                        ("fetch", "providers", args.fetch_fallback_provider),
                         ("fetch", "max_characters", args.max_characters)):
                     if value is not None:
                         if not isinstance(changes.get(section, {}), dict):
