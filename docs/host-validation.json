@@ -2,6 +2,61 @@
   "schema_version": 1,
   "checked_on": "2026-09-11",
   "scope": "Four-host artifacts, choreography contracts and actual shared stdio MCP. This is not a paid host research run.",
+  "host_first_review": {
+    "checked_on": "2026-09-13",
+    "method": "Exa search and page extraction through the current plugin CLI",
+    "scope": "Host collaboration, MCP/Skill access, and host-first research routing; not four-host end-to-end execution",
+    "origin_freshness": "not_established",
+    "completeness": "unknown",
+    "runtime_tested": false,
+    "local_validation": {
+      "unit_tests_passed": 369,
+      "skill_and_plugin_validation": "passed",
+      "installed_stdio": {
+        "version": "0.4.0+codex.20260913140145",
+        "matching_export_files": 61,
+        "tool_count": 35,
+        "routing_cases_passed": 5,
+        "network_calls": 0,
+        "database_created": false,
+        "research_execution_started": false
+      },
+      "four_host_end_to_end": "not_run"
+    },
+    "rechecked_source_ids_with_unchanged_hashes": ["W3", "W7"],
+    "sources": [
+      {
+        "id": "W12",
+        "url": "https://developers.openai.com/codex/subagents",
+        "sha256": "9e1693a5eb5d6877f43d84a67a33544e37553801191bb6915b8295f2b3135de2",
+        "read_scope": "Availability, native orchestration, delegation rules and parent configuration inheritance"
+      },
+      {
+        "id": "W13",
+        "url": "https://code.claude.com/docs/en/sub-agents",
+        "sha256": "2d6849d3924a109422d5c9a9429f20fb488ee78eb4dd9acc7057e6f7d3e70175",
+        "read_scope": "Ordinary subagents, available tools/MCP filters, Skill preloading and child context"
+      },
+      {
+        "id": "W14",
+        "url": "https://code.claude.com/docs/en/agent-teams",
+        "sha256": "7fcf71d3490d7f02610e09ee32125c433d713e7b55bfc698d43c84ba9b4dc0f9",
+        "read_scope": "Experimental enablement, shared tasks, messaging and teammate context/MCP/Skill settings"
+      },
+      {
+        "id": "W15",
+        "url": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/usage.md",
+        "sha256": "b6f36be5d035ce9cf50aaf3e15ac2176613fb8e0f55be8f6f8730c4bac66cd2b",
+        "read_scope": "Resource/tool options and design principles excluding built-in MCP and subagents"
+      },
+      {
+        "id": "W16",
+        "url": "https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent",
+        "sha256": "41ee13a3c03d188240ccc6ea3361c325da33237c215f8923e3b2439e98a7ece2",
+        "read_scope": "Official extension example: isolated subprocesses, single/parallel/chain modes and tool configuration"
+      }
+    ]
+  },
   "sources": [
     {
       "id": "W1",

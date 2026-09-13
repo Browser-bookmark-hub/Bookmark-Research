@@ -2,20 +2,24 @@
 
 **English** · [中文](zh/host-workflows.md)
 
-Use this reference for grouped reading, independent verification and follow-up across multiple sources. Select a route from capabilities actually exposed in the current session. A configuration file, package name or version does not establish loaded tools. Ordinary lookups can call shared research tools directly.
+The current host model owns the research: plan from the question and available context, search/read, assess evidence, and follow gaps. Ordinary agentic questions start in that model's own loop. Deep research adds independent review, coverage and a report; collaboration helps with separable topics or verification. The parent assesses the task before assigning work and reviews the combined result. External research APIs are optional support.
 
-| Host | Entry point for grouped work | Required capability |
+| Host | Collaboration entry point | Required capability |
 | --- | --- | --- |
-| Codex | `hosts/codex/delegate.md` and native subagents | Native delegation and waiting tools in the current session. |
-| Claude Code | `/bookmark-research:bookmark-research` | This plugin's Dynamic Workflow loaded and enabled. |
-| Pi | `bookmark-research` definition through `pi_subagent_workflow` | `pi-subagents` and `pi-subagents-workflows` loaded in the same parent session; trusted project definition. |
-| DSH | Host `workflow` tool with the exported complete call object | A profile with workflow service, worker-thread engine, tool and research MCP configured. |
+| [Codex](https://developers.openai.com/codex/subagents) | Native subagents; `hosts/codex/delegate.md` for grouped research | Current delegation/wait tools and permission to delegate. |
+| [Claude Code](https://code.claude.com/docs/en/sub-agents) | Ordinary `Agent` / older `Task`; optionally teams or this plugin's Dynamic Workflow | Visible tools; [Agent Teams](https://code.claude.com/docs/en/agent-teams) are experimental and disabled by default. |
+| [Pi](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/usage.md) | A loaded `subagent` extension; optionally `pi_subagent_workflow` | Core has no built-in subagents or MCP. The [official example](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent) supports single, parallel and chained work. |
+| [DSH](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/workflow) | Configured subagent or `workflow` tool | The active profile must supply the relevant services, tools and research MCP or CLI access. |
 
-The host owns agents, concurrency, waits, cancellation and resume. The plugin stores inventory, sources, text, reviews, coverage and reports. Children must not create another scheduler. Inspect state with existing tools; do not change global settings, install another host or silently select a different execution mode to fill a missing capability.
+These official pages were read through Exa on 2026-09-13; documented support does not prove that the current session has loaded it. `research_route` prefers the model's own loop for ordinary agentic work, native collaboration for deep research, and a preferred grouped workflow for `batch_research`. Without collaboration, the host continues itself and identifies same-agent review accurately.
+
+The host owns agents, concurrency, waits, cancellation and resume. The plugin stores inventory, sources, text, reviews, coverage and reports. Give each child the task, scope, questions, relevant Skill text or its actual path, operation prefix, and currently usable MCP names or bundled CLI path. All children must access the same research store. Loaded parent Skill text and tool access do not transfer identically across hosts; check the child setup. Children must not create another scheduler.
 
 Resolve the user's output language before delegation. Include it in the research brief and Codex assignments; pass `output_language` to scripted workflows (for example `"en"` or `"zh"`). Omission or `"auto"` follows the brief/questions, falling back to English if they select no language. This is a task argument, not an installer locale or persistent setting. Keep quotations, IDs and JSON fields unchanged. See the plugin's `docs/prompt-reference.en.md` for the full prompt reading reference.
 
-## Shared workflow
+## Grouped package workflow
+
+Use the following recipes for a frozen bookmark inventory. A general web investigation without an input inventory uses the same evidence method through the host loop or ordinary subagents; it does not require these package scripts.
 
 1. Create questions and frozen scope through `research_start`; retain its actual `research_id`. `source_ids` identify registered packages, `u-` IDs original-URL inventory, and `sN` saved evidence; they are not interchangeable. Selected bookmarks do not implicitly narrow whole-package review. An intended subset uses explicit scope parameters and is disclosed in the report.
 2. Read every `research_inventory` page until `next_offset` is null. Keep all IDs, original URLs and instances. Neither a preview nor the first page is the full inventory. Record `resume` before continuing an incomplete task; completed/cancelled tasks cannot reopen.
@@ -43,6 +47,8 @@ Give agents complete assignments within the current concurrency limit, wait for 
 
 ## Claude Code
 
+Ordinary subagents can use the parent's available MCP tools subject to tool filters. Skill content can be preloaded with `skills` or loaded during the child task; do not assume the parent's already-read instructions are present. Enabled teammates load project/user MCP and Skill settings but do not inherit the lead's conversation history. Neither ordinary subagents nor teams require this plugin's Dynamic Workflow.
+
 The Claude export's `workflows/bookmark-research.js` includes `export const meta` and the native script body. After creating research, explicitly invoke it, for example:
 
 ```text
@@ -58,7 +64,7 @@ The separate built-in `/deep-research` requires explicit invocation from 2.1.218
 
 ## Pi
 
-Requires Node 22.19+, Pi 0.83+, `pi-subagents` 0.43.0+ and `pi-subagents-workflows`. These are extensions; Pi core does not provide this plugin's MCP tools. Exported `package.json` declares the Skill only. Register the saved script separately in a trusted project:
+An existing subagent extension can perform bounded research using shared MCP or CLI access without the saved-workflow extension. The bundled grouped recipe below requires Node 22.19+, Pi 0.83+, `pi-subagents` 0.43.0+ and `pi-subagents-workflows`. Exported `package.json` declares the Skill only. Register the saved script separately in a trusted project:
 
 ```sh
 python3 hosts/pi/register-workflow.py --project /absolute/path/to/project

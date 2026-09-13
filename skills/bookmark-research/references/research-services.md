@@ -2,7 +2,7 @@
 
 **English** · [中文](zh/research-services.md)
 
-Deep research is a sustained investigation method. Native host capabilities and professional services are alternative execution routes. This plugin provides thin OpenAI Responses Deep Research and Parallel Task API clients; existing host research MCPs can also be used. Exa, Parallel and Tavily search interfaces authenticate separately from these research services.
+Deep research starts with the current host model's investigation. Professional services can take a scoped subquestion after the host's first assessment, or a task explicitly assigned to them by the user. This plugin provides thin OpenAI Responses Deep Research and Parallel Task API clients; existing host research MCPs can also be used. Their reports return to the host for review and synthesis. Search interfaces authenticate separately from these research services.
 
 ## Settings and entry points
 
@@ -38,7 +38,7 @@ Cloud services cannot read local filesystem paths or reach local stdio MCPs. Ope
 
 Once the concrete request is within existing user authorization, call `research_service_start` with the same fields as prepare plus a stable `operation_id`. Do not ask again for already-authorized service use. Creation saves `external_id` and the actual provider run ID. The provider owns background execution; the plugin has no polling loop.
 
-Follow `next_action` from each run observation: query an active run with `refresh:true`, retrieve the completed report, or recover a known run ID after an uncertain creation. Continue through report import and original-source review; neither `research_route` nor `research_service_prepare` executes the research. A saved service preference takes priority over generic host subagents; an explicit host-workflow preference still applies.
+Follow `next_action` from each run observation: query an active run with `refresh:true`, retrieve the completed report, or recover a known run ID after an uncertain creation. Continue through report import and original-source review; neither `research_route` nor `research_service_prepare` executes the research. A saved service preference orders optional external services after host research. An explicit `research_route.provider` selects that service exclusively. Do not mark the host route failed merely to delegate a subquestion.
 
 On a confirmed error, the returned next action points to `research_route`. Add the failed `route_id` to earlier `failed_routes`, supply current host observations, and execute the next available route in the same research session. Do not drop the user's explicit provider restriction. Disabled or uncredentialed APIs are unavailable; pending, running, unknown and cancelled runs do not trigger fallback. If no eligible route remains, retain the evidence and report gaps.
 

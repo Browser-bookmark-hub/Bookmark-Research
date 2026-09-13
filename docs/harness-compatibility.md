@@ -1,17 +1,21 @@
 # 宿主兼容、工作流与打包
 
-更新日期：2026-09-11。当前 checkout 提供四宿主的多组研究入口，复用同一 Skill、Python CLI、stdio MCP 和研究档案。宿主负责子代理、并发、等待、取消和恢复；插件负责清单、来源、证据、审阅、覆盖率和报告。历史 v0.2.0 Release ZIP 不包含新增宿主脚本。
+更新日期：2026-09-13。四宿主共用同一 Skill、Python CLI、stdio MCP 和研究档案。当前宿主模型负责规划、搜索／阅读、判断证据、按缺口补查及综合；原生协作支持独立分工。Deep Research 在这条流程上增加持续调查、独立核验、覆盖检查和报告。外部研究 API 可承担具体子问题，缺少它们仍能研究。
 
 **正文依据、文件生成、隔离脚本检查、真实 MCP 调用和宿主端到端研究是不同验证层级。** 本轮没有安装 Pi / DSH、改全局配置或启动付费研究模型。具体脚本调用和研究规则见 [宿主工作流参考](../skills/bookmark-research/references/host-workflows.md)。
 
-| 宿主 | 当前多组研究入口 | 生命周期与限制 |
+| 宿主 | 协作基础与本插件入口 | 生命周期与限制 |
 | --- | --- | --- |
 | Codex | `hosts/codex/delegate.md`＋原生子代理；`prepare.py` 读取全量分页、仅输出分组 | 使用当前会话原生工具，不假设有 JavaScript workflow runtime，不安装全局 agent 定义 |
-| Claude Code | `workflows/bookmark-research.js`，命令 `/bookmark-research:bookmark-research` | `agent` / `pipeline`；2.1.154+ 且功能启用；只在同一会话恢复，退出后重开，部分已完成子代理可能重跑 |
-| Pi | 项目登记的 `workflow.json` / `script.js`，`pi_subagent_workflow` | `runs.all`＋`outputSchema` / `structuredOutput`；detached 后必须等待终态；注册表不提供跨会话 journal replay |
-| DSH | `hosts/dsh/workflow-call.py` 生成 `{meta,script,args}`，交给原生 `workflow` | 等完整流程后返回 `{runId,agentsStarted,result}`；取消为错误；显示可能截断，不提供自动完整结果句柄 |
+| Claude Code | 普通 `Agent`／旧版 `Task`；可选已启用的 Agent Teams；整包可用 `/bookmark-research:bookmark-research` | 普通子代理可继承受过滤的 MCP 工具，Skill 需预载或读取；团队默认关闭且不继承主代理历史；Dynamic Workflow 为独立可选入口 |
+| Pi | 已加载的 `subagent` 扩展；整包可用登记后的 `pi_subagent_workflow` | 核心不内置子代理或 MCP；官方扩展示例支持单任务、并发和链式任务；具体工具与等待方式以已加载扩展为准 |
+| DSH | 已配置的 subagent；整包可将 `hosts/dsh/workflow-call.py` 生成的 `{meta,script,args}` 交给 `workflow` | profile 需提供相应服务与工具；`workflow` 等完整流程后返回结果，不能当作后台 start/poll 接口 |
 
-路由必须依据当前实际可见的工具和已加载扩展。版本号、模型名称或包存在不证明本会话具备执行能力。普通查找可直接用研究工具，多组研究使用已有宿主入口；缺失能力应明确报告，不自动安装替代宿主。
+本次通过插件的 Exa 检索并读取官方正文，新增依据为 [W12–W16]，并重读 [W3][W7]。这验证能力文档，没有执行四宿主完整研究。子代理须获得具体问题、范围、相关 Skill 内容和共享 MCP／CLI 数据入口，不能假定父代理上下文在四宿主间以相同方式继承。
+
+本次默认流程调整通过 369 项单元测试、Skill／插件校验及新安装缓存的真实 stdio MCP 检查；5 个选路场景通过，61 个导出文件与缓存一致。这里只验证选路与工具接入，四宿主端到端研究仍未运行。记录见 [host-validation.json](host-validation.json) 的 `host_first_review`。
+
+`research_route` 对普通 Agentic Search 优先选择当前模型的搜索／阅读循环，不强制完整研究会话；深度任务优先原生协作，整包 `batch_research` 才按偏好选择分组脚本。已保存 API 偏好只排列外部服务，显式 provider 才直接指定服务。路由依据当前工具和已加载能力，不凭宿主名称推断；没有子代理时主代理继续，并准确说明复核方式。
 
 三种脚本和 Codex 委派均执行全量清单 → 分组阅读 → 独立核验 → 全量差集补查 → 保存完整分析 → 引用报告。保留全部 `u-` ID 及书签实例；`sN` 证据 ID 不能代替原始输入清单。每个 coverage filter 单独跟随 `next_offset` 到结束，差集长度须与 `difference_counts` 一致。抓取失败或全排除不能完成研究。
 
@@ -40,6 +44,11 @@
 | W9 | [Codex subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)（旧官方 URL 重定向后的已读页面） |
 | W10 | [Pi extension workflows](https://github.com/nicobailon/pi-subagents/blob/main/docs/workflows.md) |
 | W11 | [Pi extension tool reference](https://github.com/nicobailon/pi-subagents/blob/main/docs/tool-reference.md) |
+| W12 | [Codex subagents](https://developers.openai.com/codex/subagents)，2026-09-13 经 Exa 重读：并发委派、等待、配置继承及显式委派规则 |
+| W13 | [Claude subagents](https://code.claude.com/docs/en/sub-agents)：普通子代理、MCP 工具过滤、Skill 预载与任务上下文 |
+| W14 | [Claude Agent Teams](https://code.claude.com/docs/en/agent-teams)：实验开关、共享任务、代理通信及上下文边界 |
+| W15 | [Pi usage](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/usage.md)：核心不内置 MCP／子代理，通过扩展和包提供 |
+| W16 | [Pi 官方 subagent 示例](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent)：单任务、并发和链式调用 |
 
 下文保留 2026-09-07 至 09-10 的基础打包核验及 Codex 路径规则。H / P / D 来源见 [harness-sources.json](harness-sources.json)，历史版本测试见 [0.2.0 验证记录](validation-0.2.0.md)。
 

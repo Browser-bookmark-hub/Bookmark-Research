@@ -2,13 +2,13 @@
 
 [English](../research-services.md) · **中文阅读版**
 
-Deep research 是持续调查方法，宿主原生能力和专业服务都是可选执行路线。本插件提供 OpenAI Responses Deep Research 与 Parallel Task API 的薄客户端；已有宿主研究 MCP 也可使用。Exa、Parallel、Tavily 的搜索接口与这些研究接口分别认证。
+Deep research 从当前宿主模型的调查开始。专业服务可承担宿主初步判断后的具体子问题，或用户明确交给它的任务。本插件提供 OpenAI Responses Deep Research 与 Parallel Task API 的薄客户端，也可使用宿主已有研究 MCP；报告回到宿主复核与综合。搜索接口与研究服务分别认证。
 
 ## 配置与入口
 
 先用 `research_services` 读取当前状态，不联网。每家服务返回 `ready_to_start` 和具体缺失的配置／凭据名 `missing`；配置就绪不等于认证已验证，宿主原生研究仍可独立使用。OpenAI 使用 `OPENAI_API_KEY`；Parallel 使用 `PARALLEL_API_KEY`。密钥属于启动进程环境，不写入项目、manifest、研究输入或报告。
 
-选路和准备请求都不会执行研究。按返回的 `next_action` 继续启动一次、通过原 run ID 查询进度、取回完整报告，再导入并审阅原始来源。已保存的研究服务选择优先于通用宿主子代理；显式的宿主工作流偏好仍然有效。
+选路和准备请求都不会执行研究。按返回的 `next_action` 启动一次、通过原 run ID 查询进度、取回完整报告，再导入并审阅原始来源。已保存的服务偏好只决定宿主研究之后的外部服务顺序；显式 `research_route.provider` 才独占指定服务。不能为了委派一个子问题而把宿主路线标成失败。
 
 明确失败后，返回的下一步指向 `research_route`。把失败 `route_id` 加入累计的 `failed_routes`，传入当前宿主能力，沿用原研究会话执行下一条可用路线；保留用户明确指定的 provider 限制。未启用或缺凭据的 API 不参与执行；等待中、运行中、结果未知和已取消任务不触发替换。没有合适路线时保留证据、报告缺口。
 

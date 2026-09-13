@@ -55,11 +55,13 @@ python3 scripts/install.py verify --lang zh
 
 一个插件保留一个 MCP 聚合入口和一个执行 Skill；后端服务数量与入口数量无关。MCP 内置 Exa、Parallel、Tavily 搜索／读取适配器、Jina HTTP 接口和 OpenAI／Parallel 研究 API 客户端。Skill 负责根据任务选择并执行三种流程：
 
-| 场景 | 默认路径 | 失败或无结果后 |
+| 场景 | 基础流程 | 检索与委派支持 |
 | --- | --- | --- |
-| URL 直读 | Exa | 仅把未成功 URL 交给 Parallel + Jina Reader 并发读取。Tavily 提取可加入 `fetch.providers`。 |
-| Agentic Web Search | Exa + Parallel 并发 | 某个查询仍无有效网址时，自动交给 Tavily + 有 key 的 Jina Search；成功查询不重跑。 |
-| Deep Research | 当前可用的宿主工作流、研究 MCP、已启用 API 或宿主多轮调查 | Skill 在明确失败后排除该路线并继续选路；运行中、结果未知或已取消的任务不自动重建。 |
+| URL 直读 | 当前模型读取已知页面并回答 | Exa 未读到的 URL 交给 Parallel + Jina Reader 并发读取；可配置 Tavily 提取。 |
+| Agentic Web Search | 当前宿主模型先规划 → 搜索／读文 → 判断证据 → 针对缺口补查 | Exa + Parallel 提供搜索结果；无有效网址的查询再交给 Tavily + 有 key 的 Jina。普通问题无需完整研究会话。 |
+| Deep Research | 在宿主研究循环上增加持续调查、按需协作、独立核验、覆盖检查与报告 | 优先利用宿主现有子代理／工作流；外部 Research MCP／API 可承担宿主判断后的子问题或用户明确指定的任务。 |
+
+四个基座共用这套方法：Codex 原生子代理、Claude 普通子代理或已启用团队、Pi 扩展、已配置的 DSH 子代理／工作流；具体差异与官方依据见 [宿主兼容说明](docs/harness-compatibility.md)。整包脚本用于分组研究。保存的 API 偏好只排列外部服务，显式 provider 才直接指定服务；明确路线失败可继续换路，运行中、结果未知或已取消任务不自动重建。
 
 “备用”表示已加入回退列表；“需要配置”表示条件未满足时跳过；“仅调研”表示没有接入，失败也不会自动安装。OpenAI／Parallel 研究 API 默认关闭，需启用并提供凭据。宿主已加载的 Exa `agent_run`、完整 Parallel Task MCP 会被路由识别，实际认证仍以调用结果为准。Scrapling、Firecrawl、MarkItDown 等调研项目没有集成成自动后端。
 

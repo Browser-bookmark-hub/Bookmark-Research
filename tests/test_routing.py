@@ -37,6 +37,7 @@ class RoutingTests(unittest.TestCase):
         result = self.router.route(host="codex", task_shape="batch_research",
                                    observed_tools=["collaboration.spawn_agent"])
         self.assertEqual(result["selected"]["route"], "host_subagents")
+        self.assertEqual(result["selected"]["entrypoint"], "collaboration.spawn_agent")
         self.assertFalse(any(row["route"] == "host_workflow" for row in result["candidates"]))
         absent = self.router.route(host="codex", task_shape="batch_research")
         self.assertEqual(absent["selected"]["route"], "host_iterative_research")
@@ -45,20 +46,21 @@ class RoutingTests(unittest.TestCase):
         installed = ["pi-subagents", "pi-subagents-workflows"]
         result = self.router.route(host="pi", installed_extensions=installed)
         self.assertEqual(result["selected"]["route"], "host_iterative_research")
-        result = self.router.route(host="pi", installed_extensions=installed,
+        result = self.router.route(host="pi", installed_extensions=installed, task_shape="batch_research",
                                    observed_tools=["pi_subagent_workflow"])
         self.assertEqual(result["selected"]["run_mode"], "detached")
         self.assertEqual(result["selected"]["resume_scope"], "registry_does_not_add_replay")
 
     def test_dsh_keeps_blocking_result_and_no_claim_of_resume(self):
-        result = self.router.route(host="dsh", observed_tools=["mcp__dsh__workflow"])
+        result = self.router.route(host="dsh", task_shape="batch_research", observed_tools=["mcp__dsh__workflow"])
         self.assertEqual(result["selected"]["run_mode"], "blocking")
         self.assertEqual(result["selected"]["resume_scope"], "not_established")
 
     def test_claude_builtin_requires_explicit_command_and_cannot_cover_a_package(self):
         result = self.router.route(host="claude_code", depth="deep", available_commands=["/deep-research"])
-        self.assertEqual(result["selected"]["route"], "host_deep_research")
-        self.assertEqual(result["selected"]["invocation"], "explicit_command_required")
+        self.assertEqual(result["selected"]["route"], "host_iterative_research")
+        builtin = next(row for row in result["candidates"] if row["route"] == "host_deep_research")
+        self.assertEqual(builtin["invocation"], "explicit_command_required")
         result = self.router.route(host="claude_code", task_shape="batch_research",
                                    available_commands=["/deep-research"])
         self.assertEqual(result["selected"]["route"], "host_iterative_research")
@@ -81,7 +83,7 @@ class RoutingTests(unittest.TestCase):
 
     def test_user_workflow_preference_and_method_references_are_respected(self):
         self.settings.update({"research": {"prefer_host_workflows": False, "methods": ["wiki_synthesis"]}})
-        result = self.router.route(host="claude_code", observed_tools=["Workflow", "Agent"])
+        result = self.router.route(host="claude_code", task_shape="batch_research", observed_tools=["Workflow", "Agent"])
         self.assertEqual(result["selected"]["route"], "host_subagents")
         self.assertEqual(result["methods"][0]["name"], "wiki_synthesis")
         for arguments in ({"observed_tools": "workflow"}, {"host": "unresearched-host"},
@@ -89,10 +91,10 @@ class RoutingTests(unittest.TestCase):
             with self.subTest(arguments=arguments), self.assertRaises(ValueError):
                 self.router.route(**arguments)
 
-    def test_deep_service_preference_leads_to_the_real_lifecycle(self):
+    def test_explicit_deep_service_leads_to_the_real_lifecycle(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": "parallel"}})
         with patch.dict(os.environ, {"PARALLEL_API_KEY": "synthetic-presence"}):
-            result = self.router.route(depth="deep", host="codex", observed_tools=["spawn_agent"])
+            result = self.router.route(depth="deep", host="codex", observed_tools=["spawn_agent"], provider="parallel")
         self.assertEqual(result["selected"]["route"], "professional_service")
         self.assertEqual(result["selected"]["provider"], "parallel")
         self.assertEqual(result["next_action"]["tool"], "research_start")
@@ -112,33 +114,71 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(explicit["next_action"]["tool"], "research_services")
         self.assertEqual(explicit["next_action"]["arguments"], {"provider": "openai"})
 
-    def test_observed_research_mcp_is_used_then_excluded_after_confirmed_failure(self):
+    def test_agentic_first_pass_uses_the_current_model_in_every_host(self):
+        for host, tools in (("codex", ["spawn_agent"]), ("claude_code", ["Workflow", "Agent"]),
+                            ("pi", ["pi_subagent_workflow", "subagent"]), ("dsh", ["workflow", "subagent"])):
+            with self.subTest(host=host):
+                result = self.router.route(host=host, depth="agentic", observed_tools=tools)
+                self.assertEqual(result["selected"]["route"], "host_iterative_research")
+                self.assertEqual(result["research_process"]["owner"], "current_host_model")
+                self.assertEqual(result["research_process"]["steps"][0], "plan")
+                self.assertIn("assess_evidence", result["research_process"]["steps"])
+                self.assertIn("fetch_web", result["next_action"]["tools"])
+                self.assertNotIn("research_start", result["workflow"])
+                self.assertFalse(result["execution_started"])
+
+    def test_deep_host_research_precedes_loaded_and_configured_external_services(self):
+        self.settings.update({"professional_research": {"enabled": True, "provider": "parallel"}})
+        with patch.dict(os.environ, {"PARALLEL_API_KEY": "synthetic-presence"}):
+            for native, expected in (([], "host_iterative_research"), (["spawn_agent"], "host_subagents")):
+                with self.subTest(native=native):
+                    result = self.router.route(depth="deep", host="codex", observed_tools=native + ["mcp__exa__agent_run"])
+                    self.assertEqual(result["selected"]["route"], expected)
+                    self.assertIn("independent_review", result["research_process"]["steps"])
+                    self.assertIn("coverage_check", result["research_process"]["steps"])
+                    self.assertIn("professional_service:parallel", result["fallback"]["remaining_routes"])
+                    self.assertNotIn("research_service_start", result["workflow"])
+
+    def test_bookmark_workflow_is_not_required_for_an_unscoped_investigation(self):
+        result = self.router.route(depth="deep", host="dsh", observed_tools=["workflow"])
+        self.assertEqual(result["selected"]["route"], "host_iterative_research")
+        result = self.router.route(depth="deep", host="claude_code", observed_tools=["Workflow", "Agent"])
+        self.assertEqual(result["selected"]["route"], "host_subagents")
+
+    def test_observed_research_mcp_is_optional_after_host_work_and_retains_failure_tracking(self):
         arguments = {"depth": "deep", "host": "codex", "observed_tools": ["mcp__exa__agent_run"]}
         first = self.router.route(**arguments)
-        self.assertEqual(first["selected"]["route_id"], "host_research_mcp:exa")
-        self.assertIn("mcp__exa__agent_run", first["workflow"])
-        self.assertIn("research_import_evidence", first["workflow"])
-        self.assertFalse(first["selected"]["authentication_verified"])
+        self.assertEqual(first["selected"]["route_id"], "host_iterative_research")
+        self.assertIn("host_research_mcp:exa", first["fallback"]["remaining_routes"])
         fallback = self.router.route(**arguments, failed_routes=[first["selected"]["route_id"]])
-        self.assertEqual(fallback["selected"]["route_id"], "host_iterative_research")
+        self.assertEqual(fallback["selected"]["route_id"], "host_research_mcp:exa")
+        self.assertEqual(fallback["selected"]["execution_owner"], "exa")
+        self.assertIn("mcp__exa__agent_run", fallback["workflow"])
+        self.assertIn("research_import_evidence", fallback["workflow"])
+        self.assertFalse(fallback["selected"]["authentication_verified"])
         self.assertIn("unknown_outcome", fallback["fallback"]["hold_on"])
-        exhausted = self.router.route(**arguments, failed_routes=[first["selected"]["route_id"], "host_iterative_research"])
+        exhausted = self.router.route(**arguments, failed_routes=[first["selected"]["route_id"], fallback["selected"]["route_id"]])
         self.assertIsNone(exhausted["selected"])
         self.assertFalse(exhausted["execution_started"])
 
     def test_task_mcp_requires_observed_creation_status_and_result_tools(self):
         tools = ["mcp__parallel__createDeepResearch", "mcp__parallel__getStatus", "mcp__parallel__getResultMarkdown"]
-        self.assertEqual(self.router.route(depth="deep", observed_tools=tools[:1])["selected"]["route"], "host_iterative_research")
-        self.assertEqual(self.router.route(depth="deep", observed_tools=tools)["selected"]["route_id"], "host_research_mcp:parallel")
+        partial = self.router.route(depth="deep", observed_tools=tools[:1])
+        self.assertNotIn("host_research_mcp:parallel", [c["route_id"] for c in partial["candidates"]])
+        complete = self.router.route(depth="deep", observed_tools=tools)
+        self.assertEqual(complete["selected"]["route_id"], "host_iterative_research")
+        self.assertIn("host_research_mcp:parallel", complete["fallback"]["remaining_routes"])
 
-    def test_default_service_can_fall_back_but_explicit_service_remains_exclusive(self):
+    def test_saved_service_preference_orders_external_fallbacks_after_the_host(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": "openai"}})
         with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic", "PARALLEL_API_KEY": "synthetic"}):
             first = self.router.route(depth="deep")
-            self.assertEqual(first["selected"]["route_id"], "professional_service:openai")
+            self.assertEqual(first["selected"]["route_id"], "host_iterative_research")
             fallback = self.router.route(depth="deep", failed_routes=[first["selected"]["route_id"]])
-            self.assertEqual(fallback["selected"]["route_id"], "professional_service:parallel")
-            explicit = self.router.route(provider="openai", failed_routes=[first["selected"]["route_id"]])
+            self.assertEqual(fallback["selected"]["route_id"], "professional_service:openai")
+            next_route = self.router.route(depth="deep", failed_routes=[first["selected"]["route_id"], fallback["selected"]["route_id"]])
+            self.assertEqual(next_route["selected"]["route_id"], "professional_service:parallel")
+            explicit = self.router.route(provider="openai", failed_routes=[fallback["selected"]["route_id"]])
         self.assertIsNone(explicit["selected"])
         self.assertEqual(explicit["fallback"]["remaining_routes"], [])
         self.assertTrue(explicit["fallback"]["explicit_provider_is_exclusive"])

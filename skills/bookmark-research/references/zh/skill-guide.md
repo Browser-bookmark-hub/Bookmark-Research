@@ -49,12 +49,12 @@ JSON/.canvas 是事实来源；SQLite 保存派生索引和来源登记，原始
 ## 网页问题
 
 - **快速查证**：明确 URL 用 `fetch_web`，需要发现来源时用一轮 `search_web` 后读取关键页面。Non-reasoning 描述模型的搜索方式，不能仅凭是否有 URL 判断推理能力；不保证服务会实时访问原站。
-- **Agentic search**：由宿主模型拆目标、组织查询、阅读和补查。省略 `providers` 可自动补查无结果查询；检查 `unresolved_queries`、`routing.skipped_providers` 和预算不足的 `remaining_attempts`，保留各路成功结果。空结果与调用失败分别处理；独立工作仅在委派可用且获准时交给子代理或工作流。
-- **Deep research**：需要持续、多轮调查或研究报告时，读 [深度研究流程](deep-research.md)。按问题选择原生研究、宿主研究工作流或 [专业研究服务](research-services.md)。专业服务是可选路线；有搜索 MCP 不等于有研究 API 认证。
+- **Agentic search**：当前宿主模型先处理一轮：结合问题与书签语境规划、搜索或读文、判断证据，再针对剩余缺口补查。搜索有结果不代表问题已回答。普通比较可用 `search_web`／`fetch_web` 后直接答复；需要保留进度或报告时才建立研究档案。检索瀑布流为这轮推理提供资料：省略 `providers` 启用回退，检查未解决查询、跳过的服务与剩余预算，保留各路成功结果。
+- **Deep research**：在宿主主导的循环上增加明确问题、持续调查、独立核验、覆盖检查与报告。读 [深度研究流程](deep-research.md)，建立或续接档案。主代理负责规划与综合，按当前可用能力和委派规则分配独立专题或核验任务；没有子代理仍由当前模型继续，说明复核由同一代理完成。缺少专业 API 凭据不影响使用这套方法。
 
-多来源任务读 [宿主工作流](host-workflows.md)。可用 `research_route` 传当前实际可见的 tools、commands、extensions，得到建议；它不会启动执行。Codex 使用原生委派，Claude 使用已加载的 Dynamic Workflow，Pi 使用已加载扩展，DSH 使用已配置引擎。不凭宿主名称推断已启用的能力，也不把文档确认、组件发现和真实运行混为一谈。Claude 的 `/deep-research` 需要明确调用；在提示词中写 `ultracode` 不能替代真实调用条件。
+需要协作时读 [宿主工作流](host-workflows.md)。Codex 原生子代理、Claude 普通子代理或已启用的团队、Pi 子代理扩展、已配置的 DSH 子代理／工作流，都可支撑这套研究方法。整包分组脚本适用于已有冻结清单的任务。给子代理明确的问题、范围、相关 Skill 指令及实际 MCP／CLI 入口，不假定它继承了主代理已读上下文。以本次可见能力和宿主委派规则为准；`research_route` 只建议执行入口与宿主研究流程，不启动任务。
 
-深度任务选路时纳入宿主已有研究 MCP；路由识别 Exa `agent_run` 和完整 Parallel Task MCP。按已有授权执行所选流程；明确失败后记录原因，将 `route_id` 累计加入 `failed_routes` 并重新选路，沿用原研究会话。保留用户明确的 provider 选择。运行中、被中断／结果未知或已取消任务不触发替换，先续查原 ID；运行记录和报告导入见 [研究服务](research-services.md)。没有合适路线或预算时停止换路，报告证据缺口。
+外部研究服务用于宿主判断后的具体子问题，或用户明确指定的任务。选路识别已加载的 Exa `agent_run`、完整 Parallel Task MCP 和已启用 API；工具存在或保存了 API 偏好都不替代宿主首轮处理。按 [研究服务](research-services.md) 准备请求、启动一次、跟踪运行、导入报告并核验原来源。明确路线失败才累计 `failed_routes` 并沿用原会话换路；问题仍有缺口不等于路线失败。保留显式 provider 选择，不替换运行中、结果未知或已取消任务。没有合适路线或预算时保留缺口。
 
 需要比较产品、事实核验或分析排行榜时，读 [研究方法](research-methods.md)，把选中的方法与问题交给读者和独立核验者。采用现成 SDK 的条件是确有无宿主程序化需求；插件不实现调度器、代理池或后台 worker。
 

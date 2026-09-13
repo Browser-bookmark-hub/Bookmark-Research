@@ -2,18 +2,22 @@
 
 [English](../host-workflows.md) · **中文阅读版**
 
-这份参考用于多来源研究的分组阅读、独立核验和补查。先判断当前宿主实际暴露的能力，再选择入口；仅有配置文件、包名或版本号不能证明会话工具已经可用。普通查找仍可直接调用共享研究工具。
+当前宿主模型负责研究：结合问题和已有语境规划、搜索／读文、判断证据、针对缺口补查。普通 Agentic Search 先由当前模型处理；Deep Research 增加独立核验、覆盖检查与报告，按需协作处理可分离的专题或核验任务。主代理先判断任务再分工，最后审阅综合结果。外部研究 API 是可选支持。
 
-| 宿主 | 多组任务的入口 | 必要能力 |
+| 宿主 | 协作入口 | 必要能力 |
 | --- | --- | --- |
-| Codex | `hosts/codex/delegate.md`＋原生子代理 | 当前会话提供原生委派与等待工具 |
-| Claude Code | `/bookmark-research:bookmark-research` | 已加载本插件的 Dynamic Workflow，功能已启用 |
-| Pi | `pi_subagent_workflow` 的 `bookmark-research` 定义 | 同一父会话已加载 `pi-subagents` 和 `pi-subagents-workflows`，项目定义受信任 |
-| DSH | 宿主 `workflow` 工具＋导出的完整调用对象 | profile 已配置 workflow service、worker-thread engine、tool 及研究 MCP |
+| [Codex](https://developers.openai.com/codex/subagents) | 原生子代理；分组研究参考 `hosts/codex/delegate.md` | 本次会话有委派／等待工具，且允许委派 |
+| [Claude Code](https://code.claude.com/docs/en/sub-agents) | 普通 `Agent`／旧版 `Task`；可选团队或本插件 Dynamic Workflow | 以可见工具为准；[Agent Teams](https://code.claude.com/docs/en/agent-teams) 为实验功能，默认关闭 |
+| [Pi](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/usage.md) | 已加载的 `subagent` 扩展；可选 `pi_subagent_workflow` | 核心不内置子代理或 MCP；[官方扩展示例](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent) 支持单任务、并发和链式执行 |
+| [DSH](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/workflow) | 已配置的 subagent 或 `workflow` 工具 | 当前 profile 提供对应服务、工具及研究 MCP／CLI 入口 |
 
-宿主负责子代理、并发、等待、取消和恢复。插件只保存研究清单、来源、正文、审阅、覆盖率和报告。子代理不能再创建调度器。用现有工具检查状态；不要为补齐能力改全局配置、安装替代宿主或自动转入另一种执行模式。
+上述官方正文于 2026-09-13 经 Exa 读取；文档支持不证明当前会话已加载。`research_route` 对普通 Agentic Search 优先使用当前模型，对深度研究优先使用原生协作，对 `batch_research` 才优先采用所选分组工作流。没有协作能力时主代理继续调查，并如实标明同代理复核。
 
-## 共同流程
+宿主负责子代理、并发、等待、取消和恢复。插件保存研究清单、来源、正文、审阅、覆盖率和报告。给每个子代理传任务、范围、问题、相关 Skill 内容或真实路径、操作号前缀及实际 MCP／CLI 入口，确保共用同一研究数据目录。各宿主对父代理已读 Skill 与工具的继承不同，需核对任务配置。子代理不另建调度器。
+
+## 整包分组流程
+
+以下脚本用于已有冻结清单的书签研究。没有输入清单的一般网页研究由宿主循环或普通子代理按同一证据方法完成，无需套用整包脚本。
 
 委派前确定输出语言：在研究 brief 和 Codex 各次任务中保留要求，脚本工作流通过 `output_language` 传入（例如 `"en"` 或 `"zh"`）。省略或传 `"auto"` 时跟随 brief／问题中的语言要求，没有语言依据才默认英文。这是单次任务参数，不是安装语言或持久设置；引用、ID 和 JSON 字段保持原样。完整提示阅读对照见插件根目录 `docs/prompt-reference.md`。
 
@@ -43,6 +47,8 @@ python3 hosts/codex/prepare.py --research-id RID --group-size 12
 
 ## Claude Code
 
+普通子代理可继承父会话可用的 MCP 工具，但仍受工具过滤限制。Skill 可通过 `skills` 预载或由子代理在任务中读取，不假定父代理已读内容会自动传入。已启用的团队成员读取项目／用户 MCP 与 Skill 配置，但不继承主代理对话历史。这两种协作都不要求本插件的 Dynamic Workflow。
+
 Claude 导出包的 `workflows/bookmark-research.js` 包含 `export const meta` 和原生脚本正文。已建立研究后，由用户明确调用，例如：
 
 ```text
@@ -58,7 +64,7 @@ Claude 自带 `/deep-research` 是另一项入口，自 2.1.218 起需显式调�
 
 ## Pi
 
-需要 Node 22.19+、Pi 0.83+、`pi-subagents` 0.43.0+ 和 `pi-subagents-workflows`。这两项是扩展能力，Pi 核心不内建本插件的 MCP 工具。导出包的 `package.json` 只声明 Skill；保存的脚本需单独在受信任项目登记：
+已有子代理扩展可通过共享 MCP 或 CLI 处理有界研究，无需保存工作流扩展。以下整包脚本需要 Node 22.19+、Pi 0.83+、`pi-subagents` 0.43.0+ 和 `pi-subagents-workflows`。导出包的 `package.json` 只声明 Skill；保存的脚本需单独在受信任项目登记：
 
 ```sh
 python3 hosts/pi/register-workflow.py --project /absolute/path/to/project
