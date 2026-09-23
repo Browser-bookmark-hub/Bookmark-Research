@@ -1,0 +1,12 @@
+{
+  "name": "bookmark-research",
+  "version": "0.4.0",
+  "description": "Check bookmark URLs or Canvas packages, compare sources with host-led research, and retain verifiable reports.",
+  "license": "GPL-3.0-only",
+  "repository": {"type": "git", "url": "git+https://github.com/Browser-bookmark-hub/Bookmark-Research.git"},
+  "keywords": ["bookmark-research", "mcp", "claude-code", "codex", "pi-package", "deepseek-harness"],
+  "bin": {"bookmark-research": "bin/bookmark-research.js"},
+  "engines": {"node": ">=18"},
+  "files": ["bin", "src", "scripts", "config", "skills", "hosts", "docs", ".codex-plugin", ".agents", "install.sh", "LICENSE", "README.md", "README.zh.md", "!**/__pycache__", "!**/*.pyc"],
+  "pi": {"skills": ["./skills"]}
+}

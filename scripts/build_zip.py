@@ -37,6 +37,8 @@ EXTRA_FILES = (
     "scripts/export_bundle.py",
     "scripts/build_zip.py",
     "scripts/install.py",
+    "scripts/host_install.py",
+    "scripts/host_clients.py",
     "scripts/host_assets.py",
     "skills/bookmark-research/agents/openai.yaml",
 ) + HOST_SOURCE_FILES

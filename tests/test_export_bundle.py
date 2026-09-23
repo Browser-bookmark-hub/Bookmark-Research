@@ -66,7 +66,7 @@ class ExportBundleTests(unittest.TestCase):
             "agent-plugin": {"plugin.json", "mcp.json"},
             "claude": {".claude-plugin", ".mcp.json", "hosts", "workflows"},
             "pi": {"package.json", "hosts", "workflows"},
-            "dsh": {"cordis.patch.yml", "hosts", "workflows"},
+            "dsh": {"package.json", "bundle.patch.yml", "cordis.patch.yml", "hosts", "workflows"},
         }
         for format_name in export_bundle.FORMATS:
             with self.subTest(format=format_name):

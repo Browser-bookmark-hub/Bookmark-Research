@@ -91,6 +91,61 @@ class InstallerTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
 
+    def test_invalid_preferences_stop_before_native_registration(self):
+        path = self.base / "preferences.json"
+        for value in ("[]", "{}", '{"OPENAI_API_KEY":"never-echo-this-secret"}', '{"readiness":{"mode":"invalid"}}', "{"):
+            with self.subTest(value=value):
+                path.write_text(value)
+                output = io.StringIO()
+                with mock.patch.object(install, "manage") as manage, mock.patch.object(sys, "stderr", output):
+                    code = install.main(["install", "--host", "codex", "--non-interactive", "--preferences", str(path)])
+                self.assertEqual(code, 1)
+                manage.assert_not_called()
+                self.assertNotIn("never-echo-this-secret", output.getvalue())
+        self.assertFalse((self.base / "user settings.json").exists())
+
+    def test_codex_alone_rejects_host_options_and_deduplicates_hosts(self):
+        errors = io.StringIO()
+        with mock.patch.object(install, "manage") as manage, mock.patch.object(sys, "stderr", errors):
+            code = install.main(["install", "--host", "codex,codex", "--non-interactive", "--scope", "user"])
+        self.assertEqual(code, 1)
+        self.assertIn("Host-specific options", json.loads(errors.getvalue())["error"])
+        manage.assert_not_called()
+        output = io.StringIO()
+        with mock.patch.object(install, "manage", return_value={"dry_run": True}) as manage, \
+                mock.patch.object(sys, "stdout", output):
+            code = install.main(["install", "--host", "codex", "--host", "codex", "--dry-run"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output.getvalue()), {"dry_run": True})
+        manage.assert_called_once()
+
+    def test_dry_run_validates_preferences_without_saving_them(self):
+        path = self.base / "preferences.json"
+        path.write_text('{"readiness":{"mode":"always"}}')
+        output = io.StringIO()
+        with mock.patch.object(install, "manage", return_value={"dry_run": True}), mock.patch.object(sys, "stdout", output):
+            code = install.main(["install", "--host", "codex", "--dry-run", "--preferences", str(path)])
+        self.assertEqual(code, 0)
+        self.assertFalse(json.loads(output.getvalue())["preferences_applied"])
+        self.assertFalse((self.base / "user settings.json").exists())
+
+    def test_historical_install_succeeds_without_silently_ignoring_requested_setup(self):
+        (self.source / "src/onboarding.py").unlink()
+        path = self.base / "preferences.json"
+        path.write_text('{"research":{"depth":"quick"}}')
+        for extra, expected in (([], 0), (["--preferences", str(path)], 1)):
+            output = io.StringIO()
+            with self.subTest(extra=extra), mock.patch.object(install, "manage", return_value={
+                    "verified": True, "installed_path": str(self.source)}), \
+                    mock.patch.object(install, "_getting_started", return_value={}), \
+                    mock.patch.object(install, "_print_getting_started"), \
+                    mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", io.StringIO()):
+                code = install.main(["install", "--non-interactive", *extra])
+            self.assertEqual(code, expected)
+            result = json.loads(output.getvalue())
+            self.assertTrue(result["verified"])
+            self.assertEqual(result["setup"]["status"], "unsupported")
+
     def test_dry_run_retains_paths_as_arguments_and_performs_no_mutations(self):
         cli = ScriptedCli([(["plugin", "marketplace", "list"], {"marketplaces": []})])
         result = install.manage("install", cli, source=self.source, dry_run=True)
@@ -365,7 +420,8 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.outside.mkdir()
 
     def run_installer(self, *args, success=True):
-        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/install.py"), *args],
+        setup_flags = ["--non-interactive", "--skip-checks"] if args[0] == "install" else []
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/install.py"), *args, *setup_flags],
                                 cwd=self.outside, env=self.environment, text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         self.assertNotIn("environment-secret-marker", result.stdout + result.stderr)
@@ -379,6 +435,8 @@ class NativeCodexInstallerTests(unittest.TestCase):
         obsolete.write_text("value = 'removed in update'\n", encoding="utf-8")
         first = self.run_installer("install", "--source", str(self.source))
         self.assertTrue(first["verified"])
+        self.assertTrue(first["setup"]["completed"])
+        self.assertFalse(first["setup"]["readiness"]["network_checked"])
         self.assertIn(first["getting_started"]["first_prompt"], self.last_stderr)
         self.assertEqual(first["getting_started"]["settings_command"][2], str(Path(first["installed_path"]) / "src/cli.py"))
         self.assertFalse(self.data.exists())

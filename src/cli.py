@@ -50,6 +50,25 @@ def _parser():
     parser.add_argument("--config", help="User settings JSON file; otherwise BOOKMARK_RESEARCH_CONFIG or XDG_CONFIG_HOME")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("doctor", help="Check local runtime; does not access the network")
+    setup = commands.add_parser("setup", help="Guided preferences, credentials and service checks")
+    interaction = setup.add_mutually_exclusive_group()
+    interaction.add_argument("--interactive", dest="interaction", action="store_const", const="always")
+    interaction.add_argument("--non-interactive", dest="interaction", action="store_const", const="never")
+    setup.set_defaults(interaction="auto")
+    setup.add_argument("--lang", choices=("auto", "en", "zh"), default="auto")
+    setup.add_argument("--input", help="Partial preferences JSON file, or '-' for stdin; never put API keys here")
+    setup.add_argument("--skip-checks", action="store_true", help="Only inspect local configuration and existing cache")
+    setup.add_argument("--test-retrieval", action="store_true", help="One search and sample page read per provider; uses retrieval quota")
+    setup.add_argument("--host", choices=("codex", "claude_code", "pi", "dsh", "unknown"), default="unknown")
+    setup.add_argument("--tool", action="append", help="Tool actually observed in the current host session; repeatable")
+    readiness = commands.add_parser("readiness", help="Check capabilities and auth before web research; respects saved cache policy")
+    readiness.add_argument("--provider", action="append", choices=Settings.PROVIDERS)
+    readiness.add_argument("--service", choices=("openai", "parallel"))
+    readiness.add_argument("--refresh", action="store_true")
+    readiness.add_argument("--offline", action="store_true")
+    readiness.add_argument("--test-retrieval", action="store_true", help="Also spend retrieval quota on a sample search/read")
+    readiness.add_argument("--host", choices=("codex", "claude_code", "pi", "dsh", "unknown"), default="unknown")
+    readiness.add_argument("--tool", action="append", help="Tool actually observed in the current host session; repeatable")
     config = commands.add_parser("config", help="View or update persistent user preferences")
     config_commands = config.add_subparsers(dest="config_command", required=True)
     config_commands.add_parser("show")
@@ -221,7 +240,18 @@ def main(argv=None):
             if watcher.last_error:
                 raise RuntimeError(watcher.last_error)
             return 0
-        if args.command == "research":
+        if args.command == "setup":
+            from onboarding import Console, Onboarding
+            if args.skip_checks and args.test_retrieval:
+                raise ValueError("--test-retrieval cannot be used with --skip-checks")
+            with Console.open(args.interaction, Console.resolve_language(args.lang)) as console:
+                result = Onboarding(settings, console).run(_read_json(args.input) if args.input else None,
+                    checks=not args.skip_checks, test_retrieval=args.test_retrieval, host=args.host, observed_tools=args.tool)
+        elif args.command == "readiness":
+            from readiness import Readiness
+            result = Readiness(settings).check(providers=args.provider, service=args.service, refresh=args.refresh,
+                offline=args.offline, test_retrieval=args.test_retrieval, host=args.host, observed_tools=args.tool)
+        elif args.command == "research":
             from research import ResearchSessions
             sessions = ResearchSessions(directory=args.directory, settings=settings, db_path=_database(args.db))
             action = args.research_command
@@ -391,6 +421,9 @@ def main(argv=None):
         if args.command == "research" and result.get("status") == "error":
             return 1
         return 0
+    except KeyboardInterrupt:
+        print(json.dumps({"cancelled": True, "error": "Setup cancelled; previously saved preferences and keys are retained."}))
+        return 130
     except (ValueError, OSError, RuntimeError, sqlite3.Error) as error:
         print(json.dumps({"error": str(error), "type": type(error).__name__}, ensure_ascii=False))
         return 1

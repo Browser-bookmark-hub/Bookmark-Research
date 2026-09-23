@@ -6,6 +6,8 @@ Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<roo
 
 | MCP | CLI command |
 | --- | --- |
+| `research_readiness` | `readiness` |
+| Terminal-only setup | `setup` |
 | `index_status` / `sync_package` | `status` / `sync` |
 | `search_bookmarks` / `get_context` | `search` / `context` |
 | `fetch_web` / `search_web` | `fetch-web` / `search-web` |
@@ -33,6 +35,9 @@ Database precedence: `--db` → `BOOKMARK_RESEARCH_DATA_DIR/index.sqlite3` → `
 
 ```sh
 python3 <root>/src/cli.py providers
+python3 <root>/src/cli.py setup --host codex
+python3 <root>/src/cli.py readiness --host codex --refresh
+python3 <root>/src/cli.py readiness --provider exa --offline
 python3 <root>/src/cli.py providers --probe
 python3 <root>/src/cli.py search-web --target 'Example Company A official pricing' --target 'Example Company B official pricing' --limit 5
 python3 <root>/src/cli.py fetch-web https://example.com/company-a https://example.com/company-b
@@ -43,6 +48,8 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 ```
 
 `config show` / `config set` correspond to MCP `get_settings` / `update_settings`. `config set --input /path/to/changes.json` (or `-` for stdin) merges partial settings. CLI flags override matching fields from that invocation's JSON. `fetch-web` archives by default; `--archive` / `--no-archive` affects one call. Set future defaults with `config set --archive true|false`. See [settings and archives](settings-and-archive.md).
+
+`setup` guides preferences, hidden key entry and selected service checks. `--non-interactive --input FILE` is the agent path; `--skip-checks` prevents network checks. `readiness` uses saved cached/always/manual policy; `--refresh` forces checks, `--offline` prevents network, and `--test-retrieval` opts into sample search/read quota. Repeat `--provider` to restrict retrieval checks, `--service openai|parallel` to select a professional service, and `--tool` for actually observed host tools. `--host` accepts `codex`, `claude_code`, `pi`, `dsh`, `unknown`. Before a new web question, run readiness once and follow its remediation; no professional job is started. See the settings reference for status meanings and private credential storage.
 
 `fetch-web` returns one selected text per URL in `pages`, with all attempt statuses and archive paths. `--raw` returns the full provider envelopes. Its `--timeout` applies per provider HTTP request; discovery and fallback can take longer overall. `research fetch` accepts only its documented MCP JSON fields and does not accept `timeout`.
 

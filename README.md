@@ -8,44 +8,76 @@ Research ordinary bookmark URLs or a [Bookmark Canvas](https://github.com/Browse
 
 **0.4.0** combines whole-package host workflows, optional research APIs, reviewed Wiki pages and evaluation with reusable source snapshots. It imports directories, ZIPs and individual cards, and monitors registered live directories while the MCP process runs. Stable source IDs survive new export paths. Full mirrors and partial exports use separate deletion rules. Research inventories and evidence remain frozen; changed input prompts research and Wiki review. English execution instructions have complete Chinese reading copies, and research output follows the user's language requirements.
 
-Start with the **one-command Codex installer below**, or the **[installation guide](docs/installation.en.md)** for other clients and updates. The **[user guide](docs/user-guide.en.md)** covers first use, the three research modes, configuration and languages. The [releases page](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) lists published ZIPs and test packs; installation from Git does not require a release. The [design research](docs/research-0.2.0.md) retains the source-package research and first-party references. See [0.4.0 validation](docs/validation-0.4.0.md) for scope, source lifecycle, bilingual instructions, host/service boundaries and installation results.
+Start with the **installation below**, or the **[installation guide](docs/installation.en.md)** for host-specific commands and updates. The **[user guide](docs/user-guide.en.md)** covers first use, the three research modes, configuration and languages. The [releases page](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) lists published ZIPs and test packs; installation from Git does not require a release. The [design research](docs/research-0.2.0.md) retains the source-package research and first-party references. See [0.4.0 validation](docs/validation-0.4.0.md) for scope, source lifecycle, bilingual instructions and host/service boundaries.
 
-## Install in Codex
+## Installation
 
-With Bash, Git, Python 3.9+ with SQLite FTS5, and a Codex CLI that supports plugins:
+You need **Python 3.9+** (with SQLite FTS5) and the CLI of at least one client: Codex, Claude Code, Pi or DSH (DeepSeek Harness). No API key is required to install.
+
+**Recommended: the `bookmark-research` command** (macOS, Linux and Windows; needs Node 18+)
+
+```sh
+npm install -g bookmark-research      # then run: bookmark-research
+npx bookmark-research                 # or run once without installing
+```
+
+Until the first npm release is published, run it straight from GitHub: `npx github:Browser-bookmark-hub/Bookmark-Research`.
+
+**Without Node** (macOS, Linux, WSL):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
 ```
 
-The first install follows the repository's default branch, currently `main`. It fetches code directly from Git and delegates registration and verification to Codex's native plugin CLI; **no GitHub Release or ZIP download is required**. After installation, the terminal shows your effective settings, a first-use prompt, and a working command to view configuration. Start a new Codex thread to load the Skill and tools, then provide your own Bookmark Canvas package path.
+Both open the same terminal wizard:
 
-Installer help and onboarding follow the system locale: Chinese locales select Chinese; other locales use English. Append `-s -- install --lang en` or `-s -- install --lang zh` to `bash` to choose explicitly. Ask research questions in either language or request a particular report language; original quotations are preserved.
+1. **Pick clients**: arrow keys move, Space toggles, Enter confirms. Detected CLIs are preselected; missing ones are greyed out (DSH also needs `pnpm`).
+2. **Per client**: user or project scope for Claude Code and Pi, a profile name for DSH. A summary is shown before anything is installed.
+3. **Install**: each client is registered through its own native command, then verified. One failure does not stop the others.
+4. **Set up once for all clients**: research depth, answer language, search and page-reading services, archiving, then API keys (masked, checked immediately, retry on failure).
 
-The execution Skill and all 11 method references are maintained in English, with complete Chinese reading copies. The [instruction index](docs/instructions.en.md) links both versions and the full host prompt reference. Delegated research carries the task's output language; one shared Skill serves both languages.
+Start a new session in your client afterwards. Without a full terminal, or with `BOOKMARK_RESEARCH_PLAIN=1`, prompts fall back to numbered input. The wizard follows the system language; add `--lang en` or `--lang zh` to choose.
 
-**No configuration or API key is required for local bookmark queries.** Search starts with Exa + Parallel and falls back to Tavily + keyed Jina only for queries without usable results. Reading tries Exa, then Parallel + Jina Reader for unresolved URLs. Page archiving is enabled. Explicit providers restrict a call to those services; web access depends on authentication and limits. Existing provider overrides are retained. See [first use and optional settings](docs/installation.en.md#first-use-and-data-locations).
+| Client | Native registration performed by the installer |
+| --- | --- |
+| Codex | `codex plugin marketplace add` + `codex plugin add` |
+| Claude Code | `claude plugin marketplace add <package>` + `claude plugin install bookmark-research@bookmark-research` |
+| Pi | `pi install <package>` (`-l` for a project) |
+| DSH | `dsh plugin --profile <name> add <package>` |
 
-```sh
-# Update the registered source, then verify it
-curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- update
-
-# Preview a first install; --help lists all options
-curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- --dry-run
-```
-
-To pin a **first installation** to the previously published v0.2.0 snapshot, append `-s -- install --ref v0.2.0` to `bash`. Repeat installs retain the registered ref; `update` refreshes that ref and does not switch a tag to a newer version. Historical versions retain their own features and onboarding language. See [installation options](docs/installation.en.md#one-command-codex-installation) for source conflicts and existing personal installations.
-
-From a **checkout or extracted ZIP**, local installation is also available:
+**Agents and CI** pass everything explicitly and read a JSON result:
 
 ```sh
-python3 scripts/install.py install
-python3 scripts/install.py verify
+bookmark-research install claude dsh --profile web --non-interactive --preferences prefs.json
+bash install.sh install --host claude,dsh --profile web --non-interactive   # same, without Node
 ```
 
-For a local source, run `python3 scripts/install.py update` after updating its files. [Native commands and Git sources](docs/installation.en.md#local-checkout-or-zip) are also documented.
+`--preferences` accepts a JSON file of preferences only. **API keys are never read from arguments or JSON files**: use environment variables or let the user type them into `bookmark-research setup`. Other options (`--scope`, `--project`, `--ref`, `--dry-run`, `--skip-checks`, `--test-retrieval`) are listed in the [installation guide](docs/installation.en.md).
 
-For **Claude Code, Pi, DSH**, or a downloaded ZIP, follow the [installation guide](docs/installation.en.md). The repository includes the Codex marketplace at [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json).
+## Configure later
+
+No reinstall is needed. Settings and keys belong to your user account and apply to every installed client; start a new client session after changing them.
+
+| Goal | Command |
+| --- | --- |
+| Open the menu (configure, check, install, update) | `bookmark-research` |
+| Change preferences and API keys | `bookmark-research setup` |
+| Show installed clients, preferences and key status | `bookmark-research status` |
+| View or script preferences | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
+| Add another client | `bookmark-research install pi` |
+| Update or verify every installed client | `bookmark-research update` · `bookmark-research verify` |
+| Check Python and SQLite | `bookmark-research doctor` |
+
+Inside a client session you can also ask the agent to change preferences ("use deep research by default"); it calls the plugin's `update_settings` tool. Keys are the exception: they never pass through chat. Set them with `bookmark-research setup` or the environment variables `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY` and `OPENAI_API_KEY`, which override saved keys. Without the npm command, `python3 <installed path>/src/cli.py setup` does the same; the installer prints the exact path.
+
+## What the plugin contains
+
+- **Skill `bookmark-research`**: tells the agent when and how to query bookmarks, verify sources, run a full research pass and write a cited report. English, with a complete Chinese reading copy.
+- **MCP server `bookmark-research`**: one local stdio server started with `python3 src/cli.py serve`, exposing about 36 tools in four groups: bookmark index (`search_bookmarks`, `get_context`, `sync_package` …), web search and reading (`search_web`, `fetch_web`), research tracking (`research_start` … `research_finish`, coverage and evidence), and settings, Wiki and evaluation. See the [full tool list](#mcp-tools).
+- **Web services inside that server**: Exa, Parallel, Tavily and Jina Reader are called by the plugin itself, so you do not register their MCPs separately. Exa Agent, Parallel Task or Tavily research MCPs can optionally be added to your client; the setup wizard shows how.
+- **Client extras**: a Claude Code workflow, a Pi package with a workflow registrar, a DSH bundle and a Codex marketplace entry.
+
+Local bookmark queries work offline. The [user guide](docs/user-guide.en.md) covers first use, the three research modes, configuration and languages.
 
 ## Included components
 
@@ -59,7 +91,7 @@ For **Claude Code, Pi, DSH**, or a downloaded ZIP, follow the [installation guid
 | **Host workflows** | [`hosts/`](hosts/) and [`src/routing.py`](src/routing.py) | Native Codex delegation, Claude workflow, Pi extension recipe and DSH workflow adapter |
 | **Professional research** | [`src/research_services.py`](src/research_services.py) | Optional provider-owned background tasks, saved run IDs and secondary-report import |
 | **Wiki and evaluation** | [`src/wiki.py`](src/wiki.py), [`src/evaluation.py`](src/evaluation.py) | Reviewed knowledge, immutable revisions, source/link lint and metrics from explicit labels |
-| **Client integrations** | Native Codex manifest, [`install.sh`](install.sh), [`scripts/install.py`](scripts/install.py) and [`scripts/export_bundle.py`](scripts/export_bundle.py) | One-command install/update/verify in Codex; separate packages or adapters for other clients |
+| **Client integrations** | Native manifests, [`bin/bookmark-research.js`](bin/bookmark-research.js), [`scripts/launcher.py`](scripts/launcher.py), [`install.sh`](install.sh), [`scripts/install.py`](scripts/install.py) and [`scripts/export_bundle.py`](scripts/export_bundle.py) | The `bookmark-research` command, guided installation and native install/update/verify for all four hosts |
 
 The runtime requires Python 3.9+ and SQLite with FTS5; `doctor` checks these requirements. It uses the Python standard library and does not require a separate database service.
 
@@ -67,12 +99,12 @@ The runtime requires Python 3.9+ and SQLite with FTS5; `doctor` checks these req
 
 | Client | Skill | MCP / CLI | Plugin or package entry | Verification |
 | --- | --- | --- | --- | --- |
-| **Codex** | Included | MCP | ✓ Native [`.codex-plugin/plugin.json`](.codex-plugin/plugin.json) | Local 0.4.0 installation, 35-tool stdio runtime and source lifecycle checks passed; see [validation](docs/validation-0.4.0.md) |
-| **Claude Code** | Included | MCP | ✓ Native plugin plus `workflows/bookmark-research.js` | Prerelease check: Claude 2.1.247 loaded the workflow and 34 MCP tools; the model endpoint returned 429 before execution |
-| **Pi** | Included through `pi.skills` | CLI / stdio bridge | ✓ Skill package plus project workflow registrar | Isolated adapter scenarios; requires installed `pi-subagents` and `pi-subagents-workflows` |
-| **DSH / DeepSeek Harness** | Configure Skill discovery separately | MCP through the official client | ✓ `cordis.patch.yml` plus workflow call generator | Isolated adapter scenarios; requires a configured workflow service, engine and tool |
+| **Codex** | Included | MCP | Native plugin and marketplace | Native install/update and stdio checks in isolated profiles |
+| **Claude Code** | Included | MCP | Persistent marketplace/plugin plus Dynamic Workflow | Native install/update/cache checks in isolated profiles; model execution is separate |
+| **Pi** | Included through `pi.skills` | CLI / stdio bridge | Persistent package plus project workflow registrar | Installer/adapter scenarios; subagent workflows require optional extensions |
+| **DSH / DeepSeek Harness** | Included through Skill provider | MCP through the official client | Relocatable `dsh.bundle` plus optional workflow adapter | Installer/adapter scenarios; workflows require a configured service, engine and tool |
 
-✓ indicates an implemented package or adapter. It does not mean all four live clients completed a research task. Pi uses the existing extensions and a bundled Python stdio bridge; the plugin does not add a Pi execution engine. DSH requires `@deepseek-ai/dsh-mcp-client` and separate Skill discovery; its patch contains absolute paths and must be generated at the final installation location. See [host workflows](skills/bookmark-research/references/host-workflows.md) for invocation, cancellation and actual resume limits.
+Install verification does not mean all four live clients completed a research task. Pi's basic Skill + CLI works without subagent extensions. DSH's bundle registers the Skill and resolves the bundled Python path after installation; its legacy `cordis.patch.yml` export remains specific to its original location. See [host workflows](skills/bookmark-research/references/host-workflows.md) for optional collaboration and actual resume limits.
 
 **Agent Plugins 1.0.0** is also available as a separate standard export: root `plugin.json` + `mcp.json`. It is a package format, not another client or the Codex native manifest. See [export formats](#export-formats) for commands and the [compatibility notes (Chinese)](docs/harness-compatibility.md) for first-party references and verification boundaries.
 
@@ -198,6 +230,8 @@ Duplicate item IDs within one section are identity conflicts and cause import fa
 
 Ask "Show the plugin settings," "Use only Exa for future searches," "Save page text to my knowledge directory," or "Read this page without archiving." The model uses `get_settings`, `update_settings`, or parameters for the current `fetch_web` call. There is no separate graphical settings page.
 
+Run `python3 src/cli.py setup` to revisit the terminal wizard. Before each new web research question, the Skill calls `research_readiness`: by default it refreshes checks on first use, configuration/key changes, or after 15 minutes. Choose `always` or `manual` in setup. Local bookmark queries stay offline. Readiness separates missing keys, reachable catalogs, tested retrieval, and host-managed OAuth; it never starts a professional research job.
+
 The default configuration file is `~/.config/bookmark-research/settings.json`, created on the first update. Page archives default to `~/.local/share/bookmark-research/knowledge/`; XDG and plugin data-directory environment variables are respected. You can choose your own absolute paths. These files live outside the plugin and canvas package, so plugin updates do not replace them.
 
 With archiving enabled, received fetch responses create a snapshot directory: `response.json` stores the actual MCP response; `manifest.json` records URLs, provider, fetch time, response and text hashes, and status; `pages/<URL-hash>.md` stores successfully recognized text. Transport failures without a response return a classified error and no `result` or invented archive. Publication dates and authors are recorded separately. Conflicting responses for the same URL are retained and marked. Excerpts and unknown completeness are identified, and archive errors are returned with the fetch result. Later reads add snapshots without overwriting earlier ones.
@@ -228,6 +262,7 @@ The [shared Skill](skills/bookmark-research/SKILL.md) guides the agent's workflo
 | `fetch_web` | Read known URLs and optionally archive responses and page text |
 | `get_settings` | Read current settings and storage paths |
 | `update_settings` | Update persistent settings |
+| `research_readiness` | Check credentials, selected services and observed host tools; return setup/login guidance |
 | `research_start` | Save a brief, questions, retrieval budget and optional bookmark references |
 | `research_status` | List saved tasks, inspect bounded progress and paginate full records |
 | `research_search` | Run and record a bounded search round with an idempotency key |
@@ -284,9 +319,9 @@ python3 scripts/export_bundle.py --format agent-plugin --output exports/agent-pl
 
 The destination must be new or empty. Exports include their own English setup README with links to bundled Chinese and English user guides, and exclude indexes, caches, tests, and credentials. The exporter writes files; follow the generated README or [installation guide](docs/installation.en.md) to load them in your client.
 
-- **Claude Code:** `.claude-plugin/plugin.json`, `.mcp.json` and a packaged Dynamic Workflow; load with `claude --plugin-dir <export-directory>`.
+- **Claude Code:** plugin + marketplace manifests, `.mcp.json` and a Dynamic Workflow; supports persistent native installation or session loading with `--plugin-dir`.
 - **Pi:** `package.json` declares `pi.skills`; the Skill calls the CLI. Register the project workflow for the separately installed subagent extensions when available.
-- **DSH:** an absolute-path patch for the official MCP client and a generator for `{meta,script,args}` accepted by its workflow tool. Configure Skill discovery and workflow components separately. A relocatable `dsh.bundle` package is not provided.
+- **DSH:** a relocatable `dsh.bundle` that connects the Skill and MCP, plus the legacy absolute-path patch and workflow call generator. Workflow components remain optional and host-managed.
 - **Agent Plugins 1.0.0:** root `plugin.json` + `mcp.json`, for clients implementing that specification; generated separately from Codex's native manifest.
 
 See the [client support table](#client-support) for verification status and [compatibility notes (Chinese)](docs/harness-compatibility.md) for format differences and official sources.

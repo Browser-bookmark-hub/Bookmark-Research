@@ -75,7 +75,7 @@ class McpServerTests(unittest.TestCase):
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
         self.assertEqual({tool["name"] for tool in listing}, {
             "sync_package", "source_history", "search_bookmarks", "get_context", "index_status",
-            "search_web", "fetch_web", "search_providers", "get_settings", "update_settings",
+            "search_web", "fetch_web", "search_providers", "get_settings", "update_settings", "research_readiness",
             "research_start", "research_status", "research_search", "research_fetch",
             "research_source", "research_record", "research_finish", "research_inventory",
             "research_coverage", "research_import_evidence", "research_route", "research_services",
@@ -223,6 +223,7 @@ class McpServerTests(unittest.TestCase):
         current = decode_tool(self.call("get_settings"))
         self.assertFalse(current["config_exists"])
         self.assertFalse(self.settings.path.exists())
+
         changed = self.call("update_settings", {"changes": {
             "search": {"providers": ["exa"]}, "archive": {"directory": str(self.base / "knowledge")},
             "fetch": {"max_characters": 20000}}})
@@ -245,6 +246,15 @@ class McpServerTests(unittest.TestCase):
             self.call("update_settings", {"changes": {"archive": {"enabled": False}}})
             disabled = decode_tool(self.call("fetch_web", {"urls": ["https://example.test/page"]}))
             self.assertEqual(disabled["archive"]["status"], "disabled")
+        self.assertFalse(self.db_path.exists())
+
+    def test_readiness_is_available_without_creating_index_or_running_research(self):
+        self.ready()
+        result = decode_tool(self.call("research_readiness", {"offline": True, "providers": ["exa"],
+                                                             "host": "pi", "observed_tools": []}))
+        self.assertTrue(result["offline_ready"])
+        self.assertFalse(result["network_checked"])
+        self.assertEqual(result["research_jobs_started"], 0)
         self.assertFalse(self.db_path.exists())
 
     def test_web_protocol_boundaries_match_provider_limits(self):

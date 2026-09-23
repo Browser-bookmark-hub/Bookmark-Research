@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .env*
+credentials.json
 *.sqlite*
 *.db
 .DS_Store

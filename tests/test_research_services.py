@@ -106,6 +106,18 @@ class ResearchServicesTests(unittest.TestCase):
         self.assertEqual(external[0]["status"], "queued")
         self.assertTrue(any("external run" in item for item in self.sessions.coverage(self.rid)["completion_blockers"]))
 
+    def test_private_setup_key_can_start_the_intended_run_without_environment_key(self):
+        from credentials import Credentials
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "", "BOOKMARK_RESEARCH_CREDENTIALS": str(self.root / "private-keys.json")}):
+            Credentials(self.settings).save("OPENAI_API_KEY", "private-test-key")
+            service = self.reopen()
+            self.assertTrue(service.describe("openai")["providers"][0]["ready_to_start"])
+            started = service.start(self.rid, "private-key-once", "Public research question")
+            self.assertEqual(started["provider_run_id"], "resp_fixture")
+            self.assertEqual(self.transport.request.call_count, 1)
+            for path in service.directory.rglob("*.json"):
+                self.assertNotIn("private-test-key", path.read_text())
+
     def test_service_readiness_and_next_actions_distinguish_prepare_start_and_result(self):
         self.settings.update({"professional_research": {"enabled": False}})
         with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):

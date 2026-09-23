@@ -6,7 +6,7 @@ Deep research starts with the current host model's investigation. Professional s
 
 ## Settings and entry points
 
-Call `research_services` to inspect status offline. Each provider reports `ready_to_start` and concrete `missing` settings/credential names; readiness is configuration, not verified authentication. Native host research remains available independently. OpenAI uses `OPENAI_API_KEY`; Parallel uses `PARALLEL_API_KEY`. Keys belong in the launching process environment, never project files, manifests, research inputs or reports.
+Call `research_services` to inspect status offline. Each provider reports `ready_to_start` and concrete `missing` settings/credential names; readiness is configuration, not verified authentication. Native host research remains available independently. OpenAI uses `OPENAI_API_KEY`; Parallel uses `PARALLEL_API_KEY`. Configure keys through terminal `setup` or the process environment; they remain outside project files, manifests, research inputs and reports. `research_readiness` checks connection/authentication scope without creating a job; see [settings](settings-and-archive.md).
 
 Effective `professional_research` defaults to `enabled:false, provider:null`. After the user selects a service, update its settings as needed:
 

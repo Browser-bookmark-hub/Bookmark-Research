@@ -17,6 +17,7 @@ from pathlib import Path
 from research import ResearchSessions
 from service_http import ResearchHttp, ServiceError
 from settings import Settings
+from credentials import Credentials
 
 
 class ResearchServices:
@@ -28,6 +29,7 @@ class ResearchServices:
 
     def __init__(self, directory=None, settings=None, research_sessions=None, transport=None):
         self.settings = settings if settings is not None else Settings()
+        self.credentials = Credentials(self.settings)
         self.directory = Settings.external_path(
             str(directory or (Settings.data_directory() / "service-runs")), "Research service directory")
         self.sessions = research_sessions if research_sessions is not None else ResearchSessions(settings=self.settings)
@@ -166,14 +168,13 @@ class ResearchServices:
         return path, state
 
     def _request(self, provider, method, endpoint, payload=None):
-        client = self.transport or ResearchHttp(self.settings.load()["timeout_seconds"])
+        client = self.transport or ResearchHttp(self.settings.load()["timeout_seconds"], credentials=self.credentials)
         return client.request(provider, method, endpoint, payload)
 
-    @staticmethod
-    def _availability(provider, config):
+    def _availability(self, provider, config):
         key = ResearchHttp.PROVIDERS[provider]["key_env"]
         missing = ([] if config["enabled"] else ["professional_research.enabled"])
-        missing += [] if os.environ.get(key) else [key]
+        missing += [] if self.credentials.get(key) else [key]
         return {"ready_to_start": not missing, "missing": missing, "authentication_verified": False}
 
     def describe(self, provider=None):
@@ -183,7 +184,7 @@ class ResearchServices:
                 "providers": [{"provider": name, "docs": self.DOCS[name],
                     **self._availability(name, config),
                     "credential_env": ResearchHttp.PROVIDERS[name]["key_env"],
-                    "credential_configured": bool(os.environ.get(ResearchHttp.PROVIDERS[name]["key_env"])),
+                    "credential_configured": bool(self.credentials.get(ResearchHttp.PROVIDERS[name]["key_env"])),
                     "authentication_verified": False, "defaults": config[name],
                     "cancel_supported": name == "openai",
                     "budget_controls": ["max_tool_calls"] if name == "openai" else ["processor"]}
@@ -390,8 +391,8 @@ class ResearchServices:
             digest = hashlib.sha256(self._json(request).encode()).hexdigest()
             if not self.settings.load()["professional_research"]["enabled"]:
                 raise ValueError("Professional research is disabled; enable professional_research.enabled to start API runs")
-            if not os.environ.get(ResearchHttp.PROVIDERS[provider]["key_env"]):
-                raise ServiceError("authentication_required", "Set " + ResearchHttp.PROVIDERS[provider]["key_env"] + " in the host environment")
+            if not self.credentials.get(ResearchHttp.PROVIDERS[provider]["key_env"]):
+                raise ServiceError("authentication_required", "Configure " + ResearchHttp.PROVIDERS[provider]["key_env"] + " with setup or in the host environment")
             state = {"schema_version": 1, "external_id": external_id, "research_id": research_id,
                      "operation_id": operation_id, "provider": provider, "provider_run_id": None,
                      "question_id": question_id, "digest": digest, "intent_digest": intent_digest, "status": "pending",

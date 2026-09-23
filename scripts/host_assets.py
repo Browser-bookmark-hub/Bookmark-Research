@@ -6,7 +6,7 @@ from pathlib import Path
 
 HOST_SOURCE_FILES = (
     "hosts/shared/workflow.json", "hosts/shared/research-flow.js", "hosts/shared/research-call.py",
-    "hosts/claude/runtime.js", "hosts/dsh/runtime.js", "hosts/dsh/workflow-call.py",
+    "hosts/claude/runtime.js", "hosts/dsh/runtime.js", "hosts/dsh/workflow-call.py", "hosts/dsh/plugin.js",
     "hosts/pi/runtime.js", "hosts/pi/register-workflow.py",
     "hosts/codex/delegate.md", "hosts/codex/prepare.py",
 )
@@ -58,6 +58,7 @@ def export_host_assets(source, stage, host):
                     json.dumps(workflow, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
                 relative = "hosts/pi/register-workflow.py"
             else:
+                files["hosts/dsh/plugin.js"] = read_asset(source, "hosts/dsh/plugin.js")
                 files["workflows/bookmark-research/meta.json"] = (
                     json.dumps(definition["meta"], ensure_ascii=False, indent=2) + "\n").encode("utf-8")
                 relative = "hosts/dsh/workflow-call.py"

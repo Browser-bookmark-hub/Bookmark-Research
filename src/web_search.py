@@ -3,7 +3,6 @@
 import concurrent.futures
 import copy
 import json
-import os
 import re
 import threading
 import time
@@ -16,6 +15,7 @@ from remote_mcp import McpError, McpHttpClient
 from provider_adapters import ProviderAdapter
 from search_results import _canonical_url, fuse_results
 from settings import Settings
+from credentials import Credentials
 
 
 class _ProviderState:
@@ -40,6 +40,7 @@ class SearchProviders:
             raise ValueError("timeout must be between 1 and 60 seconds")
         self.timeout = timeout
         self.settings = settings if settings is not None else Settings()
+        self.credentials = Credentials(self.settings)
         self.registry = json.loads(
             (Path(__file__).resolve().parent.parent / "config/providers.json").read_text(encoding="utf-8"))
         self._states = {name: _ProviderState() for name in self.registry["providers"]}
@@ -64,12 +65,12 @@ class SearchProviders:
                 "providers": [{"provider": name, **self.registry["providers"][name],
                                "availability": "not_probed", "authentication_state": self._authentication(name),
                                "operations": {purpose: {"credential_required": bool(variable),
-                                   "credential_configured": bool(os.environ.get(variable)) if variable else None,
+                                   "credential_configured": bool(self.credentials.get(variable)) if variable else None,
                                    "default_role": ("primary" if name in preferences["search"]["providers"] else
                                        "fallback" if name in preferences["search"]["fallback_providers"] else "not_selected") if purpose == "search" else
                                        ("primary" if name == preferences["fetch"]["provider"] else
                                         "fallback" if name in preferences["fetch"]["providers"] else "not_selected"),
-                                   "missing": [variable] if variable and not os.environ.get(variable) else []}
+                                   "missing": [variable] if variable and not self.credentials.get(variable) else []}
                                    for purpose in ("search", "fetch")
                                    for variable in [self.registry["providers"][name].get("required_env", {}).get(purpose)]}}
                               for name in names],
@@ -79,7 +80,7 @@ class SearchProviders:
     def _authentication(self, provider):
         info = self.registry["providers"][provider]
         variables = list(info.get("optional_header_env", {}).values()) + [info.get("optional_bearer_env")]
-        configured = any(os.environ.get(variable) for variable in variables if variable)
+        configured = any(self.credentials.get(variable) for variable in variables if variable)
         return {"mode": "api_key" if configured else ("keyless" if info.get("keyless_headers") else "anonymous"),
                 "credential_configured": configured, "credential_validity_verified": False,
                 "oauth_implemented": False}
@@ -90,11 +91,11 @@ class SearchProviders:
             raise McpError("This provider requires a host-managed MCP client", "unsupported_capability")
         headers = {}
         for header, variable in info.get("optional_header_env", {}).items():
-            if os.environ.get(variable):
-                headers[header] = os.environ[variable]
+            if self.credentials.get(variable):
+                headers[header] = self.credentials.get(variable)
         variable = info.get("optional_bearer_env")
-        if variable and os.environ.get(variable):
-            headers["Authorization"] = "Bearer " + os.environ[variable]
+        if variable and self.credentials.get(variable):
+            headers["Authorization"] = "Bearer " + self.credentials.get(variable)
         if not headers:
             headers.update(info.get("keyless_headers", {}))
         timeout = self.timeout if self.timeout is not None else self.settings.load()["timeout_seconds"]
@@ -336,7 +337,7 @@ class SearchProviders:
                 client = self._client(provider)
                 before = self._snapshot(client)
                 credential = self.registry["providers"][provider].get("required_env", {}).get(purpose)
-                if credential and not os.environ.get(credential):
+                if credential and not self.credentials.get(credential):
                     raise McpError("This operation requires " + credential, "authentication_required")
                 if state.cooldown_error is not None and time.monotonic() < state.cooldown_until:
                     skipped = True
@@ -447,7 +448,7 @@ class SearchProviders:
         if pending:
             for name in fallbacks:
                 credential = self.registry["providers"][name].get("required_env", {}).get("search")
-                if credential and not os.environ.get(credential):
+                if credential and not self.credentials.get(credential):
                     skipped.append({"provider": name, "reason": "authentication_required", "missing": [credential]})
                 else:
                     jobs.extend((name, target, query) for target, query in pending)

@@ -44,6 +44,7 @@ SETTINGS_SCHEMA = _object_schema({
     "archive": _object_schema({"enabled": {"type": "boolean"}, "directory": _text_schema(4096)}),
     "research": _object_schema({"depth": {"type": "string", "enum": ["auto", "quick", "agentic", "deep"]},
         "prefer_host_workflows": {"type": "boolean"},
+        "response_language": {"type": "string", "enum": ["auto", "en", "zh"]},
         "methods": dict(_array_schema({"type": "string", "enum": ["comparative_analysis", "fact_check", "benchmark_review", "wiki_synthesis"]}, 4, 1), uniqueItems=True)}),
     "professional_research": _object_schema({"enabled": {"type": "boolean"},
         "provider": {"type": ["string", "null"], "enum": ["openai", "parallel", None]},
@@ -51,10 +52,19 @@ SETTINGS_SCHEMA = _object_schema({
             "max_tool_calls": {"type": "integer", "minimum": 1, "maximum": 1000}}),
         "parallel": _object_schema({"processor": _text_schema(64)})}),
     "wiki": _object_schema({"directory": _text_schema(4096)}),
+    "readiness": _object_schema({"mode": {"type": "string", "enum": ["cached", "always", "manual"]},
+        "ttl_seconds": {"type": "integer", "minimum": 60, "maximum": 86400},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30}}),
 })
 TOOL_SCHEMAS = {
     "get_settings": _object_schema({}),
     "update_settings": _object_schema({"changes": SETTINGS_SCHEMA}, ["changes"]),
+    "research_readiness": _object_schema({"providers": PROVIDERS,
+        "service": {"type": "string", "enum": ["openai", "parallel"]},
+        "refresh": {"type": "boolean", "default": False}, "offline": {"type": "boolean", "default": False},
+        "test_retrieval": {"type": "boolean", "default": False},
+        "host": {"type": "string", "enum": ["codex", "claude_code", "pi", "dsh", "unknown"]},
+        "observed_tools": _array_schema(_text_schema(300), 1000)}),
     "sync_package": _object_schema({"package_path": _text_schema(4096), "source_id": IDENTIFIER,
         "mode": {"type": "string", "enum": ["snapshot", "live"]},
         "completeness": {"type": "string", "enum": ["partial", "complete"]}}, ["package_path"]),
@@ -95,6 +105,7 @@ TOOL_SCHEMAS = {
 TOOL_DESCRIPTIONS = {
     "get_settings": "Read effective user preferences and their persistent config path without network access or creating files. Per-call options override saved preferences.",
     "update_settings": "Persist requested preferences outside the plugin and canvas packages: retrieval, archiving, research routes/methods, optional professional services and Wiki storage. Applies to subsequent calls without restart. Does not store credentials or modify host integrations.",
+    "research_readiness": "Check retrieval and optional research service readiness before each new web research question. Respects cached/always/manual preferences; refresh forces checks and offline prevents network. Reports missing credentials, catalog reachability and the exact scope of verified auth separately. observed_tools establish host tool visibility, not OAuth login. test_retrieval additionally uses provider quota for a sample search/read; no professional research job is started.",
     "sync_package": "Import a directory, ZIP or single section JSON, retaining a managed snapshot outside the original. Reuse source_id for a moved or partial export of the same canvas; path aliases are remembered. New exports default to snapshot; Git directories default to live monitoring. Existing sources retain their mode. completeness=partial preserves absent cards; complete reconciles a full mirror. Single cards must be partial. Source files are never modified.",
     "source_history": "List saved source versions and their complete managed snapshot paths, including data retained from partial imports. Reimport a snapshot path to recover its data and recorded relationships. This does not refresh sources or change existing research inventories.",
     "search_bookmarks": "Search bookmark metadata with literal title/URL/note/tag/folder-path matching and exact SQL scopes. Targets have independent totals and pages; this is not semantic webpage-body retrieval. Refresh checks live directories by default; snapshots remain usable after the original export disappears. Inspect source.state for pending changes or errors. refresh=false uses the last synchronized index, not an arbitrary historical version.",
@@ -445,6 +456,9 @@ class StdioMcpServer:
             return self.settings.describe()
         if name == "update_settings":
             return self.settings.update(arguments["changes"])
+        if name == "research_readiness":
+            from readiness import Readiness
+            return Readiness(settings=self.settings).check(**arguments)
         if name == "sync_package":
             result = self._sources().sync(**arguments)
             self._start_watcher()
@@ -531,7 +545,8 @@ class StdioMcpServer:
                 requested = params["protocolVersion"]
                 self.protocol = requested if requested in PROTOCOLS else PROTOCOLS[-1]
                 result = {"protocolVersion": self.protocol, "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "bookmark-research", "version": "0.4.0"}}
+                    "serverInfo": {"name": "bookmark-research", "version": "0.4.0"},
+                    "instructions": "Before each new web research question, call research_readiness with the actual host and observed tools. It follows saved cached/always/manual preferences; reuse checks during that investigation. Local bookmark queries need no network check. Configured keys and visible tools do not prove authorization. Optional service failures leave other routes available. Use the bundled CLI setup for preferences and hidden credential entry; never request API keys in chat."}
             elif method == "ping":
                 _params(params, ())
                 result = {}

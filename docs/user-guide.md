@@ -45,21 +45,25 @@ MCP 进程运行期间及查询前会检查 live 目录。一次性 CLI 命令�
 | 正文读取 | Exa；请求长度 12,000 字符 | “这次用 Parallel 读取。” |
 | 普通网页归档 | 开启 | “这次读取不要归档。” |
 | 研究深度 | `auto` | “这次用深度研究。” |
+| 答复语言 | `auto`，跟随提问 | “以后的报告默认用中文。” |
+| 服务检查 | 缓存 15 分钟，配置／密钥变化后刷新 | “每次新问题前都检查服务可用性。” |
 | 专业研究 API | 关闭 | “显示启用 OpenAI 研究需要什么配置。” |
 
 搜索结果条数不限制数据包范围；长度参数不保证完整正文。深度研究始终保留任务证据，不受普通网页归档开关影响。
 
-密钥从启动宿主的环境读取：`EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`；OpenAI 专业研究使用 `OPENAI_API_KEY`。访问和额度取决于服务方。宿主自身研究无需另配专业研究服务密钥。
+可运行 `python3 <插件根目录>/src/cli.py setup` 引导设置偏好并隐藏输入密钥。密钥优先从宿主环境读取，其次读取配置旁的私有 `credentials.json`：`EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`；OpenAI 专业研究使用 `OPENAI_API_KEY`。访问和额度取决于服务方。宿主自身研究无需另配专业研究服务密钥。
+
+每个联网研究新问题前，Skill 用 `research_readiness` 检查所选服务和已观察到的宿主工具；cached／always／manual 控制频率，本地查询保持离线。setup 展示可选原生 MCP 的接入／授权步骤，实际 OAuth 由宿主管理。已填密钥、工具可见与实际操作成功分别报告，检查不会创建付费研究任务。详见[配置与就绪检查](../skills/bookmark-research/references/zh/settings-and-archive.md)。
 
 默认配置位于 `~/.config/bookmark-research/settings.json`，数据位于 `~/.local/share/bookmark-research/`，支持 XDG 及插件的数据／配置路径覆盖。SQLite 保存本地查询索引，旁边保存来源快照、网页归档、研究档案与 Wiki 修订。多个宿主可以共享这些位置，用户数据应位于插件和原始画布包之外。
 
 ## 语言与证据
 
-答复、进展、报告正文和 Wiki 标题／章节优先采用明确指定的语言，否则跟随实际任务和对话。例如：
+答复、进展、报告正文和 Wiki 标题／章节优先采用本次明确要求，其次是保存的 `research.response_language`；`auto` 跟随实际任务和对话。例如：
 
 > 调查这些中英文资料，用中文写报告，保留原文引用，译文单独列出。
 
-Skill 指令本身的语言不决定用户输出语言。安装器的 `--lang auto|en|zh` 只控制安装帮助与首次使用提示，不保存研究语言设置。`auto` 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`；中文 locale 使用中文，其余或未设置时使用英文。`BOOKMARK_RESEARCH_INSTALL_LANG` 用于 Shell 引导脚本向 Python 安装器传递所选语言。
+Skill 指令本身的语言不决定输出语言。安装器 `--lang auto|en|zh` 控制帮助与提示；向导另外询问并保存答复语言。`auto` 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`；中文 locale 使用中文，其余或未设置时使用英文。`BOOKMARK_RESEARCH_INSTALL_LANG` 用于 Shell 向 Python 安装器传递界面语言。
 
 执行 Skill 和 11 篇方法参考已使用英文，配完整中文阅读对照，[指令索引](instructions.md)也包含双语宿主提示说明。宿主将输出语言保存在研究 brief 并传给子代理；脚本工作流支持 `output_language`。任务和对话都没有选择语言时默认英文。
 

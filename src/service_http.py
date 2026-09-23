@@ -3,12 +3,12 @@
 import json
 import http.client
 import math
-import os
 import re
 import socket
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
+from credentials import Credentials
 
 
 class ServiceError(RuntimeError):
@@ -38,10 +38,11 @@ class ResearchHttp:
     }
     MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
-    def __init__(self, timeout=30):
+    def __init__(self, timeout=30, credentials=None):
         if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 60:
             raise ValueError("Research API timeout must be greater than 0 and at most 60 seconds")
         self.timeout = timeout
+        self.credentials = credentials if credentials is not None else Credentials()
 
     @staticmethod
     def _unique_object(pairs):
@@ -75,7 +76,8 @@ class ResearchHttp:
         suffix = r"[A-Za-z0-9_-]{1,192}"
         if provider == "openai":
             create = path == "/v1/responses" and method == "POST"
-            read = method == "GET" and re.fullmatch(r"/v1/responses/resp_" + suffix, path)
+            read = method == "GET" and (re.fullmatch(r"/v1/responses/resp_" + suffix, path)
+                    or path in ("/v1/models/o3-deep-research", "/v1/models/o4-mini-deep-research"))
             cancel = method == "POST" and re.fullmatch(r"/v1/responses/resp_" + suffix + r"/cancel", path)
         else:
             create = path == "/v1/tasks/runs" and method == "POST"
@@ -89,9 +91,9 @@ class ResearchHttp:
     def request(self, provider, method, path, payload=None):
         self._endpoint(provider, method, path, payload)
         info = self.PROVIDERS[provider]
-        key = os.environ.get(info["key_env"])
+        key = self.credentials.get(info["key_env"])
         if not key or any(not 33 <= ord(char) <= 126 for char in key):
-            raise ServiceError("authentication_required", "Set " + info["key_env"] + " in the host environment")
+            raise ServiceError("authentication_required", "Configure " + info["key_env"] + " with setup or in the host environment")
         headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if provider == "openai":
             headers["Authorization"] = "Bearer " + key

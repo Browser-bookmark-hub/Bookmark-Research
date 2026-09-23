@@ -4,7 +4,36 @@
 
 用户可直接在对话中改配置，CLI 与 MCP 使用同一套实现。当前没有独立图形设置页。
 
-provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `search.providers` 指定（Exa + Parallel），无结果查询交给 `search.fallback_providers`（Tavily + 有 key 的 Jina）；设为空数组可关闭回退。读取先用 `fetch.provider`，再将未成功 URL 交给其余 `fetch.providers` 并发，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。密钥只从进程环境读取，公共访问仍受限额影响。
+provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `search.providers` 指定（Exa + Parallel），无结果查询交给 `search.fallback_providers`（Tavily + 有 key 的 Jina）；设为空数组可关闭回退。读取先用 `fetch.provider`，再将未成功 URL 交给其余 `fetch.providers` 并发，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。密钥优先读取进程环境，其次读取私有凭据文件，公共访问仍受限额影响。
+
+## 终端向导与就绪检查
+
+运行 `python3 <root>/src/cli.py setup --host codex`（或 `claude_code`、`pi`、`dsh`）设置偏好、隐藏输入密钥并检查所选服务。`--lang auto|en|zh` 选择向导语言。`--non-interactive --input FILE` 无提示合并部分偏好，`--input -` 从 stdin 读取 JSON。Agent 通过环境变量提供密钥，不在聊天或偏好 JSON 中传递。`--skip-checks` 不联网；`--test-retrieval` 选择执行可能使用额度的样例搜索／阅读，两者互斥。向导和检查不会创建专业研究任务。
+
+向导将密钥保存为配置旁的 `credentials.json`，或 `BOOKMARK_RESEARCH_CREDENTIALS` 指定的文件；文件为权限 `0600` 的本地明文，仅当前用户可读。运行时会重新读取文件，保存后不必重启插件；更改进程环境变量需重启对应进程。环境变量优先。宿主 OAuth token 留在宿主，插件密钥不会自动授权另外登记的宿主 MCP。
+
+每个联网研究新问题前调用 `research_readiness`，传入实际 `host`、`observed_tools` 及明确限定的 `providers`。CLI 示例：`readiness --host codex --tool mcp__exa__agent_run`。只传实际观察到的工具；省略表示未知，空数组表示未观察到任何工具。本地查询无需检查，同一调查复用结果，不反复强制刷新。直接调用 CLI 时，在网页操作前显式运行 readiness。
+
+| 策略 | 行为 |
+| --- | --- |
+| `cached`（默认） | 首次、配置／密钥变化或过期后检查，默认 TTL 为 900 秒 |
+| `always` | 每个新问题的 readiness 调用均刷新 |
+| `manual` | 仅 `refresh:true`／`--refresh` 或明确的实际检索测试联网 |
+| `offline:true`／`--offline` | 只读本地配置和仍有效的缓存证据，不联网 |
+
+按验证范围理解结果：
+
+- `missing_credentials`：用 setup 或进程环境配置指明的密钥。
+- `catalog_reachable`：MCP 发现成功，实际搜索／读取权限和额度未验证。
+- `http_unchecked`：有 HTTP 适配，检查各操作缺失的密钥；Jina Search 必须有 key。
+- `retrieval_verified`：仅逐操作状态为 `verified` 的操作已验证，其他操作仍可能失败。
+- `model_access_verified`：OpenAI 模型元数据可读，尚未测试付费研究任务。
+- `task_mcp_access_verified`：Parallel Task MCP 接受了密钥，不证明 Task API 的执行权限。
+- `failed`：按认证／网络／契约错误修复，再刷新受影响服务；其他路线仍可使用。
+
+可选原生研究 MCP 返回对应端点的 `setup` 指引。先检查已有登记，避免重复添加。Codex 使用 `codex mcp list --json`、`codex mcp add NAME --url URL`，支持 OAuth 的端点用 `codex mcp login NAME`；Claude 使用 `claude mcp list`、`claude mcp add --scope user --transport http NAME URL`，再在 `/mcp` 授权。采用实际 scope 和已存在的名称。Pi 不假定安装任何 MCP 扩展，宿主自行进行的普通／深度研究使用同包 CLI。DSH 通过官方 MCP client 在所选 profile 配置 `transport: streamable-http`、端点及环境变量引用的 headers；该桥接器文档尚未确立 OAuth 支持。工具可见不证明登录成功，不用启动付费任务来测试授权。
+
+向导展示宿主步骤，不执行它们或导入宿主 token。`needs_attention` 列出失败检查和所选服务必需但缺失的密钥。缓存保留时间戳与过期时间，失败最多缓存 60 秒；文件位于数据目录的 `readiness/`，不含原始密钥。修改配置或轮换密钥会使对应证据失效。
 
 ## 配置入口
 
@@ -25,8 +54,9 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
   "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5},
   "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000},
   "archive": {"enabled": true, "directory": "/absolute/path/to/knowledge"},
-  "research": {"depth": "auto", "prefer_host_workflows": true,
+  "research": {"depth": "auto", "prefer_host_workflows": true, "response_language": "auto",
     "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
+  "readiness": {"mode": "cached", "ttl_seconds": 900, "timeout_seconds": 10},
   "professional_research": {"enabled": false, "provider": null,
     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
@@ -36,7 +66,7 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 
 优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，只有 provider 支持对应参数时才会传递限制，实际请求参数记录在归档中；`character_limit_applied: false` 表示服务未提供本插件支持的长度参数。加大限额不保证得到完整页面。
 
-配置文件路径：CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/settings.json`。归档默认目录为 `${BOOKMARK_RESEARCH_DATA_DIR}/knowledge`；未指定数据目录时采用 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/knowledge`。不同载体指向同一配置文件和数据目录即可共享偏好及档案。API key 仍交给宿主或进程环境，不写进配置文件。
+配置文件路径：CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/settings.json`。归档默认目录为 `${BOOKMARK_RESEARCH_DATA_DIR}/knowledge`；未指定数据目录时采用 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/knowledge`。不同载体指向同一配置文件和数据目录即可共享偏好及档案。API key 与偏好分开，放在环境变量或私有凭据文件。
 
 `XDG_CONFIG_HOME` 与 `XDG_DATA_HOME` 必须是绝对路径；空值或相对路径按 XDG 规范忽略，使用用户主目录下的默认位置，避免随客户端工作目录漂移。
 
@@ -46,7 +76,7 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 
 ## 一次读取怎样保存
 
-研究输出语言由 Skill 与任务 brief 决定，不是此配置中的持久字段。安装器 `--lang` 只影响帮助和引导；委派工作流时传入本次的 `output_language`。
+输出语言优先级为本次要求 → `research.response_language`（`auto`／`en`／`zh`）→ auto 时跟随任务／对话 → 均未指定时英文。安装器 `--lang` 只影响帮助和引导，向导另外询问答复语言；委派工作流时传入确定后的 `output_language`。
 
 `fetch_web` 自动保存它自己收到的实际 provider 响应。搜索命中本身不触发抓取或存档，宿主另外配置的 Exa／GitHub MCP 响应也不会被本插件自动截获。
 

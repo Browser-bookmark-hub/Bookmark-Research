@@ -8,33 +8,74 @@ Codex、Claude Code、Pi 和 DSH 共用一套 Skill、Python 运行时与本地�
 
 新用户从[安装说明](docs/installation.md)和[使用指南](docs/user-guide.md)开始。需要理解内部关系时看[结构与触发流程](docs/bookmark-research-architecture.md)。本地 0.4.0 的验证范围见[验证记录](docs/validation-0.4.0.md)，已公开发布的版本以 [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) 为准。
 
-## 安装到 Codex
+## 安装
 
-准备 Bash、Git、Python 3.9+、SQLite FTS5 和支持插件的 Codex CLI，然后运行：
+需要 **Python 3.9+**（含 SQLite FTS5），以及至少一个宿主的 CLI：Codex、Claude Code、Pi 或 DSH（DeepSeek Harness）。安装本身不需要 API Key。
+
+**推荐：`bookmark-research` 命令**（macOS、Linux、Windows；需要 Node 18+）
+
+```sh
+npm install -g bookmark-research      # 装好后直接输入 bookmark-research
+npx bookmark-research                 # 或者不安装，直接运行一次
+```
+
+npm 包首次发布前，可以直接从 GitHub 运行：`npx github:Browser-bookmark-hub/Bookmark-Research`。
+
+**不用 Node**（macOS、Linux、WSL）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
 ```
 
-首次安装读取仓库默认分支 `main`，由 Codex 原生插件命令登记与验证，不依赖 GitHub Release 或下载 ZIP。安装后会显示实际配置、首次提问示例和配置查询命令。新建 Codex 对话，再提供自己的数据包路径。
+两种方式打开的是同一个终端向导：
 
-安装器自动按系统 locale 选择中英文；可以显式选择：
+1. **选宿主**：方向键移动，空格勾选，回车确认。本机检测到的 CLI 会预先勾上，没找到的显示为灰色（DSH 还需要 `pnpm`）。
+2. **逐个补充选项**：Claude Code 和 Pi 选当前用户或指定项目，DSH 填 profile 名称。真正安装前会先显示汇总。
+3. **安装**：调用每个宿主自己的原生命令登记并验证；一个失败不影响其他。
+4. **统一配置一次**：研究深度、答复语言、搜索与正文读取服务、归档，最后输入 API Key（掩码显示，输完当场检查，失败可重输）。
+
+装好后新建一个宿主会话即可使用。终端不完整或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时，改用输入序号的方式。向导按系统语言显示，也可以加 `--lang zh` 或 `--lang en` 指定。
+
+| 宿主 | 安装器实际执行的原生命令 |
+| --- | --- |
+| Codex | `codex plugin marketplace add` + `codex plugin add` |
+| Claude Code | `claude plugin marketplace add <包目录>` + `claude plugin install bookmark-research@bookmark-research` |
+| Pi | `pi install <包目录>`（项目级加 `-l`） |
+| DSH | `dsh plugin --profile <名称> add <包目录>` |
+
+**Agent／CI 安装**时显式传入全部参数，读取 JSON 结果：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- install --lang zh
+bookmark-research install claude dsh --profile web --non-interactive --preferences prefs.json
+bash install.sh install --host claude,dsh --profile web --non-interactive   # 不用 Node 时的等价写法
 ```
 
-`--lang en` 使用英文，`--lang auto` 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`。研究输出的语言由实际对话或明确要求决定；安装语言不限制研究语言。
+`--preferences` 只接受偏好 JSON。**API Key 不接受命令参数，也不从 JSON 文件读取**：请用环境变量，或让用户在 `bookmark-research setup` 里自己输入。其他参数（`--scope`、`--project`、`--ref`、`--dry-run`、`--skip-checks`、`--test-retrieval`）见[安装说明](docs/installation.md)。
 
-更新同一来源或从源码安装：
+## 之后怎么配置
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- update --lang zh
-python3 scripts/install.py install --lang zh
-python3 scripts/install.py verify --lang zh
-```
+不需要重新安装。配置和 Key 属于当前用户，对所有已安装的宿主生效；修改后新建宿主会话即可。
 
-已通过 `personal` 安装时沿用其更新流程，避免重复登记。固定 tag 的安装不会因 `update` 自动切换到新版本；历史版本保留当时的功能与引导语言。详见[安装参数和其他客户端](docs/installation.md)。
+| 要做什么 | 命令 |
+| --- | --- |
+| 打开主菜单（配置、检查、安装、更新） | `bookmark-research` |
+| 修改偏好和 API Key | `bookmark-research setup` |
+| 查看已装宿主、偏好和 Key 状态 | `bookmark-research status` |
+| 查看或用脚本修改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
+| 再装一个宿主 | `bookmark-research install pi` |
+| 更新或验证所有已装宿主 | `bookmark-research update` · `bookmark-research verify` |
+| 检查 Python 和 SQLite | `bookmark-research doctor` |
+
+也可以在宿主会话里直接让 agent 改偏好（比如"默认用深度研究"），它会调用插件的 `update_settings` 工具。Key 除外，Key 不经过对话：请用 `bookmark-research setup`，或设置环境变量 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`、`OPENAI_API_KEY`（环境变量优先于已保存的 Key）。没装 npm 命令时，`python3 <安装路径>/src/cli.py setup` 效果相同，安装结束时会打印完整路径。
+
+## 插件包含什么
+
+- **Skill `bookmark-research`**：告诉 agent 什么时候、怎样查书签、核对来源、完整研究并写出带引用的报告。英文执行版附完整中文阅读版。
+- **MCP 服务 `bookmark-research`**：一个本地 stdio 服务（`python3 src/cli.py serve`），约 36 个工具，分四类：书签索引（`search_bookmarks`、`get_context`、`sync_package` 等）、网页搜索与读取（`search_web`、`fetch_web`）、研究记录（`research_start` 到 `research_finish`，以及覆盖率和证据），以及设置、Wiki 与评测。
+- **内置的网页服务**：Exa、Parallel、Tavily、Jina Reader 由插件自己调用，不需要另外登记它们的 MCP。Exa Agent、Parallel Task、Tavily Research 这类研究 MCP 可以按需加到宿主里，配置向导会给出步骤。
+- **宿主附加内容**：Claude Code 工作流、Pi 包及工作流登记脚本、DSH bundle、Codex marketplace 条目。
+
+本地书签查询可以离线使用。首次使用、三种研究方式、配置和语言见[使用指南](docs/user-guide.md)。
 
 ## 怎样使用
 
@@ -97,7 +138,9 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 
 可以读取公开 GitHub 仓库页面、README、文件和 issues；读取 README 不等于遍历整个代码仓库。代码审查按任务选择具体文件或宿主已有 GitHub 工具，插件未额外安装 GitHub MCP。
 
-网络访问依赖服务方的认证与额度。需要时在启动宿主的环境中设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY` 或专业研究所需的 `OPENAI_API_KEY`。无需给宿主研究额外填写一套模型地址。
+网络访问依赖服务方的认证与额度。可运行 `python3 src/cli.py setup` 隐藏输入密钥，或在宿主环境设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`、`OPENAI_API_KEY`。密钥默认保存为配置旁仅当前用户可读的 `credentials.json`，环境变量优先。无需给宿主研究额外填写一套模型地址。
+
+Skill 在每个联网研究新问题前调用 `research_readiness`，默认首次、配置／密钥变化或 15 分钟过期时刷新。向导可改为每题检查或仅手动检查；本地查询不联网。结果区分密钥配置、目录可达、实际检索与宿主 OAuth，检查不会启动专业研究任务。
 
 中英文用户共用一个插件；回答、报告正文和 Wiki 章节跟随用户指定语言。原始引用和 URL 保留原文，译文另列。执行 Skill 和 11 篇方法参考以英文维护，配完整中文阅读对照；子代理和工作流也会接收本次输出语言。详见[指令与提示索引](docs/instructions.md)。工具字段、技术诊断和部分固定元数据标签使用英文。
 
@@ -105,10 +148,10 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 
 | 宿主 | 接入 | 当前验证边界 |
 | --- | --- | --- |
-| Codex | 原生 Plugin + Skill + MCP | 本机安装、35 个 MCP 工具及来源生命周期已验证。 |
-| Claude Code | 原生插件和 Dynamic Workflow | 先前验证已加载工作流和工具；真实模型请求遭遇 429，未完成研究。 |
+| Codex | 原生 Plugin + Skill + MCP | 隔离配置中的原生安装／更新与 stdio 检查。 |
+| Claude Code | 持久 marketplace／插件和 Dynamic Workflow | 隔离配置中的原生安装／更新／缓存检查；模型调用另行验证。 |
 | Pi | Skill + CLI／stdio 桥 | 适配器隔离验证；子代理工作流依赖已有扩展。 |
-| DSH | MCP 与工作流适配 | 适配器隔离验证；需配置工作流服务及 Skill 发现。 |
+| DSH | 可搬移 bundle，包含 Skill 与 MCP | 安装器／适配器验证；工作流仍需宿主服务与引擎。 |
 
 另有 Agent Plugins 1.0.0 标准格式导出。适配器存在不代表每个宿主都已完成真实研究。Wiki 保存引用、审阅和修订；评测根据实际运行数据及显式评审标签计算，示例分数不能证明研究质量。
 

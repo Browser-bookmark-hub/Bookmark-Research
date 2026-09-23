@@ -45,21 +45,25 @@ Ask “Show Bookmark Research settings” or run `python3 src/cli.py config show
 | Page reading | Exa; requested length 12,000 characters | “Use Parallel to read this page.” |
 | Ordinary page archives | Enabled | “Do not archive this page read.” |
 | Research depth | `auto` | “Use deep research for this task.” |
+| Answer language | `auto`, follows the question | “Use Chinese for future reports.” |
+| Service readiness | Cached for 15 minutes; refresh on key/config changes | “Check availability before every question.” |
 | Professional research API | Disabled | “Show what is needed to enable OpenAI research.” |
 
 The search result limit is not a limit on package scope. Requested text length does not guarantee a complete page. Deep research always preserves its task evidence, independently of the ordinary page archive preference.
 
-API keys are read from the environment that launches the host: `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, and, for professional OpenAI research, `OPENAI_API_KEY`. Access and quotas depend on each provider. Native host research needs no additional professional-service key.
+Run `python3 <plugin-root>/src/cli.py setup` for guided preferences and hidden key entry. Keys come from the host environment first, then a private `credentials.json` next to settings: `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY`, and, for professional OpenAI research, `OPENAI_API_KEY`. Access and quotas depend on each provider. Host-led research needs no additional professional-service key.
+
+Before a new web question, the Skill checks selected services and observed host tools with `research_readiness`. Cached/always/manual modes control frequency; local queries stay offline. Optional native MCP connection/login steps are shown by setup, with actual OAuth handled in the host. Keys, visible tools and successfully tested operations have distinct status; checks never create a paid research job. See [settings and readiness](../skills/bookmark-research/references/settings-and-archive.md).
 
 Default settings live in `~/.config/bookmark-research/settings.json`; data lives in `~/.local/share/bookmark-research/`. XDG settings and the plugin's data/config path overrides are supported. SQLite stores the local query index; source versions, webpage archives, research records, and Wiki revisions live alongside it. Multiple hosts can share these locations. Keep user data outside the plugin and original canvas package.
 
 ## Languages and evidence
 
-Answers, progress updates, authored report text, and Wiki titles/sections follow your explicitly requested language, otherwise your actual task and conversation. For example:
+Answers, progress updates, report text and Wiki titles/sections follow the current explicit request, then saved `research.response_language`; `auto` follows the task and conversation. For example:
 
 > Research these Chinese and English sources, but write the report in English. Preserve original quotations and add translations separately.
 
-The Skill's instruction language does not determine the user's output language. Installer `--lang auto|en|zh` selects installation help and onboarding only; it does not persist a research-language setting. With `auto`, the installer checks `LC_ALL`, then `LC_MESSAGES`, then `LANG`; Chinese locales select Chinese, other or missing locales select English. `BOOKMARK_RESEARCH_INSTALL_LANG` carries the selected language from the shell bootstrap to its Python installer.
+The Skill's instruction language does not determine output language. Installer `--lang auto|en|zh` selects help and onboarding; the wizard separately asks which answer language to save. With `auto`, installation checks `LC_ALL`, then `LC_MESSAGES`, then `LANG`; Chinese locales select Chinese, others select English. `BOOKMARK_RESEARCH_INSTALL_LANG` carries that choice from the shell bootstrap to Python.
 
 The execution Skill and all 11 method references are in English, with complete Chinese reading copies. The [instruction index](instructions.en.md) also links the bilingual host prompt reference. The host preserves the selected output language in research briefs and delegated tasks; scripted workflows accept `output_language`. If the task and conversation select no language, English is the fallback.
 

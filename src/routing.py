@@ -1,10 +1,9 @@
 """Choose research entrypoints from observed host capabilities; never launch work."""
 
-import os
-
 from service_http import ResearchHttp
 from settings import Settings
 from web_search import SearchProviders
+from credentials import Credentials
 
 
 class ResearchRouting:
@@ -18,6 +17,7 @@ class ResearchRouting:
 
     def __init__(self, settings=None):
         self.settings = settings if settings is not None else Settings()
+        self.credentials = Credentials(self.settings)
 
     @staticmethod
     def _names(values, label):
@@ -115,7 +115,7 @@ class ResearchRouting:
             if selected_depth == "deep" or provider is not None:
                 for name in ([provider] if provider else ["openai", "parallel"]):
                     key = ResearchHttp.PROVIDERS[name]["key_env"]
-                    credential = bool(os.environ.get(key))
+                    credential = bool(self.credentials.get(key))
                     candidates.append({"route": "professional_service", "provider": name,
                         "entrypoint": "research_service_start", "execution_owner": name, "run_mode": "provider_background",
                         "available": services["enabled"] and credential, "authentication_verified": False,

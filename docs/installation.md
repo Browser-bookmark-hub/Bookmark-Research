@@ -6,15 +6,35 @@
 
 Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python 与要使用的客户端；运行 `python3 src/cli.py doctor` 可以离线检查 Python 和 FTS5。当前 checkout 的四宿主工作流及验证范围见 [宿主兼容说明](harness-compatibility.md)。下文 v0.2.0 Release 链接是历史发布产物，不包含新增宿主脚本；使用这些工作流时从当前源码导出。
 
-## 一条命令安装 Codex
+## `bookmark-research` 命令（推荐）
 
-已安装 Bash、Git、Python 3.9+（含 SQLite FTS5）和支持 plugin 命令的 Codex CLI 后，可以在任意工作目录执行：
+`npm install -g bookmark-research` 之后在终端输入 `bookmark-research`，即可打开主菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态。也可以直接带子命令：`install [宿主…]`、`update`、`verify`、`setup`、`status`、`config show|set`、`doctor`。npm 包只是入口，内部调用包内的 Python 安装器和运行时，因此仍需 Python 3.9+；Windows 原生、macOS、Linux 都可以用。npm 首次发布前可用 `npx github:Browser-bookmark-hub/Bookmark-Research`。不带参数且不在终端中运行时（agent／CI），它只输出状态 JSON，不弹菜单。
+
+## 一条命令引导安装
+
+已安装 Bash、Git、Python 3.9+（含 SQLite FTS5）和要使用的宿主 CLI 后，可以在任意工作目录执行；其他宿主不需要安装 Codex：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
 ```
 
-首次安装使用仓库默认分支，目前是 `main`。引导脚本从 Git 取得 Python 安装器，再通过 Codex 原生命令登记远程来源，安装共享 Skill 和 MCP 并验证运行时。临时下载目录随后清理，Codex 自己保留源码和安装缓存。安装后新建 Codex thread。
+终端向导检测可用 CLI，可多选 Codex、Claude Code、Pi、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选；随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。未找到任何受支持的 CLI 时，引导脚本在下载前停止。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
+
+首次安装跟随 `main`，通过所选宿主的原生命令登记与验证。Codex 保留自己的 Git 源码／缓存；其他宿主的完整导出和安装记录持久保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`，可用 `--install-dir` 改位置。随后清理临时下载目录，安装后新建宿主会话。
+
+在 checkout 中也可直接选择目标：
+
+```sh
+bash install.sh install --host codex
+bash install.sh install --host claude --scope user
+bash install.sh install --host pi --scope project --project /absolute/path/to/project
+bash install.sh install --host dsh --profile web
+bash install.sh install --host claude --host dsh --profile web   # 等同 --host claude,dsh
+```
+
+重复 `--host` 或用逗号分隔可一次安装多个宿主。此时 `--scope`／`--project` 作用于 Claude／Pi（选中 Pi 时拒绝 `local`），`--profile` 作用于 DSH；不匹配任何所选宿主的选项会被拒绝。各宿主依次安装，单个失败会记录在该宿主结果中，其余继续。偏好与密钥是用户级的，因此引导配置只在最后运行一次。单宿主时 JSON 结果格式不变；多宿主输出 `{"results": [...], "setup": {...}}`，任一宿主或配置失败时退出码为 1。
+
+Claude 支持 `user`／`project`／`local`，Pi 支持 `user`／`project`。project／local 需 `--project PATH`；DSH 需实际 `--profile NAME`。安装向导会询问未填写的目标。更新／验证时沿用同一 scope、project、profile 及自定义 `--install-dir`；`--codex`／`--claude`／`--pi`／`--dsh` 可指定 CLI 路径。
 
 安装帮助和首次使用引导默认按 `LC_ALL` → `LC_MESSAGES` → `LANG` 判断语言：中文 locale 使用中文，其余或未设置时使用英文。显式选择中文可运行：
 
@@ -28,12 +48,12 @@ python3 scripts/install.py install --lang zh
 更新、检查和预览使用同一入口：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- update
-curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- verify
-curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- update --host codex
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- verify --host codex
+curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- --host codex --dry-run
 ```
 
-`--dry-run` 仍会联网下载安装器并读取 Codex 状态，但不执行注册和安装。`--help` 只显示帮助；通过 curl 调用时仍需下载入口脚本。可传 `--codex /absolute/path/to/codex` 和 `--timeout 60`；后者是每条 Codex 命令的超时秒数。需要离线验证时，使用已保留在本地的 `scripts/install.py verify`。
+`--dry-run` 仍会下载安装器、读取登记和准备临时导出，但不安装、不保存偏好或修改宿主登记。`--help` 只显示帮助；curl 自身仍需下载入口。`--timeout 60` 限制每条原生命令，范围 1–300 秒，不限制人类输入；服务检查另有超时设置。使用本地 `scripts/install.py verify --host HOST` 可省去 bootstrap 下载。
 
 需要固定版本时，在**首次登记来源**时选择 tag 或 commit：
 
@@ -43,9 +63,36 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 `--ref` 同时选择 Git 中的安装器和待安装插件，所选版本须包含 `scripts/install.py`（从 v0.2.0 开始）。再次安装时省略 `--ref`；已登记的分支、tag 或 commit 会保留。`update` 也保持该 ref，固定 tag 不会自动升级到其他版本。默认跟随 `main` 适合接收开发更新，固定 tag/commit 适合复现。
 
-本入口管理 `bookmark-research@bookmark-research`。已通过 `personal` 等其他 marketplace 安装时，引导脚本会提示沿用其更新流程，避免重复安装。已有同名 marketplace 指向其他仓库或本地目录时，安装器会提示来源冲突；可运行 `update` 更新原来源，或先在 Codex 中明确调整来源。
+Codex 分支管理 `bookmark-research@bookmark-research`。已通过 `personal` 等来源安装时沿用原更新流程。其他宿主也会检查来源冲突并保留原有设置。Claude 用内容派生的原生版本刷新缓存，同一发布版本下的源码变化也能生效；Pi 使用持久本地包；DSH 向指定 profile 安装可搬移 bundle。更新失败保留原包并记录待验证状态，之后可重试安装／更新。
 
 **Git tag、GitHub Release 和安装脚本是三个独立部分。** Git tag 标记源码版本；Release 提供说明、ZIP 和校验文件；`install.sh` 负责取得源码并安装。上述命令直接使用 Git，不访问 Release API 或 ZIP 资产，只有仓库也能安装和更新。
+
+## 向导与就绪检查
+
+安装成功后可依次设置研究深度、答复语言、主要／备用搜索服务、正文读取服务、归档目录、检查频率和可选专业 API。回车保留显示的偏好。API Key 掩码输入并立即检查，失败可重新输入；密钥单独保存为配置旁权限 `0600` 的 `credentials.json`，是本地明文文件；可用 `BOOKMARK_RESEARCH_CREDENTIALS` 指定位置。环境变量优先于保存的密钥，密钥不进入偏好 JSON、安装包、安装记录或就绪检查输出。ChatGPT／Codex 登录与 OpenAI API Key 分开。
+
+以后随时运行 `python3 <安装路径>/src/cli.py setup` 重开向导，完整命令（JSON 结果中的 `getting_started.setup_command`）会在安装结束时打印；在源码中可运行：
+
+```sh
+python3 src/cli.py setup --host claude_code --lang zh
+python3 src/cli.py setup --non-interactive --input /absolute/path/to/preferences.json --skip-checks
+python3 src/cli.py readiness --host codex --refresh
+python3 src/cli.py readiness --provider exa --test-retrieval
+```
+
+Agent 可使用 `install --host pi --non-interactive --preferences FILE --skip-checks`。偏好文件是部分配置对象，例如：
+
+```json
+{"research":{"depth":"agentic","response_language":"zh"},"readiness":{"mode":"cached","ttl_seconds":900},"professional_research":{"enabled":false}}
+```
+
+默认检查所选检索服务的目录与已启用的专业服务，分别报告密钥配置、目录可达、实际检索和授权范围。`--skip-checks` 阻止服务检查联网，但下载／宿主安装仍可能需要网络。`--test-retrieval` 选择执行样例搜索及 example.com 阅读，可能使用服务额度。OpenAI 检查仅查询模型元数据；Parallel 检查认证后的 Task MCP 目录；二者不证明付费研究任务权限或额度，检查不会创建专业任务。
+
+每个联网研究新问题前，Skill 调用 `research_readiness`，传入实际宿主和已观察到的工具。`cached` 在首次、密钥／配置变化或 15 分钟过期后刷新；`always` 每个新问题检查；`manual` 等待手动 `--refresh`。同一调查复用检查，本地书签查询不联网；直接使用 CLI 时先执行 `readiness`，再调用搜索／读取命令。
+
+搜索／读取适配器已包含。可选 Exa Agent、Parallel Task、Tavily Research MCP 由宿主管理：向导展示对应的添加／授权步骤，检查结果也返回结构化指引。先检查已有登记并复用名称。Codex 用 `codex mcp list`，支持 OAuth 时用 `codex mcp login`；Claude 用 `claude mcp list` 和 `/mcp`。Pi 的原生研究 MCP 需另选 MCP 扩展；DSH 使用官方 MCP client 的 profile 配置和认证 header。工具可见不等于登录成功，插件保存的 Key 也不会自动授权另行登记的宿主 MCP。完整说明见[配置与排障](../skills/bookmark-research/references/zh/settings-and-archive.md)。
+
+可选服务故障显示在 `setup.needs_attention`，不阻塞本地查询或其他服务。原生安装或配置失败返回非零，JSON 分别报告安装与 setup 状态。未主动请求新版向导时，缺少 setup 的历史版本仍可正常安装。
 
 ## 取得代码或 ZIP
 
@@ -131,6 +178,8 @@ python3 scripts/install.py install --source /absolute/path/to/bookmark-research
 
 ### Claude Code
 
+持久安装可直接运行 `python3 scripts/install.py install --host claude --scope user`。手动导出或会话级开发仍可使用：
+
 ```sh
 python3 scripts/export_bundle.py --format claude --output exports/claude/bookmark-research
 claude plugin validate --strict ./exports/claude/bookmark-research
@@ -147,6 +196,8 @@ claude --plugin-dir ./exports/claude/bookmark-research
 `RID` 替换为真实任务 ID，`run_key` 在新运行保持唯一，同一次恢复保持不变。需要 Claude Code 2.1.154+ 及已启用的 Dynamic Workflows；Pro 还需在 `/config` 开启。通过 `/workflows` 管理运行，恢复限于同一会话，退出后需重开。自带 `/deep-research` 为独立的显式入口，不自动保证本插件书签清单覆盖。参见 [Claude workflows](https://code.claude.com/docs/en/workflows)。
 
 ### Pi
+
+持久安装可直接运行 `python3 scripts/install.py install --host pi`；基础 Skill + CLI 不需要子代理扩展。手动导出可使用：
 
 ```sh
 python3 scripts/export_bundle.py --format pi --output exports/pi/bookmark-research
@@ -171,15 +222,14 @@ pi_subagent_workflow({action:"run",name:"bookmark-research",args:{research_id:"R
 
 ### DSH / DeepSeek Harness
 
-DSH 环境需已安装官方 `@deepseek-ai/dsh-mcp-client`。多组研究还要求所选 profile 已配置 workflow service、worker-thread engine 和 `workflow` tool。把以下占位路径换成最终保留的目录：
+所选 DSH profile 需提供 Skill registry 和官方 `@deepseek-ai/dsh-mcp-client`。`dsh plugin` 由 pnpm 执行，请先安装（`npm install -g pnpm` 或 `corepack enable pnpm`）；缺少时安装器会在创建 profile 前停止，向导中 DSH 显示为不可选。统一安装器生成可搬移的 `dsh.bundle`，调用原生 `dsh plugin --profile web add PATH`，注册 Skill 并从安装后位置解析 Python／MCP 路径：
 
 ```sh
-python3 scripts/export_bundle.py --format dsh --output /absolute/path/to/bookmark-research-dsh
-dsh --profile web --patch /absolute/path/to/bookmark-research-dsh/cordis.patch.yml --dump-config
-dsh web --patch /absolute/path/to/bookmark-research-dsh/cordis.patch.yml
+python3 scripts/install.py install --host dsh --profile web
+python3 scripts/install.py verify --host dsh --profile web
 ```
 
-`cordis.patch.yml` 连接 MCP；Skill 发现仍需把现有 Skill provider 的 `customSkillDirs` 指向该导出的 `skills/`。补丁包含绝对路径，移动目录后必须重新生成。它是本机适配器，不是可搬移的 `dsh.bundle` npm 包。参见 [官方 MCP client 文档](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md)。
+手动分发时使用 `export_bundle.py --format dsh`，再用上述原生命令安装稳定导出目录。保留的旧 `cordis.patch.yml` 仍含绝对路径，需单独配置 Skill 发现；移动后应重新生成。多组研究另需 workflow service、worker-thread engine 和 `workflow` tool。参见 [官方 MCP client 文档](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md)。
 
 生成可直接传给宿主 `workflow` 工具的完整 JSON：
 
@@ -203,7 +253,7 @@ python3 scripts/export_bundle.py --format agent-plugin --output exports/agent-pl
 
 全新用户可以先用默认设置，**本地书签查询无需填写配置或 API Key**。安装完成后的引导会显示实际生效的设置和保存位置；第一次主动修改设置时才创建配置文件。安装器读取这些设置时不会导入书签或创建索引。
 
-1. 安装成功后，在 Codex 新建对话，让客户端加载插件。
+1. 安装成功后，在所选宿主新建会话，让客户端加载插件。
 2. 准备自己的 Bookmark Canvas 目录、ZIP 或单卡 JSON。插件不附带书签或预建索引；把下面的占位路径换成实际路径后发送。
 3. 先查看本地栏目与书签，再提出需要联网核验的研究问题。只做网页研究时可以直接提出主题，无需先导入书签。插件使用当前客户端中的模型，无需再填写一套 LLM 模型名称或地址。
 
@@ -232,18 +282,18 @@ python3 scripts/export_bundle.py --format agent-plugin --output exports/agent-pl
 
 长度参数是否受支持及实际返回量取决于 provider，不能据此保证完整页面。深度研究会始终保存其任务证据，普通网页归档开关只影响 `fetch_web`。
 
-网页研究使用 Exa、Parallel，以及可选的 Tavily；匿名访问额度和认证要求由服务方决定。如果出现认证或额度错误，按所选服务在**启动客户端的环境**中设置 `EXA_API_KEY`、`PARALLEL_API_KEY` 或 `TAVILY_API_KEY`，再启动客户端使其生效。安装和导出不会收集或写入凭据。
+网页研究的匿名额度和认证要求由服务方决定。认证失败时重新运行 `setup` 隐藏输入密钥，或在启动客户端的环境中设置对应 API Key，再刷新检查。导出不包含凭据；安装向导仅按用户选择保存密钥。
 
-终端用户可执行安装结束时打印的绝对路径命令查看配置；它指向 Codex 保留的安装缓存，临时下载目录清理后仍然可用。在源码目录中也可运行 `python3 src/cli.py config show`，或用 `config set` 修改设置。完整参数见 [CLI 说明](../skills/bookmark-research/references/cli.md)。
+终端用户可执行安装结束时打印的绝对路径命令查看配置或重开向导；它指向宿主保留的安装路径，临时下载目录清理后仍可用。在源码中也可运行 `python3 src/cli.py config show` 或 `setup`。完整参数见 [CLI 说明](../skills/bookmark-research/references/cli.md)。
 
 索引、页面归档和研究任务保存在 `BOOKMARK_RESEARCH_DATA_DIR`，默认 `~/.local/share/bookmark-research/`，并遵循 `XDG_DATA_HOME`；来源原始快照在数据库旁的 `index.sqlite3.sources/`。用户设置通过 `BOOKMARK_RESEARCH_CONFIG` 指定，默认 `~/.config/bookmark-research/settings.json`，并遵循 `XDG_CONFIG_HOME`。保持这些目录位于插件和安装缓存之外，多个客户端可通过相同配置共享它们。详见 [设置与归档](../skills/bookmark-research/references/settings-and-archive.md)。
 
 ## 更新
 
 ```sh
-python3 scripts/install.py update --dry-run
-python3 scripts/install.py update
-python3 scripts/install.py verify
+python3 scripts/install.py update --host claude --scope user --dry-run
+python3 scripts/install.py update --host claude --scope user
+python3 scripts/install.py verify --host claude --scope user
 ```
 
 Git marketplace 的 `update` 保持已注册的仓库与 ref，刷新其快照；固定到不可变 tag/commit 时不会自动跳到另一个版本。本地 marketplace 的 `update` 使用该目录当前内容，不替你执行 `git pull`。先取得目标源码版本，再更新插件。源码目录改变不等于已经更新了正在运行的会话；完成后新建 Codex thread。

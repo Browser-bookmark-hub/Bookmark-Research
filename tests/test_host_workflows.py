@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -55,6 +56,54 @@ class HostWorkflowTests(unittest.TestCase):
         self.assertNotIn("export const meta", call["script"])
         self.assertIn("pipeline(jobs", call["script"])
         self.assertEqual(call["args"]["bridge_path"], str(output / "hosts/shared/research-call.py"))
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required for the DSH bundle test")
+    def test_dsh_bundle_survives_relocation_and_forwards_only_plugin_environment(self):
+        original = self.base / "original dsh"
+        moved = self.base / 'moved 中文 "bundle"'
+        export_bundle.export_bundle("dsh", original)
+        original.rename(moved)
+        patch = (moved / "bundle.patch.yml").read_text()
+        environment = json.loads(re.search(r"^        env: !!js (.+)$", patch, re.MULTILINE)[1])
+        settings = Path(self.env["BOOKMARK_RESEARCH_CONFIG"])
+        settings.write_text('{"research":{"response_language":"zh"}}')
+        credentials = self.base / "private-credentials.json"
+        credentials.write_text('{"OPENAI_API_KEY":"private-file-marker"}')
+        credentials.chmod(0o600)
+        env = dict(self.env, BOOKMARK_RESEARCH_CREDENTIALS=str(credentials),
+                   EXA_API_KEY="environment-key-marker", UNRELATED_SECRET="must-not-forward")
+        script = r'''
+import assert from "node:assert/strict";
+import { pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
+const plugin = await import(pathToFileURL(process.argv[1]).href);
+let paths, provider;
+plugin.apply({provide(name, value) { assert.equal(name, "bookmarkResearchPaths"); paths = value; },
+  skills: {registerProvider(factory) { provider = factory(); }}});
+const candidates = await provider.list();
+assert.equal(candidates[0].name, "bookmark-research");
+const skill = await provider.get(candidates[0]);
+assert(skill.content.includes("research_readiness"));
+const env = Function("return (" + process.argv[2] + ")")();
+assert.equal(env.EXA_API_KEY, "environment-key-marker");
+assert.equal(env.UNRELATED_SECRET, undefined);
+const probe = spawnSync("python3", [paths.cli, "setup", "--non-interactive", "--skip-checks", "--host", "dsh"],
+  {env: {PATH: process.env.PATH, HOME: process.env.HOME, ...env}, encoding: "utf8"});
+assert.equal(probe.status, 0, probe.stdout + probe.stderr);
+const result = JSON.parse(probe.stdout);
+assert.equal(result.settings.settings.research.response_language, "zh");
+assert.equal(result.credentials.path, process.env.BOOKMARK_RESEARCH_CREDENTIALS);
+assert(result.credentials.credentials.find(row => row.name === "OPENAI_API_KEY").configured);
+process.stdout.write(JSON.stringify({root: paths.root, cli: paths.cli}));
+'''
+        result = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script,
+                                 str(moved / "hosts/dsh/plugin.js"), environment], env=env, cwd=self.base,
+                                text=True, capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(Path(json.loads(result.stdout)["root"]), moved)
+        self.assertEqual(Path(json.loads(result.stdout)["cli"]), moved / "src/cli.py")
+        self.assertNotIn("environment-key-marker", patch + result.stdout)
+        self.assertNotIn("private-file-marker", patch + result.stdout)
 
     def test_dsh_language_validation_happens_before_preparing_a_call(self):
         script = ROOT / "hosts/dsh/workflow-call.py"

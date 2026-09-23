@@ -1,0 +1,30 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Unit tests
+        working-directory: tests
+        run: python -m unittest discover -p "test_*.py"
+      - name: npm command smoke test
+        shell: bash
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          npm install -g "$RUNNER_TEMP"/bookmark-research-*.tgz
+          export BOOKMARK_RESEARCH_CONFIG="$RUNNER_TEMP/settings.json" BOOKMARK_RESEARCH_DATA_DIR="$RUNNER_TEMP/data"
+          bookmark-research --help
+          bookmark-research doctor
+          bookmark-research status < /dev/null

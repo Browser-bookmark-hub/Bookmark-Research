@@ -29,6 +29,9 @@ REQUIRED_FILES = (
     "src/archive.py",
     "src/bookmark_index.py",
     "src/cli.py",
+    "src/credentials.py",
+    "src/onboarding.py",
+    "src/readiness.py",
     "src/mcp_server.py",
     "src/remote_mcp.py",
     "src/provider_adapters.py",
@@ -192,6 +195,15 @@ Keep databases, user settings, and page archives outside this package. Exports
 exclude existing indexes, caches, tests, and build artifacts. They do not read
 API key values from the environment; supply provider credentials at runtime.
 
+Run `python3 src/cli.py setup` to guide preferences, hidden credential entry and
+service checks. Use `--host codex|claude_code|pi|dsh` for host-specific MCP/login
+guidance. Agents can use `setup --non-interactive --input FILE --skip-checks`.
+Keys are saved separately in a private local `credentials.json`, never in this
+package. Environment variables override saved keys. Before each new web research
+question, use `readiness` (MCP `research_readiness`); it respects cached/always/manual
+preferences. `--test-retrieval` opts into sample search/read quota. No professional
+research job is created by checks. Local queries require neither keys nor checks.
+
 """
     if format_name == "codex":
         instructions = """## Codex
@@ -232,8 +244,16 @@ Specification: https://agent-plugins.org/specification
         instructions = """## Claude Code
 
 The entry files are `.claude-plugin/plugin.json` and root `.mcp.json`. MCP
-arguments use `${CLAUDE_PLUGIN_ROOT}`. With Claude Code installed, load this
-plugin for a session using its actual absolute path:
+arguments use `${CLAUDE_PLUGIN_ROOT}`. A local marketplace manifest is included.
+With Claude Code installed, register this stable export persistently:
+
+```sh
+claude plugin marketplace add /absolute/path/to/this-bundle
+claude plugin install bookmark-research@bookmark-research --scope user
+```
+
+Reuse existing registrations instead of replacing a different source. For session
+development, load the export using its actual absolute path:
 
 ```sh
 claude --plugin-dir /absolute/path/to/this-bundle
@@ -295,15 +315,25 @@ Reference: https://github.com/earendil-works/pi/blob/main/packages/coding-agent/
     else:
         patch_path = shlex.quote(str(output / "cordis.patch.yml"))
         skill_root = str(output / "skills")
-        instructions = """## DeepSeek Harness local adapter
+        instructions = """## DeepSeek Harness bundle
 
-`cordis.patch.yml` uses the official `@deepseek-ai/dsh-mcp-client` to connect the
-stdio MCP tools. **It contains absolute local paths** and must be generated at
-its final installation location. It is not a relocatable npm bundle and does not
-declare `dsh.bundle`. Install DSH and its official MCP client dependency separately.
-If you move this directory, export it again or update the CLI path in the patch.
+`package.json` declares `dsh.bundle`, using `bundle.patch.yml` and a module that
+resolves its Python runtime and Skill from its installed location. Select an
+existing profile with the Skill registry and official MCP client available:
 
-In a DSH environment with that dependency available, inspect the merged configuration:
+```sh
+dsh plugin --profile web add /absolute/path/to/this-bundle
+dsh --profile web --dump-config
+```
+
+The bundle connects both Skill discovery and stdio MCP. It explicitly forwards
+the plugin's data/config/credential paths and provider-key environment variables
+through the MCP client's filtered child environment. No values are baked into
+the export. After moving the source export, reinstall it from the new location.
+
+The legacy `cordis.patch.yml` connects MCP only and contains absolute local paths.
+Regenerate it after moving the export. For this manual adapter, inspect the merged
+configuration with:
 
 ```sh
 dsh --profile web --patch %s --dump-config
@@ -336,7 +366,7 @@ Reference: https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/
     return introduction + instructions
 
 
-def _write_adapter(stage, format_name, output, manifest):
+def _write_adapter(stage, format_name, output, manifest, python="python3"):
     metadata = {"name": NAME, "version": manifest["version"], "description": manifest["description"]}
     if format_name == "codex":
         _write_json(stage, ".codex-plugin/plugin.json", manifest)
@@ -350,7 +380,7 @@ def _write_adapter(stage, format_name, output, manifest):
         _write_json(stage, "plugin.json", {"$schema": SCHEMA_ROOT + "plugin.schema.json", **metadata})
         _write_json(stage, "mcp.json", {
             "$schema": SCHEMA_ROOT + "mcp.schema.json",
-            "mcpServers": {NAME: {"type": "stdio", "command": "python3",
+            "mcpServers": {NAME: {"type": "stdio", "command": python,
                                   "args": ["${PLUGIN_ROOT}/src/cli.py", "serve"]}},
         })
     elif format_name == "claude":
@@ -358,14 +388,43 @@ def _write_adapter(stage, format_name, output, manifest):
         if manifest.get("author"):
             claude_metadata["author"] = manifest["author"]
         _write_json(stage, ".claude-plugin/plugin.json", claude_metadata)
+        _write_json(stage, ".claude-plugin/marketplace.json", {
+            "name": NAME, "description": manifest["description"],
+            "owner": {"name": "Bookmark Research"},
+            "plugins": [{"name": NAME, "source": "./", "description": manifest["description"]}],
+        })
         _write_json(stage, ".mcp.json", {"mcpServers": {NAME: {
-            "type": "stdio", "command": "python3",
+            "type": "stdio", "command": python,
             "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.py", "serve"],
         }}})
     elif format_name == "pi":
         _write_json(stage, "package.json", {**metadata, "keywords": ["pi-package"],
                                            "pi": {"skills": ["./skills"]}})
     else:
+        _write_json(stage, "package.json", {
+            **metadata, "type": "module", "main": "./hosts/dsh/plugin.js",
+            "exports": "./hosts/dsh/plugin.js",
+            "files": ["src", "config", "skills", "hosts", "workflows", "docs", "bundle.patch.yml", "LICENSE"],
+            "dsh": {"bundle": {"patch": "./bundle.patch.yml"}},
+        })
+        forwarded = manifest["mcpServers"][NAME]["env_vars"]
+        environment = json.dumps("Object.fromEntries(" + json.dumps(forwarded) +
+            ".filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))")
+        (stage / "bundle.patch.yml").write_text("""- insert:
+    - id: bookmark-research-skill
+      name: bookmark-research
+    - id: bookmark-research-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      inject: [bookmarkResearchPaths]
+      config:
+        serverName: bookmark-research
+        transport: stdio
+        command: %s
+        args: !!js "[ctx.bookmarkResearchPaths.cli, 'serve']"
+        cwd: !!js ctx.bookmarkResearchPaths.root
+        env: !!js %s
+        failOnStartupError: true
+""" % (json.dumps(python), environment), encoding="utf-8")
         # JSON strings are valid YAML scalars, including paths with spaces/quotes.
         cli_path = json.dumps(str(output / "src/cli.py"), ensure_ascii=False)
         patch = """- insert:
@@ -374,17 +433,18 @@ def _write_adapter(stage, format_name, output, manifest):
       config:
         serverName: bookmark-research
         transport: stdio
-        command: python3
+        command: %s
         args:
           - %s
           - serve
+        env: !!js %s
         failOnStartupError: true
-""" % cli_path
+""" % (json.dumps(python), cli_path, environment)
         (stage / "cordis.patch.yml").write_text(patch, encoding="utf-8")
     (stage / "README.md").write_text(_readme(format_name, output), encoding="utf-8")
 
 
-def export_bundle(format_name, output, source_root=SOURCE_ROOT):
+def export_bundle(format_name, output, source_root=SOURCE_ROOT, python="python3"):
     """Publish a staged export to a missing or empty directory; never merge files."""
     if format_name not in FORMATS:
         raise ValueError("Unknown export format: " + str(format_name))
@@ -409,7 +469,7 @@ def export_bundle(format_name, output, source_root=SOURCE_ROOT):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_root / relative, destination)
         host_files = export_host_assets(source_root, stage, format_name)
-        _write_adapter(stage, format_name, output, manifest)
+        _write_adapter(stage, format_name, output, manifest, python)
         _check_destination(output)
         if output.exists():
             output.rmdir()  # Only an empty directory can be removed here.

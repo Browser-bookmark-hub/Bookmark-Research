@@ -58,8 +58,9 @@ class Settings:
                            "fallback_providers": ["tavily", "jina"], "limit_per_target": 5},
                 "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000},
                 "archive": {"enabled": True, "directory": str(cls.data_directory() / "knowledge")},
-                "research": {"depth": "auto", "prefer_host_workflows": True,
+                "research": {"depth": "auto", "prefer_host_workflows": True, "response_language": "auto",
                              "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
+                "readiness": {"mode": "cached", "ttl_seconds": 900, "timeout_seconds": 10},
                 "professional_research": {"enabled": False, "provider": None,
                     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
                     "parallel": {"processor": "pro"}},
@@ -81,15 +82,17 @@ class Settings:
     def _validate(cls, value):
         defaults = cls.defaults()
         if set(value) - set(defaults):
-            raise ValueError("Unknown settings fields; credentials belong in the process environment")
-        for section in ("search", "fetch", "archive", "research", "professional_research", "wiki"):
+            raise ValueError("Unknown settings fields; credentials belong in the environment or private credential file")
+        for section in ("search", "fetch", "archive", "research", "readiness", "professional_research", "wiki"):
             if not isinstance(value.get(section), dict) or set(value[section]) != set(defaults[section]):
                 raise ValueError("Invalid settings fields in " + section)
         for label, number, minimum, maximum in (
                 ("schema_version", value["schema_version"], 1, 1),
                 ("timeout_seconds", value["timeout_seconds"], 1, 60),
                 ("search.limit_per_target", value["search"]["limit_per_target"], 1, 20),
-                ("fetch.max_characters", value["fetch"]["max_characters"], 100, 100000)):
+                ("fetch.max_characters", value["fetch"]["max_characters"], 100, 100000),
+                ("readiness.ttl_seconds", value["readiness"]["ttl_seconds"], 60, 86400),
+                ("readiness.timeout_seconds", value["readiness"]["timeout_seconds"], 1, 30)):
             if type(number) is not int or not minimum <= number <= maximum:
                 raise ValueError("%s must be an integer between %s and %s" % (label, minimum, maximum))
         for section, field, minimum in (("search", "providers", 1), ("fetch", "providers", 1),
@@ -111,6 +114,10 @@ class Settings:
             raise ValueError("research.depth must be auto, quick, agentic or deep")
         if type(research["prefer_host_workflows"]) is not bool:
             raise ValueError("research.prefer_host_workflows must be a boolean")
+        if research["response_language"] not in ("auto", "en", "zh"):
+            raise ValueError("research.response_language must be auto, en or zh; per-request instructions override it")
+        if value["readiness"]["mode"] not in ("cached", "always", "manual"):
+            raise ValueError("readiness.mode must be cached, always or manual")
         methods = research["methods"]
         allowed_methods = ("comparative_analysis", "fact_check", "benchmark_review", "wiki_synthesis")
         if (not isinstance(methods, list) or not 1 <= len(methods) <= len(allowed_methods)

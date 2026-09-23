@@ -4,7 +4,36 @@
 
 Users can change settings in conversation. CLI and MCP share one implementation; there is no separate graphical settings page.
 
-Providers are `exa`, `parallel`, `tavily` and `jina`. Search starts with `search.providers` (Exa + Parallel), then `search.fallback_providers` (Tavily + keyed Jina) for unresolved queries; `[]` disables fallback. Reading uses `fetch.provider` first, then other `fetch.providers` concurrently for unresolved URLs (Exa → Parallel + Jina). Jina Reader supports anonymous access; Search requires `JINA_API_KEY`. Tavily uses `TAVILY_API_KEY` or a keyless header. Credentials come only from the process environment; service quotas still apply.
+Providers are `exa`, `parallel`, `tavily` and `jina`. Search starts with `search.providers` (Exa + Parallel), then `search.fallback_providers` (Tavily + keyed Jina) for unresolved queries; `[]` disables fallback. Reading uses `fetch.provider` first, then other `fetch.providers` concurrently for unresolved URLs (Exa → Parallel + Jina). Jina Reader supports anonymous access; Search requires `JINA_API_KEY`. Tavily uses `TAVILY_API_KEY` or a keyless header. Credentials come from the process environment, then the private credential file; service quotas still apply.
+
+## Terminal setup and readiness
+
+Run `python3 <root>/src/cli.py setup --host codex` (or `claude_code`, `pi`, `dsh`) to guide preferences, hidden key entry and selected service checks. `--lang auto|en|zh` selects the wizard language. `--non-interactive --input FILE` merges partial preferences without prompts; `--input -` reads JSON from stdin. Use environment variables for agent-supplied keys, never chat or preference JSON. `--skip-checks` stays offline; `--test-retrieval` opts into sample search/read requests that can use provider quota. The flags conflict. No professional research job is started by setup/checks.
+
+Keys saved by setup live in `credentials.json` next to the settings file, or `BOOKMARK_RESEARCH_CREDENTIALS`. The file is unencrypted and readable only by its owner (`0600`). Runtime tools reload it, so saving a key takes effect without restarting the plugin; changed process environment requires restarting that process. Environment variables take precedence. Host OAuth tokens remain in the host, and plugin keys do not automatically authenticate a separate host MCP.
+
+Before each new web research question, call `research_readiness` with the actual `host`, `observed_tools` and any explicitly restricted `providers`. CLI: `readiness --host codex --tool mcp__exa__agent_run`. Only report tools actually observed; omitted observations mean unknown, an empty list means no tools were observed. Local bookmark queries require no check. During an investigation, reuse its result instead of repeatedly refreshing. CLI callers run readiness explicitly before web commands.
+
+| Policy | Behavior |
+| --- | --- |
+| `cached` (default) | Check on first use, changed settings/keys, or expiry; default TTL 900 seconds |
+| `always` | Fresh check on each new question's readiness call |
+| `manual` | No network unless `refresh:true` / `--refresh` or an explicit retrieval test |
+| `offline:true` / `--offline` | Local configuration and valid cached evidence only; no network |
+
+Read the scope of each result:
+
+- `missing_credentials`: configure the named key through setup or the process environment.
+- `catalog_reachable`: MCP discovery worked; search/read permission and quota are untested.
+- `http_unchecked`: HTTP mapping exists; inspect operation-level missing keys (Jina Search requires one).
+- `retrieval_verified`: use only operations whose own status is `verified`; other operations may have failed.
+- `model_access_verified`: OpenAI model metadata was accessible, not a paid research execution test.
+- `task_mcp_access_verified`: the Parallel Task MCP accepted the key; this does not establish Task API execution permission.
+- `failed`: address the classified auth/network/contract failure, then refresh that provider. Other routes remain available.
+
+Optional native research MCPs return endpoint-specific `setup` guidance. Inspect existing registrations before adding one to avoid duplicates. Codex uses `codex mcp list --json`, `codex mcp add NAME --url URL` and, for OAuth-capable endpoints, `codex mcp login NAME`; Claude uses `claude mcp list`, `claude mcp add --scope user --transport http NAME URL`, then `/mcp` to authorize. Use the actual scope and existing name. Pi has no assumed MCP extension; ordinary/deep host-led work uses the bundled CLI. DSH uses its official MCP client with `transport: streamable-http`, the endpoint and environment-backed headers in the selected profile; OAuth support is not established by that bridge's documentation. Do not infer login from tool presence or start a paid task just to test authorization.
+
+The wizard displays these host steps; it does not execute them or import host login tokens. Its `needs_attention` lists failed checks or missing required service keys. Cached checks retain timestamps and expire; failures are cached for at most 60 seconds. Cache files live under the data directory's `readiness/` and contain no raw keys. Configuration and key rotation invalidate the relevant evidence.
 
 ## Configuration entry points
 
@@ -25,8 +54,9 @@ The effective configuration shape is below. Replace example `directory` values w
   "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5},
   "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000},
   "archive": {"enabled": true, "directory": "/absolute/path/to/knowledge"},
-  "research": {"depth": "auto", "prefer_host_workflows": true,
+  "research": {"depth": "auto", "prefer_host_workflows": true, "response_language": "auto",
     "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
+  "readiness": {"mode": "cached", "ttl_seconds": 900, "timeout_seconds": 10},
   "professional_research": {"enabled": false, "provider": null,
     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
@@ -36,7 +66,7 @@ The effective configuration shape is below. Replace example `directory` values w
 
 Precedence is per-call arguments → saved preferences → built-in defaults. `fetch_web.archive=false` disables saving for one call; `update_settings` changes the future default. `max_characters` ranges from 100 to 100000 and is forwarded only when the provider supports the corresponding limit. Archives record actual request parameters. `character_limit_applied:false` means the provider has no length parameter supported by this adapter. A larger limit does not guarantee a complete page.
 
-Config path: CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/settings.json`. Archives default to `${BOOKMARK_RESEARCH_DATA_DIR}/knowledge`, or `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/knowledge` without that override. Clients sharing config and data paths share preferences and records. API keys remain in the host/process environment, not settings files.
+Config path: CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/settings.json`. Archives default to `${BOOKMARK_RESEARCH_DATA_DIR}/knowledge`, or `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/knowledge` without that override. Clients sharing config and data paths share preferences and records. API keys remain separate from preferences, in the environment or private credential file.
 
 `XDG_CONFIG_HOME` and `XDG_DATA_HOME` must be absolute. Empty/relative values are ignored per XDG conventions, using home-directory defaults rather than locations relative to a client's working directory.
 
@@ -44,7 +74,7 @@ Config path: CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOM
 
 Old config files inherit new defaults; only user overrides are saved. An explicit saved `search.providers` list without `fallback_providers` keeps fallback disabled to preserve the earlier provider choice. Set both lists to opt into primary and fallback groups. Store lasting preferences here instead of changing package `AGENTS.md`. Settings, evidence, Wiki, SQLite and source snapshots stay outside the plugin/package and are not bundled into upgrades. There are no embeddings. Continuous directory checks depend on each source's `mode`, separately from page archiving; see [source lifecycle](source-lifecycle.md).
 
-Research output language is a task requirement in the Skill/brief, not a saved setting here. Installer `--lang` controls help/onboarding only. Pass the task's resolved language to workflow `output_language` when delegating.
+Output language precedence is the current request → `research.response_language` (`auto`, `en`, `zh`) → task/conversation language when auto → English if unspecified. Installer `--lang` controls help/onboarding only; the wizard separately asks for response language. Pass the resolved language to workflow `output_language` when delegating.
 
 ## What a page read saves
 

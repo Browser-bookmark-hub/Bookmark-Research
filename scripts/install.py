@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install, update, or verify Bookmark Research through Codex's native CLI."""
+"""Install, update, or verify Bookmark Research with a selected client's native CLI."""
 
 import argparse
 import json
@@ -216,7 +216,7 @@ def _getting_started(installed_path, timeout=30, language="auto"):
     """Read the installed runtime's preferences without initializing user data."""
     language = resolve_language(language)
     message = lambda english, chinese: _message(language, english, chinese)
-    command = ["python3", "-B", str(Path(installed_path) / "src/cli.py"), "config", "show"]
+    command = [sys.executable, "-B", str(Path(installed_path) / "src/cli.py"), "config", "show"]
     guide = {
         "language": language,
         "first_prompt": message(
@@ -266,7 +266,9 @@ def _print_getting_started(guide):
         lines.extend(guide["configuration_summary"])
     lines.extend([
         "", message("Next steps:", "下一步："),
-        message("1. Start a new Codex thread to load the plugin.", "1. 在 Codex 新建对话，让客户端加载插件。"),
+        (message("1. Start a new Codex thread to load the plugin.", "1. 在 Codex 新建对话，让客户端加载插件。")
+         if guide.get("host", "codex") == "codex" else message(
+             "1. Restart %s to load the Skill and tools.", "1. 重启 %s 以加载 Skill 和工具。") % guide["host"]),
         message("2. Prepare your Bookmark Canvas directory, ZIP, or single-card JSON. Replace the path below and send:",
                 "2. 准备自己的 Bookmark Canvas 目录、ZIP 或单卡 JSON，把下面的占位路径换成实际路径后发送："),
         "   " + guide["first_prompt"],
@@ -288,6 +290,9 @@ def _print_getting_started(guide):
         message("Ask in English or Chinese; specify a different answer/report language when needed. Original quotations are preserved.",
                 "可以用中文或英文提问，也可以指定答复和报告语言；原始引用保留原文。"),
     ])
+    if guide.get("setup_command"):
+        lines.extend([message("Reopen guided setup:", "重新打开配置向导："),
+                      "  " + shlex.join(guide["setup_command"])])
     print("\n".join(lines), file=sys.stderr)
 
 
@@ -354,22 +359,146 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
     return result
 
 
+HOSTS = ("codex", "claude", "pi", "dsh")
+
+
+def _setup_host(host):
+    return "claude_code" if host == "claude" else host
+
+
+def _normalize_hosts(values):
+    """Accept repeated and comma-separated --host values; dedupe in order."""
+    if not values:
+        return None
+    hosts = []
+    for value in values:
+        for name in str(value).split(","):
+            name = name.strip()
+            if not name:
+                continue
+            if name not in HOSTS:
+                raise ValueError("--host must be codex, claude, pi, or dsh: " + name)
+            if name not in hosts:
+                hosts.append(name)
+    if not hosts:
+        raise ValueError("--host requires at least one of codex, claude, pi, or dsh")
+    return hosts
+
+
+def _targets_from_args(args):
+    hosts = args.host or ["codex"]
+    others = [host for host in hosts if host != "codex"]
+    if hosts == ["codex"]:
+        if any((args.scope, args.project, args.profile, args.install_dir, args.claude, args.pi, args.dsh)):
+            raise ValueError("Host-specific options require --host claude, pi, or dsh")
+    if others and getattr(args, "installed_path", None):
+        raise ValueError("--installed-path is only supported for Codex")
+    if len(hosts) == 1:
+        # A single host keeps its historical option handling and native errors.
+        return [{"host": hosts[0], "scope": args.scope, "project": args.project, "profile": args.profile}]
+    # CLI paths for unselected hosts are harmless locators and are ignored.
+    if (args.scope or args.project) and not {"claude", "pi"} & set(hosts):
+        raise ValueError("--scope and --project require --host claude or pi")
+    if args.scope == "local" and "pi" in hosts:
+        raise ValueError("Unsupported installation scope for pi: local is Claude-only")
+    if args.profile and "dsh" not in hosts:
+        raise ValueError("--profile is only supported for DSH")
+    if args.install_dir and not others:
+        raise ValueError("Host-specific options require --host claude, pi, or dsh")
+    return [{"host": host,
+             "scope": args.scope if host in ("claude", "pi") else None,
+             "project": args.project if host in ("claude", "pi") else None,
+             "profile": args.profile if host == "dsh" else None} for host in hosts]
+
+
+def _run_target(args, target, language):
+    host = target["host"]
+    if host == "codex":
+        return manage(args.action, CodexCli(args.codex, args.timeout),
+                      source=getattr(args, "source", None), ref=getattr(args, "ref", None),
+                      dry_run=getattr(args, "dry_run", False), installed_path=getattr(args, "installed_path", None),
+                      language=language)
+    from host_install import manage_host
+    if getattr(args, "installed_path", None):
+        raise ValueError("--installed-path is only supported for Codex")
+    result = manage_host(args.action, host, binary=getattr(args, host), timeout=args.timeout,
+                         source=getattr(args, "source", None), ref=getattr(args, "ref", None),
+                         dry_run=getattr(args, "dry_run", False), scope=target.get("scope"),
+                         project=target.get("project"), profile=target.get("profile"), install_dir=args.install_dir)
+    result["language"] = language
+    return result
+
+
+def _run_setup(args, installed, host, language, guided):
+    command = [sys.executable, "-B", str(installed / "src/cli.py"), "setup", "--lang", language,
+               "--host", _setup_host(host), "--interactive" if guided else "--non-interactive"]
+    if args.preferences:
+        command.extend(["--input", args.preferences])
+    if args.skip_checks:
+        command.append("--skip-checks")
+    if args.test_retrieval:
+        command.append("--test-retrieval")
+    if not (installed / "src/onboarding.py").is_file():
+        requested = guided or bool(args.preferences) or args.test_retrieval
+        return {"completed": False if requested else None, "status": "unsupported",
+                "message": "The installed version predates guided setup; install a newer version to use setup."}
+    # The installed version owns its settings schema. Do not use the
+    # bootstrap checkout's runtime or impose a timeout on human input.
+    completed = subprocess.run(command, text=True, stdout=subprocess.PIPE)
+    try:
+        setup = json.loads(completed.stdout)
+        if not isinstance(setup, dict):
+            raise ValueError("Setup result must be an object")
+    except ValueError:
+        setup = {"error": "Setup did not return a valid result"}
+    setup["completed"] = completed.returncode == 0 and "error" not in setup
+    setup["exit_code"] = completed.returncode
+    return setup
+
+
+def _guide(installed, host, timeout, language):
+    guide = {**_getting_started(installed, timeout, language), "host": host}
+    if (installed / "src/onboarding.py").is_file():
+        guide["setup_command"] = ["python3", str(installed / "src/cli.py"), "setup",
+                                  "--host", _setup_host(host), "--lang", language]
+    return guide
+
+
 def main(argv=None):
     language_parser = argparse.ArgumentParser(add_help=False)
     language_parser.add_argument("--lang", choices=("auto", "en", "zh"), default="auto")
     preliminary, _ = language_parser.parse_known_args(argv)
     language = resolve_language(preliminary.lang)
     message = lambda english, chinese: _message(language, english, chinese)
-    parser = argparse.ArgumentParser(description=message(__doc__, "通过 Codex 原生 CLI 安装、更新或验证 Bookmark Research。"))
+    parser = argparse.ArgumentParser(description=message(__doc__, "通过所选宿主的原生 CLI 安装、更新或验证 Bookmark Research。"))
     language_help = message("Installer language; auto follows LC_ALL, LC_MESSAGES, then LANG", "安装器语言；auto 依次读取 LC_ALL、LC_MESSAGES、LANG")
     parser.add_argument("--lang", choices=("auto", "en", "zh"), default=argparse.SUPPRESS, help=language_help)
     subparsers = parser.add_subparsers(dest="action", required=True)
     for action in ("install", "update", "verify"):
         command = subparsers.add_parser(action)
         command.add_argument("--lang", choices=("auto", "en", "zh"), default=argparse.SUPPRESS, help=language_help)
+        command.add_argument("--host", action="append", help=message(
+            "Target client: codex, claude, pi, or dsh; repeat or comma-separate for several. Guided selection in a terminal, otherwise codex",
+            "目标宿主：codex、claude、pi 或 dsh；可重复或用逗号指定多个。终端中引导选择，非交互时默认 codex"))
         command.add_argument("--codex", default="codex", help=message("Codex CLI executable, optionally an absolute path", "Codex CLI 程序名或绝对路径"))
+        for host in ("claude", "pi", "dsh"):
+            command.add_argument("--" + host, help=message("Path to the " + host + " CLI", host + " CLI 路径"))
+        command.add_argument("--scope", choices=("user", "project", "local"), help=message(
+            "Claude/Pi scope; default user (local is Claude-only)", "Claude/Pi 作用域，默认 user；local 仅限 Claude"))
+        command.add_argument("--project", help=message("Project directory for project/local scope", "project/local 作用域对应的项目目录"))
+        command.add_argument("--profile", help=message("Required DSH profile name", "DSH 必填的 profile 名称"))
+        command.add_argument("--install-dir", help=message("Managed export/receipt root for non-Codex hosts", "非 Codex 宿主的持久包与安装记录根目录"))
         command.add_argument("--timeout", type=int, default=60, help=message("Timeout for each native command in seconds (1-300)", "每条原生命令的超时秒数（1–300）"))
         if action == "install":
+            interaction = command.add_mutually_exclusive_group()
+            interaction.add_argument("--interactive", dest="interaction", action="store_const", const="always",
+                                     help=message("Always open the terminal wizard", "始终打开终端向导"))
+            interaction.add_argument("--non-interactive", dest="interaction", action="store_const", const="never",
+                                     help=message("Agent/CI mode: explicit flags and JSON output", "Agent/CI 模式：显式参数和 JSON 输出"))
+            command.set_defaults(interaction="auto")
+            command.add_argument("--preferences", help=message("Preferences JSON file (no credentials)", "偏好 JSON 文件（不含密钥）"))
+            command.add_argument("--skip-checks", action="store_true", help=message("Skip network readiness checks", "跳过联网就绪检查"))
+            command.add_argument("--test-retrieval", action="store_true", help=message("Test sample search/read; uses retrieval quota", "实际搜索与阅读自检；使用检索额度"))
             command.add_argument("--source", help=message("Local marketplace root or Git repository; defaults to this source tree", "本地 marketplace 根目录或 Git 仓库；默认当前源码目录"))
             command.add_argument("--ref", help=message("Optional Git tag, branch, or commit; local sources must be checked out separately", "可选 Git tag、分支或提交；本地来源需自行 checkout"))
         if action == "verify":
@@ -380,17 +509,80 @@ def main(argv=None):
     if not 1 <= args.timeout <= 300:
         parser.error(message("--timeout must be between 1 and 300", "--timeout 必须在 1 到 300 之间"))
     try:
-        result = manage(args.action, CodexCli(args.codex, args.timeout),
-                        source=getattr(args, "source", None), ref=getattr(args, "ref", None),
-                        dry_run=getattr(args, "dry_run", False), installed_path=getattr(args, "installed_path", None), language=language)
+        args.host = _normalize_hosts(args.host)
+        guided = False
+        targets = None
+        if args.action == "install":
+            if args.skip_checks and args.test_retrieval:
+                raise ValueError("--skip-checks cannot be combined with --test-retrieval")
+            sys.path.insert(0, str(SOURCE_ROOT / "src"))
+            if args.preferences:
+                from settings import Settings
+                if args.preferences == "-":
+                    raise ValueError("--preferences requires a file path; use cli.py setup --input - for stdin")
+                path = Path(args.preferences).expanduser().resolve()
+                if path.stat().st_size > 1024 * 1024:
+                    raise ValueError("Preferences file exceeds the size limit")
+                changes = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=Settings._unique_object)
+                if not isinstance(changes, dict) or not changes:
+                    raise ValueError("Preferences must be a nonempty JSON object without credentials")
+                # Validate before registering a plugin or changing user settings.
+                Settings._validate(Settings._merge(Settings().load(), changes))
+                args.preferences = str(path)
+            if not args.dry_run:
+                from onboarding import Console
+                with Console.open(args.interaction, language) as console:
+                    if console:
+                        guided = True
+                        targets = console.install_targets(args)
+        if targets is None:
+            targets = _targets_from_args(args)
+        single = len(targets) == 1
+        results = []
+        for target in targets:
+            try:
+                results.append(_run_target(args, target, language))
+            except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+                if single:
+                    raise
+                results.append({"host": target["host"], "error": str(error), "verified": False})
+        verified = [(target["host"], result) for target, result in zip(targets, results)
+                    if args.action == "install" and result.get("verified") and "error" not in result]
+        setup = None
+        if verified:
+            first_host, first = verified[0]
+            setup = _run_setup(args, Path(first["installed_path"]), first_host, language, guided)
+            for host, result in verified:
+                result["getting_started"] = _guide(Path(result["installed_path"]), host, args.timeout, language)
+            if setup.get("completed") is not True:
+                print(message("Plugin installation passed; guided setup is incomplete or unavailable. See setup in the JSON result.",
+                              "插件安装检查已通过；引导配置未完成或此版本不支持。请查看 JSON 中的 setup 结果。"), file=sys.stderr)
+        if single:
+            result = results[0]
+            if setup is not None:
+                result["setup"] = setup
+        else:
+            result = {"results": results, "language": language}
+            if setup is not None:
+                result["setup"] = setup
+        if args.action == "install" and getattr(args, "dry_run", False) and args.preferences:
+            result["preferences_file"] = str(Path(args.preferences).expanduser().resolve())
+            result["preferences_applied"] = False
+    except KeyboardInterrupt:
+        print(json.dumps({"cancelled": True, "message": "Setup cancelled; completed installation steps are retained."}), file=sys.stderr)
+        return 130
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(json.dumps({"error": str(error), "verified": False}, ensure_ascii=False), file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
-    if result.get("getting_started"):
-        _print_getting_started(result["getting_started"])
-    return 0
-
+    for row in results:
+        if row.get("getting_started"):
+            _print_getting_started(row["getting_started"])
+    if (setup or {}).get("exit_code") == 130:
+        return 130
+    if any("error" in row for row in results):
+        return 1
+    return 1 if (setup or {}).get("completed") is False else 0
 
 if __name__ == "__main__":
     raise SystemExit(main())

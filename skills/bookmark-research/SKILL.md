@@ -7,7 +7,7 @@ description: "Research ordinary bookmark URLs or Bookmark Canvas directories, ZI
 
 [中文阅读版](references/zh/skill-guide.md)
 
-Use the user's links, package paths or registered sources. Answer in the requested language, otherwise the task's language (English if neither selects one). Pass that language to delegates and saved briefs; preserve original quotations and identifiers. Load references in one language only. Keep source packages unchanged and local notes out of public queries.
+Use the user's links, package paths or registered sources. Answer in the requested language, then the saved `research.response_language`; `auto` follows the task's language (English if none is selected). Read `get_settings` when saved preferences are unknown. Pass the resolved language to delegates and saved briefs; preserve original quotations and identifiers. Load references in one language only. Keep source packages unchanged and local notes out of public queries.
 
 ## Choose the work the user needs
 
@@ -24,13 +24,17 @@ Honor the task's explicit depth, then saved preferences; the table guides `auto`
 
 Use the actual MCP tool names exposed by the host. If a required tool or parameter is missing from an older catalog, use the bundled CLI: `<plugin-root>/src/cli.py`, where the plugin root is `../..` from this Skill's directory. Use its absolute path. Other CLI operations and their names are in the [CLI reference](references/cli.md).
 
+Before each new question that needs web research, call `research_readiness` (CLI `readiness`). Supply the actual `host`, only actually observed host tools, and the intended providers when explicitly restricted. It respects cached/always/manual preferences; do not force repeated probes during one investigation. Offline bookmark queries need no network readiness check. After a connection/auth failure, inspect the affected provider and refresh after fixing it. Preserve an explicitly selected provider; optional API/MCP failures do not block other available routes.
+
+Read the returned status precisely: configured credentials, reachable catalogs, successful retrieval and host OAuth are distinct. Missing optional native research MCPs or collaboration do not prevent the host's own research loop. For setup or remediation, use CLI `setup` and [settings guidance](references/settings-and-archive.md). Never ask for keys in chat; the terminal supports hidden entry or environment variables. An actual sample retrieval test consumes provider quota and is opt-in; readiness never starts a professional research job.
+
 For a known public URL, call `fetch_web({urls:[url]})`. The equivalent fallback command is:
 
 ```sh
 python3 <plugin-root>/src/cli.py fetch-web 'https://example.com/page' --timeout 20
 ```
 
-`--timeout` limits individual provider HTTP requests, not the entire waterfall. Ordinary URL checks need no package import, research session, provider probe or additional reference. Public GitHub README pages use this same path.
+`--timeout` limits individual provider HTTP requests, not the entire waterfall. Beyond the readiness check, ordinary URL checks need no package import, research session or additional reference. Public GitHub README pages use this same path.
 
 `fetch_web.pages` contains one selected extract per URL; each attempt retains status and archive paths. Read the relevant text and cite the original URL. Complete provider envelopes remain in the archive; `raw:true` (CLI `--raw`) returns them when needed. Check archive errors and completeness markers; a provider extract is not proof of a complete or live origin page.
 

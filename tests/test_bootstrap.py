@@ -2,11 +2,13 @@
 
 import json
 import os
+import select
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -29,8 +31,9 @@ class BootstrapTests(unittest.TestCase):
         self.remote = self.base / "remote source"
         export_bundle.export_bundle("codex", self.remote)
         (self.remote / "scripts").mkdir()
-        for name in ("install.py", "export_bundle.py", "host_assets.py"):
+        for name in ("install.py", "export_bundle.py", "host_assets.py", "host_install.py", "host_clients.py"):
             shutil.copyfile(ROOT / "scripts" / name, self.remote / "scripts" / name)
+        shutil.copytree(ROOT / "hosts", self.remote / "hosts", dirs_exist_ok=True)
         (self.remote / "src/bootstrap_probe.py").write_text("value = 'before'\n")
         self.outside = self.base / '中文 cwd $(literal) "quotes"'
         self.outside.mkdir()
@@ -83,11 +86,12 @@ else:
                               check=True, timeout=20).stdout.strip()
 
     def run_bootstrap(self, *arguments, success=True):
+        existing_downloads = set(self.downloads.iterdir())
         result = subprocess.run([BASH, "-s", "--", *arguments, "--codex", str(self.cli)],
                                 input=(ROOT / "install.sh").read_text(), cwd=self.outside,
                                 env=self.environment, text=True, capture_output=True, timeout=60)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
-        self.assertEqual(list(self.downloads.iterdir()), [], "temporary checkout was not cleaned")
+        self.assertEqual(set(self.downloads.iterdir()), existing_downloads, "temporary checkout was not cleaned")
         self.assertEqual((self.data / "index.sqlite3").read_bytes(), b"existing-user-data")
         self.assertEqual(self.settings.read_text(), '{"archive":{"enabled":false}}')
         return result
@@ -163,6 +167,57 @@ print(json.dumps({"historical_installer": True, "ref": args.ref}))
         self.assertIn("Codex CLI was not found", failed.stderr)
         self.assertNotIn("fetching installer", failed.stderr)
 
+    @unittest.skipUnless(os.name == "posix", "A controlling terminal is required")
+    def test_piped_installer_guides_pi_through_tty_without_codex(self):
+        import fcntl
+        import pty
+        import termios
+        from test_host_install import FAKE_CLIENT
+        cli = self.base / "pi"
+        cli.write_text("#!" + sys.executable + "\n" + FAKE_CLIENT)
+        cli.chmod(0o755)
+        environment = dict(self.environment, HOST_TEST_STATE=str(self.base),
+                           PI_CODING_AGENT_DIR=str(self.base / "pi-profile"))
+        arguments = [BASH, "-s", "--", "--interactive", "--skip-checks", "--pi", str(cli),
+                     "--codex", str(self.base / "missing-codex"), "--claude", str(self.base / "missing-claude"),
+                     "--dsh", str(self.base / "missing-dsh"), "--install-dir", str(self.base / "managed")]
+        master, slave = pty.openpty()
+        def attach_terminal():
+            os.setsid()
+            fcntl.ioctl(1, termios.TIOCSCTTY, 0)
+        process = subprocess.Popen(arguments, stdin=subprocess.PIPE, stdout=slave, stderr=slave,
+                                   env=environment, cwd=self.outside, preexec_fn=attach_terminal)
+        os.close(slave)
+        output = bytearray()
+        try:
+            process.stdin.write((ROOT / "install.sh").read_bytes())
+            process.stdin.close()
+            os.write(master, b"3\n" + b"\n" * 20)
+            deadline = time.monotonic() + 40
+            while time.monotonic() < deadline:
+                if select.select([master], [], [], 0.1)[0]:
+                    try:
+                        chunk = os.read(master, 65536)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    output.extend(chunk)
+                elif process.poll() is not None:
+                    break
+            self.assertEqual(process.wait(timeout=2), 0, output.decode(errors="replace"))
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            os.close(master)
+        packages = json.loads((self.base / "pi-profile/settings.json").read_text())["packages"]
+        self.assertEqual(len(packages), 1)
+        self.assertTrue((Path(packages[0]) / "src/readiness.py").is_file())
+        self.assertFalse(self.calls.exists(), "The Codex executable must never be called for Pi")
+        self.assertFalse(list(self.downloads.glob("bookmark-research-install.*")))
+        self.assertFalse(json.loads(self.settings.read_text())["archive"]["enabled"])
+
     def test_help_and_invalid_options_do_not_download_or_call_codex(self):
         self.assertIn("GitHub Release pages and ZIP assets are not used", self.run_bootstrap("--help").stdout)
         for args in (("--unknown",), ("update", "--ref", "main"), ("verify", "--dry-run"),
@@ -176,7 +231,7 @@ print(json.dumps({"historical_installer": True, "ref": args.ref}))
     @unittest.skipUnless(CODEX, "Codex CLI unavailable; native Git installation test skipped")
     def test_native_install_repeat_update_and_tag_pin_survive_temporary_cleanup(self):
         self.cli = Path(CODEX)
-        installed = self.run_bootstrap()
+        installed = self.run_bootstrap("--skip-checks")
         first = json.loads(installed.stdout)
         self.assertTrue(first["verified"])
         self.assertEqual(first["source"]["sourceType"], "git")
@@ -185,7 +240,7 @@ print(json.dumps({"historical_installer": True, "ref": args.ref}))
         checked = subprocess.run(first["getting_started"]["settings_command"], cwd=self.outside,
                                  env=self.environment, capture_output=True, text=True, check=True, timeout=15)
         self.assertEqual(json.loads(checked.stdout), first["getting_started"]["configuration"])
-        repeated = json.loads(self.run_bootstrap().stdout)
+        repeated = json.loads(self.run_bootstrap("--skip-checks").stdout)
         self.assertEqual(first["installed_path"], repeated["installed_path"])
         self.assertTrue(json.loads(self.run_bootstrap("verify").stdout)["verified"])
         configuration = (self.profile / "config.toml").read_text()
@@ -195,7 +250,7 @@ print(json.dumps({"historical_installer": True, "ref": args.ref}))
         pinned_profile = self.base / "pinned profile"
         pinned_profile.mkdir()
         self.environment["CODEX_HOME"] = str(pinned_profile)
-        pinned = json.loads(self.run_bootstrap("install", "--ref", "v0.2.0").stdout)
+        pinned = json.loads(self.run_bootstrap("install", "--ref", "v0.2.0", "--skip-checks").stdout)
         (self.remote / "src/bootstrap_probe.py").write_text("value = 'after'\n")
         self.git("add", ".")
         self.git("commit", "--quiet", "-m", "Update default branch")
