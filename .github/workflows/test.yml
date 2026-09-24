@@ -1,5 +1,5 @@
 name: test
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 jobs:
   test:
     strategy:
@@ -22,8 +22,8 @@ jobs:
       - name: npm command smoke test
         shell: bash
         run: |
-          npm pack --pack-destination "$RUNNER_TEMP"
-          npm install -g "$RUNNER_TEMP"/bookmark-research-*.tgz
+          npm pack
+          npm install -g ./bookmark-research-*.tgz
           export BOOKMARK_RESEARCH_CONFIG="$RUNNER_TEMP/settings.json" BOOKMARK_RESEARCH_DATA_DIR="$RUNNER_TEMP/data"
           bookmark-research --help
           bookmark-research doctor
