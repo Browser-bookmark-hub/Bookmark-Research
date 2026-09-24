@@ -233,7 +233,7 @@ class SourceArchive:
 
     @staticmethod
     def _write_json(path, value):
-        path.write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2) + "\n", encoding="utf-8")
+        path.write_bytes((json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2) + "\n").encode("utf-8"))
 
     def save(self, fetch):
         response = fetch["result"]

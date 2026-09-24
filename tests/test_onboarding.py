@@ -42,7 +42,8 @@ class CredentialTests(SetupFixture):
     def test_private_storage_environment_precedence_and_shared_adapters(self):
         secret = "test-key-never-printed"
         self.credentials.save("EXA_API_KEY", secret)
-        self.assertEqual(stat.S_IMODE(self.credentials.path.stat().st_mode), 0o600)
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(self.credentials.path.stat().st_mode), 0o600)
         self.assertEqual(self.credentials.get("EXA_API_KEY"), secret)
         self.assertNotIn(secret, json.dumps(self.credentials.describe()))
         self.assertFalse(self.settings.path.exists())
@@ -53,6 +54,7 @@ class CredentialTests(SetupFixture):
             self.assertEqual(self.credentials.get("EXA_API_KEY"), "environment-key")
         self.assertEqual(self.credentials.get("EXA_API_KEY"), secret)
 
+    @unittest.skipIf(os.name == "nt", "chmod modes and unprivileged symlinks are POSIX-only")
     def test_rejects_unsafe_files_and_never_echoes_bad_secret(self):
         self.credentials.save("OPENAI_API_KEY", "original")
         for name, value in (("arbitrary", "secret"), ("OPENAI_API_KEY", "secret\nheader")):
@@ -305,6 +307,7 @@ class InstallTargetTests(SetupFixture):
 
     def tool(self, *names):
         for name in names:
+            name += ".cmd" if os.name == "nt" else ""
             (self.bin / name).write_text("#!/bin/sh\n")
             (self.bin / name).chmod(0o755)
 
@@ -340,7 +343,7 @@ class InstallTargetTests(SetupFixture):
         output = io.StringIO()
         targets = Console(io.StringIO("1\n3\n\n\n"), output).install_targets(self.args())
         self.assertEqual([row["host"] for row in targets], ["pi"])
-        (self.bin / "pi").unlink()
+        (self.bin / ("pi.cmd" if os.name == "nt" else "pi")).unlink()
         with self.assertRaisesRegex(ValueError, "--pi"):
             Console(io.StringIO(""), io.StringIO()).install_targets(self.args())
 

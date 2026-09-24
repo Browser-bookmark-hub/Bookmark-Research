@@ -76,7 +76,7 @@ class HostClient:
                              "install it (npm install -g pnpm, or corepack enable pnpm) and retry")
 
     def run(self, arguments, structured=False, quiet_error=False):
-        result = subprocess.run([self.binary, *arguments], cwd=self.cwd, text=True,
+        result = subprocess.run([shutil.which(self.binary) or self.binary, *arguments], cwd=self.cwd, text=True, encoding="utf-8", errors="replace",
                                 capture_output=True, timeout=self.timeout)
         if result.returncode:
             detail = "" if quiet_error else "\n" + (result.stderr or result.stdout).strip()[-3000:]

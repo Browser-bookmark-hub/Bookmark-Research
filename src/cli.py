@@ -219,6 +219,8 @@ def _parser():
 
 
 def main(argv=None):
+    from textio import utf8_stdio
+    utf8_stdio()
     args = _parser().parse_args(argv)
     try:
         settings = Settings(args.config)

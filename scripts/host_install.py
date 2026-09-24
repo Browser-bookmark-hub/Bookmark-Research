@@ -16,7 +16,7 @@ from host_clients import HostClient, read_json
 
 
 def _write_json(path, value):
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=path.parent, delete=False) as stream:
         temporary = Path(stream.name)
         json.dump(value, stream, ensure_ascii=False, indent=2)
         stream.write("\n")
@@ -85,11 +85,11 @@ def _checkout(source, timeout):
                           ["fetch", "--quiet", "--depth", "1", "origin", source.get("ref") or "HEAD"],
                           ["checkout", "--quiet", "--detach", "FETCH_HEAD"]):
             completed = subprocess.run(["git", "-C", str(root), *arguments], env=environment,
-                                       capture_output=True, text=True, timeout=timeout)
+                                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
             if completed.returncode:
                 raise RuntimeError("Could not prepare the registered Git source: " + completed.stderr.strip()[-2000:])
         revision = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True,
-                                  text=True, check=True, timeout=timeout).stdout.strip()
+                                  text=True, encoding="utf-8", errors="replace", check=True, timeout=timeout).stdout.strip()
         yield root, revision
 
 
@@ -109,11 +109,11 @@ def runtime_check(root, timeout):
                            BOOKMARK_RESEARCH_CONFIG=str(data / "settings.json"))
         command = [sys.executable, "-B", str(root / "src/cli.py")]
         doctor = subprocess.run([*command, "doctor"], cwd=data, env=environment, capture_output=True,
-                                text=True, timeout=timeout)
+                                text=True, encoding="utf-8", errors="replace", timeout=timeout)
         if doctor.returncode or json.loads(doctor.stdout).get("fts5") is not True:
             raise RuntimeError("Exported Python runtime requires Python 3.9+ and SQLite FTS5")
         mcp = subprocess.run([*command, "serve"], cwd=data, env=environment, capture_output=True,
-                             text=True, input="".join(json.dumps(row) + "\n" for row in requests), timeout=timeout)
+                             text=True, encoding="utf-8", errors="replace", input="".join(json.dumps(row) + "\n" for row in requests), timeout=timeout)
         if mcp.returncode:
             raise RuntimeError("Exported MCP runtime failed to start")
         responses = {row.get("id"): row for row in map(json.loads, mcp.stdout.splitlines())}

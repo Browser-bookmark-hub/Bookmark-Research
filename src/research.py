@@ -143,7 +143,7 @@ class ResearchSessions:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=path.parent,
                                              prefix=".research-", delete=False) as stream:
                 temporary = Path(stream.name)
                 stream.write(value if isinstance(value, str) else

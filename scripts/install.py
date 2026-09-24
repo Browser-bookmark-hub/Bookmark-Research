@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -49,8 +50,8 @@ class CodexCli:
         self.timeout = timeout
 
     def run(self, arguments):
-        command = [self.binary, *arguments, "--json"]
-        result = subprocess.run(command, text=True, capture_output=True, timeout=self.timeout)
+        command = [shutil.which(self.binary) or self.binary, *arguments, "--json"]
+        result = subprocess.run(command, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=self.timeout)
         if result.returncode:
             raise RuntimeError("Codex command failed: " + " ".join(arguments[:3])
                                + "\n" + (result.stderr or result.stdout).strip()[-4000:])
@@ -159,7 +160,7 @@ def _runtime_check(root, timeout=30):
     for relative in CODEX_HOST_FILES:
         read_asset(root, relative)
     command = [sys.executable, "-B", str(root / "src/cli.py"), "doctor"]
-    doctor = subprocess.run(command, cwd=root.parent, text=True, capture_output=True, timeout=timeout)
+    doctor = subprocess.run(command, cwd=root.parent, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=timeout)
     if doctor.returncode:
         raise RuntimeError("Installed runtime doctor failed: " + doctor.stderr.strip()[-2000:])
     health = json.loads(doctor.stdout)
@@ -181,7 +182,7 @@ def _runtime_check(root, timeout=30):
         environment = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", BOOKMARK_RESEARCH_DATA_DIR=probe_data)
         mcp = subprocess.run([server["command"], *server["args"]], cwd=root,
                              input="\n".join(json.dumps(row) for row in requests) + "\n",
-                             text=True, capture_output=True, timeout=timeout, env=environment)
+                             text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=timeout, env=environment)
         if (Path(probe_data) / "index.sqlite3").exists():
             raise RuntimeError("MCP discovery unexpectedly created a database")
     if mcp.returncode:
@@ -229,7 +230,7 @@ def _getting_started(installed_path, timeout=30, language="auto"):
         "configuration": None, "configuration_summary": [], "configuration_error": None,
     }
     try:
-        checked = subprocess.run(command, text=True, capture_output=True, timeout=timeout)
+        checked = subprocess.run(command, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=timeout)
         if checked.returncode:
             raise ValueError("Installed config show failed")
         configuration = json.loads(checked.stdout)
@@ -444,7 +445,7 @@ def _run_setup(args, installed, host, language, guided):
                 "message": "The installed version predates guided setup; install a newer version to use setup."}
     # The installed version owns its settings schema. Do not use the
     # bootstrap checkout's runtime or impose a timeout on human input.
-    completed = subprocess.run(command, text=True, stdout=subprocess.PIPE)
+    completed = subprocess.run(command, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE)
     try:
         setup = json.loads(completed.stdout)
         if not isinstance(setup, dict):
@@ -465,6 +466,9 @@ def _guide(installed, host, timeout, language):
 
 
 def main(argv=None):
+    sys.path.insert(0, str(SOURCE_ROOT / "src"))
+    from textio import utf8_stdio
+    utf8_stdio()
     language_parser = argparse.ArgumentParser(add_help=False)
     language_parser.add_argument("--lang", choices=("auto", "en", "zh"), default="auto")
     preliminary, _ = language_parser.parse_known_args(argv)

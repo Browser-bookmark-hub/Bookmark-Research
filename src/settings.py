@@ -234,7 +234,7 @@ class Settings:
             self._validate(self._merge(self.defaults(), stored))
             temporary = None
             try:
-                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=path.parent,
                                                  prefix=".settings-", delete=False) as stream:
                     temporary = Path(stream.name)
                     stream.write(json.dumps(stored, ensure_ascii=False, allow_nan=False, indent=2) + "\n")

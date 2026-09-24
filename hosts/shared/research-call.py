@@ -29,7 +29,7 @@ def call_tool(request, db=None, config=None, timeout=600):
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": request},
     ]
     result = subprocess.run(command, input="\n".join(json.dumps(row) for row in messages) + "\n",
-                            text=True, capture_output=True, timeout=timeout)
+                            text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=timeout)
     if result.returncode:
         raise RuntimeError("Shared MCP process failed: " + result.stderr.strip()[:2000])
     responses = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
@@ -51,6 +51,9 @@ def call_tool(request, db=None, config=None, timeout=600):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):  # Windows pipes default to the ANSI code page
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db")
     parser.add_argument("--config")

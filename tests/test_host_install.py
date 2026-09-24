@@ -105,9 +105,12 @@ class HostInstallerTests(unittest.TestCase):
             path = self.bin / host
             path.write_text("#!" + sys.executable + "\n" + FAKE_CLIENT)
             path.chmod(0o755)
+            if os.name == "nt":
+                # Windows runs neither shebangs nor extensionless files; add a .cmd shim.
+                (self.bin / (host + ".cmd")).write_text('@"%s" "%s" %%*\r\n' % (sys.executable, path))
         # DSH delegates to pnpm; the fake client never runs it, but the installer requires it.
-        (self.bin / "pnpm").write_text("#!/bin/sh\n")
-        (self.bin / "pnpm").chmod(0o755)
+        (self.bin / ("pnpm.cmd" if os.name == "nt" else "pnpm")).write_text("#!/bin/sh\n")
+        (self.bin / ("pnpm.cmd" if os.name == "nt" else "pnpm")).chmod(0o755)
         self.home = self.base / "persistent installs"
         self.project = self.base / "项目"
         self.project.mkdir()
@@ -275,7 +278,7 @@ class DshPrerequisiteTests(unittest.TestCase):
     calls = HostInstallerTests.calls
 
     def test_missing_pnpm_fails_before_creating_a_profile(self):
-        (self.bin / "pnpm").unlink()
+        (self.bin / ("pnpm.cmd" if os.name == "nt" else "pnpm")).unlink()
         with mock.patch("shutil.which", lambda name, *a, **k: None if name == "pnpm" else str(self.bin / name)):
             with self.assertRaisesRegex(ValueError, "pnpm"):
                 self.manage("dsh", profile="web")

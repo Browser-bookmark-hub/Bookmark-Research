@@ -16,7 +16,7 @@ def register(project):
     root = Path(__file__).resolve().parents[2]
     source = root / "workflows/bookmark-research"
     if source.is_dir():
-        manifest = json.loads((source / "workflow.json").read_text())
+        manifest = json.loads((source / "workflow.json").read_text(encoding="utf-8"))
         script = (source / "script.js").read_bytes()
     else:
         sys.path.insert(0, str(root / "scripts"))
@@ -54,6 +54,9 @@ def register(project):
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):  # Windows pipes default to the ANSI code page
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", required=True, help="Existing project whose .pi/subagent-workflows directory to use")
     options = parser.parse_args()

@@ -67,7 +67,7 @@ class Credentials:
             saved = {**self._read(), name: value}
             temporary = None
             try:
-                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=path.parent,
                                                  prefix=".credentials-", delete=False) as stream:
                     temporary = Path(stream.name)
                     os.chmod(temporary, 0o600)

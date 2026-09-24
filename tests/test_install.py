@@ -75,7 +75,7 @@ class InstallerTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="bookmark-install-contract-")
         self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name).resolve()
-        self.source = self.base / '中文 source "quotes" $(literal)' / "bookmark-research"
+        self.source = self.base / ('中文 source ' + ('quotes' if os.name == 'nt' else '"quotes"') + ' $(literal)') / "bookmark-research"
         export_bundle.export_bundle("codex", self.source)
         self.version = export_bundle.read_plugin_manifest(self.source)["version"]
         self.registration = {"pluginId": install.SELECTOR, "installed": True, "enabled": True,
@@ -404,7 +404,7 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="bookmark-install-native-")
         self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name).resolve()
-        self.source = self.base / '中文 source $(literal) "quotes"' / "bookmark-research"
+        self.source = self.base / ('中文 source $(literal) ' + ('quotes' if os.name == 'nt' else '"quotes"')) / "bookmark-research"
         export_bundle.export_bundle("codex", self.source)
         self.profile = self.base / "isolated codex profile"
         self.profile.mkdir()

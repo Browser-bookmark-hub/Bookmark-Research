@@ -164,6 +164,8 @@ def _menu_options():
 
 
 def main(argv=None):
+    from textio import utf8_stdio
+    utf8_stdio()
     arguments = list(sys.argv[1:] if argv is None else argv)
     language = "auto"
     if arguments[:1] == ["--lang"] and len(arguments) > 1:

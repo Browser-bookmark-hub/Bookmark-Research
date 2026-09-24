@@ -9,6 +9,9 @@ import sys
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):  # Windows pipes default to the ANSI code page
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--research-id", required=True)
     parser.add_argument("--group-size", type=int, default=12)

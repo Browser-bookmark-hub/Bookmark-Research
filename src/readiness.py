@@ -50,7 +50,7 @@ class Readiness:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         temporary = None
         try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="", dir=path.parent,
                                              prefix=".readiness-", delete=False) as stream:
                 temporary = Path(stream.name)
                 json.dump(cache, stream, ensure_ascii=False)

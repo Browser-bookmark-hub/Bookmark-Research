@@ -8,6 +8,9 @@ import sys
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):  # Windows pipes default to the ANSI code page
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--research-id", required=True)
     parser.add_argument("--run-key", required=True)
@@ -26,8 +29,8 @@ def main():
     root = Path(__file__).resolve().parents[2]
     directory = root / "workflows/bookmark-research"
     if directory.is_dir():
-        meta = json.loads((directory / "meta.json").read_text())
-        script = (directory / "script.js").read_text()
+        meta = json.loads((directory / "meta.json").read_text(encoding="utf-8"))
+        script = (directory / "script.js").read_text(encoding="utf-8")
     else:
         sys.path.insert(0, str(root / "scripts"))
         from host_assets import build_workflow

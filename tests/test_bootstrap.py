@@ -23,6 +23,7 @@ REPOSITORY = "https://github.com/Browser-bookmark-hub/Bookmark-Research.git"
 
 
 @unittest.skipUnless(BASH and GIT, "Bash and Git are required for bootstrap tests")
+@unittest.skipIf(os.name == "nt", "install.sh is the macOS/Linux entry; Windows uses the npm command")
 class BootstrapTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="bookmark-bootstrap-")
@@ -35,7 +36,7 @@ class BootstrapTests(unittest.TestCase):
             shutil.copyfile(ROOT / "scripts" / name, self.remote / "scripts" / name)
         shutil.copytree(ROOT / "hosts", self.remote / "hosts", dirs_exist_ok=True)
         (self.remote / "src/bootstrap_probe.py").write_text("value = 'before'\n")
-        self.outside = self.base / '中文 cwd $(literal) "quotes"'
+        self.outside = self.base / ('中文 cwd $(literal) ' + ('quotes' if os.name == 'nt' else '"quotes"'))
         self.outside.mkdir()
         self.downloads = self.base / "temporary downloads"
         self.downloads.mkdir()

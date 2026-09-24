@@ -227,7 +227,7 @@ class SourceManager:
                 "provided_files": sorted(prepared["files"]), "recovered_legacy_files": recovered, **content}
             staged_snapshot = Path(staging) / "snapshot"
             self._write_files(staged_snapshot / "package", files)
-            (staged_snapshot / "manifest.json").write_text(_dump(manifest), encoding="utf-8")
+            (staged_snapshot / "manifest.json").write_bytes(_dump(manifest).encode("utf-8"))
             if source_directory.is_symlink() or destination.is_symlink():
                 raise ValueError("Managed snapshot directories must not be symlinks")
             source_directory.mkdir(parents=True, exist_ok=True)
