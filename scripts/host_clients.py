@@ -12,6 +12,17 @@ from export_bundle import NAME
 SELECTOR = NAME + "@" + NAME
 
 
+def executable(binary):
+    """Resolve a CLI, including .cmd/.exe shims that Windows Python 3.9 misses for full paths."""
+    found = shutil.which(binary)
+    if os.name == "nt" and (not found or not Path(found).suffix):
+        for extension in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";"):
+            found = shutil.which(binary + extension) or found
+            if found and Path(found).suffix:
+                break
+    return found
+
+
 def read_json(path, default=None):
     if not path.exists():
         return default
@@ -68,7 +79,7 @@ class HostClient:
                 "profile": self.profile}
 
     def require(self):
-        if not shutil.which(self.binary):
+        if not executable(self.binary):
             raise ValueError(self.host + " CLI was not found: " + self.binary)
         if self.host == "dsh" and not shutil.which("pnpm"):
             # dsh plugin forwards to pnpm; fail before creating a profile.
@@ -76,7 +87,7 @@ class HostClient:
                              "install it (npm install -g pnpm, or corepack enable pnpm) and retry")
 
     def run(self, arguments, structured=False, quiet_error=False):
-        result = subprocess.run([shutil.which(self.binary) or self.binary, *arguments], cwd=self.cwd, text=True, encoding="utf-8", errors="replace",
+        result = subprocess.run([executable(self.binary) or self.binary, *arguments], cwd=self.cwd, text=True, encoding="utf-8", errors="replace",
                                 capture_output=True, timeout=self.timeout)
         if result.returncode:
             detail = "" if quiet_error else "\n" + (result.stderr or result.stdout).strip()[-3000:]

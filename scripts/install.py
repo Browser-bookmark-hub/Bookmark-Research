@@ -50,7 +50,8 @@ class CodexCli:
         self.timeout = timeout
 
     def run(self, arguments):
-        command = [shutil.which(self.binary) or self.binary, *arguments, "--json"]
+        from host_clients import executable
+        command = [executable(self.binary) or self.binary, *arguments, "--json"]
         result = subprocess.run(command, text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=self.timeout)
         if result.returncode:
             raise RuntimeError("Codex command failed: " + " ".join(arguments[:3])
