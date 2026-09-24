@@ -259,7 +259,7 @@ class ExportBundleTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["format"], "dsh")
         patch = (output / "cordis.patch.yml").read_text(encoding="utf-8")
-        path_line = next(line for line in patch.splitlines() if 'src/cli.py' in line)
+        path_line = next(line for line in patch.splitlines() if 'cli.py' in line)
         self.assertEqual(json.loads(path_line.strip()[2:]), str(output / "src/cli.py"))
         repeated = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/export_bundle.py"),
                                    "--format", "dsh", "--output", str(output)],

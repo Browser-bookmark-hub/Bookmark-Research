@@ -213,7 +213,9 @@ class SourceManagerTests(unittest.TestCase):
             archive = self.root / "bad.zip"
             with zipfile.ZipFile(archive, "w") as output:
                 for name, raw in entries:
-                    output.writestr(name, raw)
+                    info = zipfile.ZipInfo(name)
+                    info.filename = name  # Windows ZipInfo rewrites backslashes; keep the hostile name
+                    output.writestr(info, raw)
             with self.assertRaisesRegex(ValueError, message):
                 self.sources.sync(archive)
         archive = self.root / "link.zip"

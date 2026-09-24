@@ -108,7 +108,7 @@ class IndexBehaviorTests(unittest.TestCase):
         self.assertEqual({edge["direction"] for view in primary["appearances"] for edge in view["edges"]}, {"forward", "none"})
         self.assertEqual(temporary["appearances"][0]["memberships"][0]["group_id"], "group-one")
         self.assertEqual({row["file_path"]: row["sha256"] for row in inventory["files"]}, before)
-        self.assertEqual(before, {str(path.relative_to(self.package)): hashlib.sha256(path.read_bytes()).hexdigest()
+        self.assertEqual(before, {path.relative_to(self.package).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                                  for path in self.package.rglob("*") if path.is_file()})
         self.index.refresh("demo")
         self.assertEqual(self.index.inventory(["demo"])["input_version"], inventory["input_version"])
