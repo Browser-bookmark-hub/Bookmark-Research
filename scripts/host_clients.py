@@ -26,7 +26,7 @@ def local_path(value, base):
     for prefix in ("link:", "file:"):
         if value.startswith(prefix):
             value = value[len(prefix):]
-    if ":" in value and not value.startswith("/"):
+    if ":" in value and not value.startswith("/") and not Path(value).is_absolute():
         return None
     path = Path(value).expanduser()
     return (path if path.is_absolute() else base / path).resolve()

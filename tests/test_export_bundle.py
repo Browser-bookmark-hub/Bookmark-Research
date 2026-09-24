@@ -252,7 +252,7 @@ class ExportBundleTests(unittest.TestCase):
                 path.write_bytes(original)
 
     def test_dsh_quotes_absolute_path_and_cli_entry_point(self):
-        output = self.base / 'DSH 本机 "目录"'
+        output = self.base / ('DSH 本机 "目录"' if os.name != "nt" else "DSH 本机 目录")
         result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/export_bundle.py"),
                                  "--format", "dsh", "--output", str(output)],
                                 cwd=self.outside, env=self.env, capture_output=True, text=True, timeout=15)

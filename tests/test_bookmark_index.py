@@ -89,7 +89,7 @@ class IndexBehaviorTests(unittest.TestCase):
         return {row["item_id"]: (row["pk"], row["revision"]) for row in self.index.connection.execute("SELECT * FROM items")}
 
     def test_complete_inventory_preserves_instances_folders_and_copy_appearances(self):
-        before = {str(path.relative_to(self.package)): hashlib.sha256(path.read_bytes()).hexdigest()
+        before = {path.relative_to(self.package).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
                   for path in self.package.rglob("*") if path.is_file()}
         with patch.object(self.index, "search", side_effect=AssertionError("Inventory must not depend on search limits")):
             inventory = self.index.inventory(["demo"])

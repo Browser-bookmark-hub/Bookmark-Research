@@ -21,7 +21,7 @@ from settings import Settings
 
 
 def fingerprints(package):
-    return {str(path.relative_to(package)): hashlib.sha256(path.read_bytes()).hexdigest()
+    return {path.relative_to(package).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in sorted(package.rglob("*")) if path.is_file()}
 
 

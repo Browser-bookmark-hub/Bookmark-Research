@@ -60,7 +60,7 @@ class HostWorkflowTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node is required for the DSH bundle test")
     def test_dsh_bundle_survives_relocation_and_forwards_only_plugin_environment(self):
         original = self.base / "original dsh"
-        moved = self.base / 'moved 中文 "bundle"'
+        moved = self.base / ('moved 中文 "bundle"' if os.name != "nt" else "moved 中文 bundle")
         export_bundle.export_bundle("dsh", original)
         original.rename(moved)
         patch = (moved / "bundle.patch.yml").read_text()
