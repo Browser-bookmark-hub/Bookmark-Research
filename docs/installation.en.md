@@ -6,7 +6,7 @@ Install the same plugin for English or Chinese use. See the [user guide](user-gu
 
 ## The `bookmark-research` command (recommended)
 
-After `npm install -g bookmark-research`, type `bookmark-research` to open a menu for preferences and API keys, service checks, installing into another client, updates and status. Subcommands work directly: `install [HOST...]`, `update`, `verify`, `setup`, `status`, `config show|set`, `doctor`. The npm package is only an entry point that runs the bundled Python installer and runtime, so Python 3.9+ is still required; it works on native Windows, macOS and Linux. Before the first npm release, use `npx github:Browser-bookmark-hub/Bookmark-Research`. Without arguments and without a terminal (agents/CI) it prints status JSON instead of opening the menu.
+After `npm install -g bookmark-research`, type `bookmark-research` to open a menu for preferences and API keys, service checks, installing into another client, updates and status. Subcommands work directly: `install [HOST...]`, `update`, `verify`, `setup`, `status`, `config show|set`, `doctor`. The npm package is only an entry point that runs the bundled Python installer and runtime, so Python 3.9+ is still required; it works on native Windows, macOS and Linux. Run the latest `main` with `npx github:Browser-bookmark-hub/Bookmark-Research`. Without arguments and without a terminal (agents/CI) it prints status JSON instead of opening the menu.
 
 <a id="one-command-codex-installation"></a>
 

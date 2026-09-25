@@ -1,6 +1,6 @@
 {
   "name": "bookmark-research",
-  "version": "0.4.0",
+  "version": "0.5.0-beta.1",
   "description": "Check bookmark URLs or Canvas packages, compare sources with host-led research, and retain verifiable reports.",
   "license": "GPL-3.0-only",
   "repository": {"type": "git", "url": "git+https://github.com/Browser-bookmark-hub/Bookmark-Research.git"},

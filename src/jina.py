@@ -24,7 +24,7 @@ class JinaClient:
 
     def _request(self, url, maximum):
         request = urllib.request.Request(url, headers={"Accept": "application/json",
-            "User-Agent": "bookmark-research/0.4.0", "X-Timeout": str(int(self.timeout)), **self.headers})
+            "User-Agent": "bookmark-research/0.5.0-beta.1", "X-Timeout": str(int(self.timeout)), **self.headers})
         with self._lock:
             self._requests += 1
         try:

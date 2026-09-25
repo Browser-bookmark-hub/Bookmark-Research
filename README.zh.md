@@ -1,166 +1,126 @@
-# Bookmark Research 0.4.0
+# Bookmark Research
 
 [English](README.md) · **中文**
 
-用自然语言研究普通书签 URL 或 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，结合 Exa、Parallel、Jina Reader 和 Tavily 查证。简单问题直接读链接；需要保留进度的研究固定完整 URL 清单或数据包，保留重复实例及已有画布语境，交付可续接报告。
+用联网查证来研究你的书签。给它一份书签 URL 列表或 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，它会逐条核对链接、搜索和阅读网页，写出带引用、可以接着做的研究报告。
 
-Codex、Claude Code、Pi 和 DSH 共用一套 Skill、Python 运行时与本地数据，分别使用对应适配。**0.4.0** 整合全量研究工作流、可选专业研究 API、Wiki 与评测、目录／ZIP／单卡接入、来源版本快照和长期目录增量同步。输入变化后会提示研究／Wiki 复核；英文执行指令配完整中文阅读版，研究输出遵循用户的语言要求。
+支持 **Codex、Claude Code、Pi、DSH（DeepSeek Harness）**。
 
-新用户从[安装说明](docs/installation.md)和[使用指南](docs/user-guide.md)开始。需要理解内部关系时看[结构与触发流程](docs/bookmark-research-architecture.md)。本地 0.4.0 的验证范围见[验证记录](docs/validation-0.4.0.md)，已公开发布的版本以 [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) 为准。
+[安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research) · [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases)
+
+> [!NOTE]
+> **0.5.0 是测试版。** 遇到问题请到 [GitHub Issues](https://github.com/Browser-bookmark-hub/Bookmark-Research/issues) 反馈。
+
+## 环境要求
+
+- Python 3.9+，含 SQLite FTS5（可用 `bookmark-research doctor` 检查）
+- 至少一个宿主的 CLI：Codex、Claude Code、Pi 或 DSH（DSH 另需 `pnpm`）
+- `bookmark-research` 命令需要 Node 18+；macOS/Linux 上可不用
+- 安装和本地查书签都不需要 API Key
 
 ## 安装
 
-需要 **Python 3.9+**（含 SQLite FTS5），以及至少一个宿主的 CLI：Codex、Claude Code、Pi 或 DSH（DeepSeek Harness）。安装本身不需要 API Key。
-
-**推荐：`bookmark-research` 命令**（macOS、Linux、Windows；需要 Node 18+）
+**交互安装**（macOS、Linux、Windows）：
 
 ```sh
-npm install -g bookmark-research      # 装好后直接输入 bookmark-research
-npx bookmark-research                 # 或者不安装，直接运行一次
+npx bookmark-research install
 ```
 
-npm 包首次发布前，可以直接从 GitHub 运行：`npx github:Browser-bookmark-hub/Bookmark-Research`。
+用方向键和空格选择宿主，确认汇总后安装，再选择搜索服务、输入 API Key。装好后新建一个宿主会话。
 
-**不用 Node**（macOS、Linux、WSL）：
+想一直能用 `bookmark-research` 命令：`npm install -g bookmark-research`。不用 Node（macOS/Linux/WSL）：`curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash`。
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
+**指定宿主、不弹提示：**
+
+| 宿主 | 命令 | 实际登记方式 |
+| --- | --- | --- |
+| Codex | `npx bookmark-research install codex --non-interactive` | `codex plugin add` |
+| Claude Code | `npx bookmark-research install claude --scope user --non-interactive` | `claude plugin install` |
+| Pi | `npx bookmark-research install pi --non-interactive` | `pi install` |
+| DSH | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
+
+一次装多个：`npx bookmark-research install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code、Pi）。全部参数见[安装说明](docs/installation.md)。
+
+**让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code、Pi 或 DSH：
+
+```text
+请把 Bookmark Research 插件安装到你当前运行的这个宿主里。
+
+1. 先确认你自己是哪个宿主：codex、claude、pi 或 dsh。
+2. 运行：npx bookmark-research install <宿主> --non-interactive
+   - Claude Code 或 Pi：加 --scope user（或 --scope project --project <目录>）。
+   - DSH：加 --profile <名称>；profile 名称请先问我。
+3. 命令会输出 JSON。确认 "verified": true，有 "error" 就告诉我。
+4. 不要在对话里向我要 API Key。请让我在终端运行 `bookmark-research setup`
+   （或 `npx bookmark-research setup`）自己输入。
+5. 提醒我新建一个会话，让 Skill 和 MCP 工具生效。
 ```
 
-两种方式打开的是同一个终端向导：
+## 配置与 API Key
 
-1. **选宿主**：方向键移动，空格勾选，回车确认。本机检测到的 CLI 会预先勾上，没找到的显示为灰色（DSH 还需要 `pnpm`）。
-2. **逐个补充选项**：Claude Code 和 Pi 选当前用户或指定项目，DSH 填 profile 名称。真正安装前会先显示汇总。
-3. **安装**：调用每个宿主自己的原生命令登记并验证；一个失败不影响其他。
-4. **统一配置一次**：研究深度、答复语言、搜索与正文读取服务、归档，最后输入 API Key（掩码显示，输完当场检查，失败可重输）。
-
-装好后新建一个宿主会话即可使用。终端不完整或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时，改用输入序号的方式。向导按系统语言显示，也可以加 `--lang zh` 或 `--lang en` 指定。
-
-| 宿主 | 安装器实际执行的原生命令 |
-| --- | --- |
-| Codex | `codex plugin marketplace add` + `codex plugin add` |
-| Claude Code | `claude plugin marketplace add <包目录>` + `claude plugin install bookmark-research@bookmark-research` |
-| Pi | `pi install <包目录>`（项目级加 `-l`） |
-| DSH | `dsh plugin --profile <名称> add <包目录>` |
-
-**Agent／CI 安装**时显式传入全部参数，读取 JSON 结果：
-
-```sh
-bookmark-research install claude dsh --profile web --non-interactive --preferences prefs.json
-bash install.sh install --host claude,dsh --profile web --non-interactive   # 不用 Node 时的等价写法
-```
-
-`--preferences` 只接受偏好 JSON。**API Key 不接受命令参数，也不从 JSON 文件读取**：请用环境变量，或让用户在 `bookmark-research setup` 里自己输入。其他参数（`--scope`、`--project`、`--ref`、`--dry-run`、`--skip-checks`、`--test-retrieval`）见[安装说明](docs/installation.md)。
-
-## 之后怎么配置
-
-不需要重新安装。配置和 Key 属于当前用户，对所有已安装的宿主生效；修改后新建宿主会话即可。
+不需要重新安装。配置和 Key 对所有已安装的宿主生效，修改后新建宿主会话即可。
 
 | 要做什么 | 命令 |
 | --- | --- |
-| 打开主菜单（配置、检查、安装、更新） | `bookmark-research` |
+| 主菜单：配置、检查、安装、更新 | `bookmark-research` |
 | 修改偏好和 API Key | `bookmark-research setup` |
-| 查看已装宿主、偏好和 Key 状态 | `bookmark-research status` |
-| 查看或用脚本修改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
-| 再装一个宿主 | `bookmark-research install pi` |
-| 更新或验证所有已装宿主 | `bookmark-research update` · `bookmark-research verify` |
-| 检查 Python 和 SQLite | `bookmark-research doctor` |
+| 查看已装宿主、偏好、Key 状态 | `bookmark-research status` |
+| 用脚本改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
+| 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
 
-也可以在宿主会话里直接让 agent 改偏好（比如"默认用深度研究"），它会调用插件的 `update_settings` 工具。Key 除外，Key 不经过对话：请用 `bookmark-research setup`，或设置环境变量 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`、`OPENAI_API_KEY`（环境变量优先于已保存的 Key）。没装 npm 命令时，`python3 <安装路径>/src/cli.py setup` 效果相同，安装结束时会打印完整路径。
+没有全局安装时，在前面加 `npx`，例如 `npx bookmark-research setup`。
+
+**API Key 都是可选的。** 在 `bookmark-research setup` 里输入（隐藏显示，输完当场检查，保存在仅当前用户可读的本地文件），或者设置环境变量（优先于已保存的 Key）。Key 不接受对话、命令参数或 JSON 文件。
+
+| 环境变量 | 服务 | 不配置时 |
+| --- | --- | --- |
+| `EXA_API_KEY` | Exa 搜索与网页读取 | 在 Exa 允许的范围内匿名使用 |
+| `PARALLEL_API_KEY` | Parallel 搜索与网页读取 | 免费匿名使用，额度较低 |
+| `TAVILY_API_KEY` | Tavily 备用搜索与提取 | 使用免 Key 模式 |
+| `JINA_API_KEY` | Jina 搜索 | Jina Reader 仍可匿名读取网页 |
+| `OPENAI_API_KEY` | 可选的 OpenAI Deep Research 任务 | 功能关闭；宿主自己的研究不受影响 |
+
+研究深度、答复语言、服务选择、归档这些偏好，也可以直接在宿主会话里让 agent 改，它会调用 `update_settings` 工具。
 
 ## 插件包含什么
 
-- **Skill `bookmark-research`**：告诉 agent 什么时候、怎样查书签、核对来源、完整研究并写出带引用的报告。英文执行版附完整中文阅读版。
-- **MCP 服务 `bookmark-research`**：一个本地 stdio 服务（`python3 src/cli.py serve`），约 36 个工具，分四类：书签索引（`search_bookmarks`、`get_context`、`sync_package` 等）、网页搜索与读取（`search_web`、`fetch_web`）、研究记录（`research_start` 到 `research_finish`，以及覆盖率和证据），以及设置、Wiki 与评测。
-- **内置的网页服务**：Exa、Parallel、Tavily、Jina Reader 由插件自己调用，不需要另外登记它们的 MCP。Exa Agent、Parallel Task、Tavily Research 这类研究 MCP 可以按需加到宿主里，配置向导会给出步骤。
-- **宿主附加内容**：Claude Code 工作流、Pi 包及工作流登记脚本、DSH bundle、Codex marketplace 条目。
+### Skill
 
-本地书签查询可以离线使用。首次使用、三种研究方式、配置和语言见[使用指南](docs/user-guide.md)。
-
-## 怎样使用
-
-**本地查询无需 API Key。** 插件没有预置个人书签，先提供目录、ZIP 或单卡 JSON：
-
-> 用 Bookmark Research 读取我的数据包 "/absolute/path/to/my-package"，先离线列出卡片、文件夹和书签数量。
-
-之后直接说明任务：
-
-| 需要 | 示例 | 执行方式 |
-| --- | --- | --- |
-| 本地查找 | “这个书签在哪张卡片里？” | 查询 SQLite 中的元数据和结构关系。 |
-| 快速查证 | “读取这个书签，确认它是否支持 MCP。” | 读取 URL，必要时搜索发现来源。 |
-| 主动搜索 | “比较这些卡片里的工具，查清它们的区别。” | 宿主拆问题、搜索、读文并持续补查。 |
-| 深度研究 | “研究整个包，核验排行榜，交付报告和 Wiki。” | 保留完整清单，组织调查、证据审阅和覆盖核验。 |
-
-不需要固定提示词。完整数据包研究保留所有原始 URL 和重复书签语境；只有明确限定卡片、分组或专题时才缩小范围。搜索摘要、搜索结果的第一页和外部报告都不能代替原始网页审阅。
-
-一个插件保留一个 MCP 聚合入口和一个执行 Skill；后端服务数量与入口数量无关。MCP 内置 Exa、Parallel、Tavily 搜索／读取适配器、Jina HTTP 接口和 OpenAI／Parallel 研究 API 客户端。Skill 负责根据任务选择并执行三种流程：
-
-| 场景 | 基础流程 | 检索与委派支持 |
-| --- | --- | --- |
-| URL 直读 | 当前模型读取已知页面并回答 | Exa 未读到的 URL 交给 Parallel + Jina Reader 并发读取；可配置 Tavily 提取。 |
-| Agentic Web Search | 当前宿主模型先规划 → 搜索／读文 → 判断证据 → 针对缺口补查 | Exa + Parallel 提供搜索结果；无有效网址的查询再交给 Tavily + 有 key 的 Jina。普通问题无需完整研究会话。 |
-| Deep Research | 在宿主研究循环上增加持续调查、按需协作、独立核验、覆盖检查与报告 | 优先利用宿主现有子代理／工作流；外部 Research MCP／API 可承担宿主判断后的子问题或用户明确指定的任务。 |
-
-四个基座共用这套方法：Codex 原生子代理、Claude 普通子代理或已启用团队、Pi 扩展、已配置的 DSH 子代理／工作流；具体差异与官方依据见 [宿主兼容说明](docs/harness-compatibility.md)。整包脚本用于分组研究。保存的 API 偏好只排列外部服务，显式 provider 才直接指定服务；明确路线失败可继续换路，运行中、结果未知或已取消任务不自动重建。
-
-“备用”表示已加入回退列表；“需要配置”表示条件未满足时跳过；“仅调研”表示没有接入，失败也不会自动安装。OpenAI／Parallel 研究 API 默认关闭，需启用并提供凭据。宿主已加载的 Exa `agent_run`、完整 Parallel Task MCP 会被路由识别，实际认证仍以调用结果为准。Scrapling、Firecrawl、MarkItDown 等调研项目没有集成成自动后端。
-
-## 数据包与保存位置
-
-JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无需单独数据库服务器。插件不会回写原始画布包。
-
-| 来源 | 默认行为 |
+| Skill | 用途 |
 | --- | --- |
-| 手动导出目录、ZIP、单卡 | 保存为 `snapshot`；原下载文件移走后仍可查询。 |
-| Git 仓库内长期目录 | 登记为 `live`；MCP 运行期间及查询前检查本地变化。 |
-| 同一画布的新路径导出 | 明确沿用原 `source_id`，保留稳定身份和路径别名。 |
-| 局部导出 | 默认 `partial`，保留未提供的文件；提供的完整栏目内删除正常同步。 |
-| 明确的完整镜像 | 使用 `complete`，同步缺失文件的删除。 |
+| [`bookmark-research`](skills/bookmark-research/SKILL.md) | 查书签、核对链接、对每条书签做完整研究并写出带引用的报告。英文执行版，另有[中文阅读版](skills/bookmark-research/references/zh/skill-guide.md)。 |
 
-两种来源模式都会保存可恢复版本。live 监控跟随 MCP 进程，默认每秒检查、普通变化稳定 2 秒、整文件删除稳定 5 秒后同步；独立 CLI 持续监控使用 `watch`。Git 拉取和推送由原有同步系统负责。
+### MCP 服务
 
-默认数据目录为 `~/.local/share/bookmark-research/`：
+一个本地 stdio 服务 `bookmark-research`（`python3 src/cli.py serve`），共 36 个工具：
 
-- `index.sqlite3`：来源登记、书签和画布关系索引。
-- `index.sqlite3.sources/`：原始协议文件和关系清单的版本快照。
-- `knowledge/`：普通网页响应、正文和来源记录。
-- `research/`：完整输入清单、任务、证据、覆盖与报告。
-- `wiki/`：主题／实体页和不可变修订。
+| 分类 | 工具 |
+| --- | --- |
+| 书签 | `sync_package`、`index_status`、`source_history`、`search_bookmarks`、`get_context` |
+| 网页 | `search_web`、`fetch_web`、`search_providers` |
+| 研究 | `research_readiness`、`research_start`、`research_status`、`research_search`、`research_fetch`、`research_source`、`research_record`、`research_inventory`、`research_coverage`、`research_import_evidence`、`research_finish`、`research_route` |
+| 专业研究服务（可选） | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach`、`_import` |
+| 设置 | `get_settings`、`update_settings` |
+| Wiki 与评测 | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search`、`wiki_lint`、`evaluate_research` |
 
-配置默认为 `~/.config/bookmark-research/settings.json`。支持 XDG 和显式路径覆盖，多宿主可共享数据。索引更新不会自动抓网页、运行 LLM 或改写 Wiki；来源变化时提示复核，旧研究与证据保留。
+### 网页服务
 
-`research_record` 支持单条 `entry` 或每批至多 50 条的 `entries`，按顺序校验后一次保存，返回精简编号；稳定的 `batch_id` 可避免重试产生重复记录。依赖新 claim ID 的记录在读取返回值后另批提交。`resume` 和 `external_run` 仍需单条调用，详见 [证据记录](skills/bookmark-research/references/zh/deep-research.md)。
+由插件自带的 MCP 服务直接调用，不需要另外添加它们的 MCP。
 
-## 搜索、配置与语言
+| 服务 | 作用 |
+| --- | --- |
+| [Exa](https://exa.ai) | 主要搜索；首选网页读取 |
+| [Parallel](https://parallel.ai) | 主要搜索；备用网页读取 |
+| [Tavily](https://tavily.com) | 备用搜索 |
+| [Jina Reader](https://jina.ai/reader) | 备用网页读取；有 Key 时可搜索 |
 
-`search.providers` 为第一轮，`search.fallback_providers` 为无结果时的备用列表；设为空数组可关闭搜索回退。读取单独配置 `fetch.provider` 和 `fetch.providers`。调用时明确指定 provider／providers 则只用指定服务。已有配置若只设置过搜索 providers，会保留原来的服务范围；新研究冻结当时的选择，旧记录重放不会增加请求。瀑布流按轮补缺，同轮服务并发；已发出的请求仍需等待结束或超时。普通网页归档开启，深度研究始终保存任务证据。
+另有可选的研究 MCP 可以自己加到宿主里：Exa Agent、Parallel Task、Tavily Research。`bookmark-research setup` 会给出各宿主的接入步骤。
 
-可以读取公开 GitHub 仓库页面、README、文件和 issues；读取 README 不等于遍历整个代码仓库。代码审查按任务选择具体文件或宿主已有 GitHub 工具，插件未额外安装 GitHub MCP。
+## 更多
 
-网络访问依赖服务方的认证与额度。可运行 `python3 src/cli.py setup` 隐藏输入密钥，或在宿主环境设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`、`OPENAI_API_KEY`。密钥默认保存为配置旁仅当前用户可读的 `credentials.json`，环境变量优先。无需给宿主研究额外填写一套模型地址。
+- [安装说明](docs/installation.md)：全部安装方式、更新、ZIP 下载
+- [使用指南](docs/user-guide.md)：首次使用、三种研究方式、语言
+- [详细说明](docs/details.md)：使用方式、数据包与保存位置、宿主与验证范围、开发
+- [结构与触发流程](docs/bookmark-research-architecture.md)
 
-Skill 在每个联网研究新问题前调用 `research_readiness`，默认首次、配置／密钥变化或 15 分钟过期时刷新。向导可改为每题检查或仅手动检查；本地查询不联网。结果区分密钥配置、目录可达、实际检索与宿主 OAuth，检查不会启动专业研究任务。
-
-中英文用户共用一个插件；回答、报告正文和 Wiki 章节跟随用户指定语言。原始引用和 URL 保留原文，译文另列。执行 Skill 和 11 篇方法参考以英文维护，配完整中文阅读对照；子代理和工作流也会接收本次输出语言。详见[指令与提示索引](docs/instructions.md)。工具字段、技术诊断和部分固定元数据标签使用英文。
-
-## 宿主与验证范围
-
-| 宿主 | 接入 | 当前验证边界 |
-| --- | --- | --- |
-| Codex | 原生 Plugin + Skill + MCP | 隔离配置中的原生安装／更新与 stdio 检查。 |
-| Claude Code | 持久 marketplace／插件和 Dynamic Workflow | 隔离配置中的原生安装／更新／缓存检查；模型调用另行验证。 |
-| Pi | Skill + CLI／stdio 桥 | 适配器隔离验证；子代理工作流依赖已有扩展。 |
-| DSH | 可搬移 bundle，包含 Skill 与 MCP | 安装器／适配器验证；工作流仍需宿主服务与引擎。 |
-
-另有 Agent Plugins 1.0.0 标准格式导出。适配器存在不代表每个宿主都已完成真实研究。Wiki 保存引用、审阅和修订；评测根据实际运行数据及显式评审标签计算，示例分数不能证明研究质量。
-
-## 开发与来源
-
-```sh
-python3 -m unittest discover -s tests -v
-python3 scripts/verify_fixture.py --output /tmp/bookmark-research-verification
-python3 scripts/export_bundle.py --format codex --output exports/codex/bookmark-research
-```
-
-研究来源与演进见[设计调研](docs/research-0.2.0.md)、[宿主兼容性](docs/harness-compatibility.md)和[Wiki／评测](docs/wiki-quality.zh.md)。项目源自 Bookmark Canvas，沿用 [GPL-3.0](LICENSE)。
+项目源自 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas)。许可证：[GPL-3.0](LICENSE)。

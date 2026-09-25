@@ -40,6 +40,11 @@ EXTRA_FILES = (
     "scripts/host_install.py",
     "scripts/host_clients.py",
     "scripts/host_assets.py",
+    "scripts/launcher.py",
+    "bin/bookmark-research.js",
+    "package.json",
+    "docs/details.md",
+    "docs/details.en.md",
     "skills/bookmark-research/agents/openai.yaml",
 ) + HOST_SOURCE_FILES
 

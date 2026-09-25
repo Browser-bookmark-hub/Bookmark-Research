@@ -545,7 +545,7 @@ class StdioMcpServer:
                 requested = params["protocolVersion"]
                 self.protocol = requested if requested in PROTOCOLS else PROTOCOLS[-1]
                 result = {"protocolVersion": self.protocol, "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "bookmark-research", "version": "0.4.0"},
+                    "serverInfo": {"name": "bookmark-research", "version": "0.5.0-beta.1"},
                     "instructions": "Before each new web research question, call research_readiness with the actual host and observed tools. It follows saved cached/always/manual preferences; reuse checks during that investigation. Local bookmark queries need no network check. Configured keys and visible tools do not prove authorization. Optional service failures leave other routes available. Use the bundled CLI setup for preferences and hidden credential entry; never request API keys in chat."}
             elif method == "ping":
                 _params(params, ())

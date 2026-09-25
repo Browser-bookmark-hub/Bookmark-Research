@@ -81,7 +81,7 @@ flowchart TB
   Knowledge --> Wiki
 ```
 
-各宿主的接入方式有所不同：Codex、Claude Code 使用 Skill + MCP；Pi 使用 Skill + CLI／stdio 桥，子代理工作流依赖已有扩展；DSH 使用 MCP 适配，并配置 Skill 发现和工作流服务。图中的宿主能力取决于实际安装与配置，适配实现及验证范围见[宿主支持说明](../README.md#client-support)。
+各宿主的接入方式有所不同：Codex、Claude Code 使用 Skill + MCP；Pi 使用 Skill + CLI／stdio 桥，子代理工作流依赖已有扩展；DSH 使用 MCP 适配，并配置 Skill 发现和工作流服务。图中的宿主能力取决于实际安装与配置，适配实现及验证范围见[宿主支持说明](details.en.md#client-support)。
 
 SQLite 是随 Python 工具读写的本地数据库文件，用来查询书签、栏目、文件夹和画布关系，并记录来源与同步状态。它可以从来源快照重建，不需要单独启动数据库服务器。
 

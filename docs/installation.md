@@ -8,7 +8,7 @@ Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python
 
 ## `bookmark-research` 命令（推荐）
 
-`npm install -g bookmark-research` 之后在终端输入 `bookmark-research`，即可打开主菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态。也可以直接带子命令：`install [宿主…]`、`update`、`verify`、`setup`、`status`、`config show|set`、`doctor`。npm 包只是入口，内部调用包内的 Python 安装器和运行时，因此仍需 Python 3.9+；Windows 原生、macOS、Linux 都可以用。npm 首次发布前可用 `npx github:Browser-bookmark-hub/Bookmark-Research`。不带参数且不在终端中运行时（agent／CI），它只输出状态 JSON，不弹菜单。
+`npm install -g bookmark-research` 之后在终端输入 `bookmark-research`，即可打开主菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态。也可以直接带子命令：`install [宿主…]`、`update`、`verify`、`setup`、`status`、`config show|set`、`doctor`。npm 包只是入口，内部调用包内的 Python 安装器和运行时，因此仍需 Python 3.9+；Windows 原生、macOS、Linux 都可以用。想用最新 `main` 可运行 `npx github:Browser-bookmark-hub/Bookmark-Research`。不带参数且不在终端中运行时（agent／CI），它只输出状态 JSON，不弹菜单。
 
 ## 一条命令引导安装
 
@@ -306,7 +306,7 @@ Git marketplace 的 `update` 保持已注册的仓库与 ref，刷新其快照�
 
 ```sh
 python3 -m unittest discover -s tests
-python3 scripts/build_zip.py --output dist/bookmark-research-0.4.0.zip
+python3 scripts/build_zip.py --output dist/bookmark-research-0.5.0-beta.1.zip
 ```
 
 ZIP 包含原生插件、marketplace、共享运行时、Skill、四宿主源文件及组装器、安装入口、导出器、文档和许可；不包含测试、数据库、页面归档、用户配置或书签数据包。加 `--include-tests` 可另建测试包，包含合成 fixture、宿主 JS 检查、`verify_fixture.py` 和 `verify_quality.py`，可解压后再次导出宿主包。
