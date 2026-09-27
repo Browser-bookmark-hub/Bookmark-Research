@@ -402,7 +402,6 @@ class InstallerTests(unittest.TestCase):
                 cli.run(["plugin", "list"])
 
 
-@unittest.skipUnless(shutil.which("codex"), "Codex CLI unavailable; native registration test skipped")
 class PinnedInterpreterTests(unittest.TestCase):
     """Windows pins the detected interpreter; simulated with the running Python."""
     setUp = InstallerTests.setUp
@@ -451,6 +450,7 @@ class PinnedInterpreterTests(unittest.TestCase):
                     install._runtime_check(self.source)
 
 
+@unittest.skipUnless(shutil.which("codex"), "Codex CLI unavailable; native registration test skipped")
 class NativeCodexInstallerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="bookmark-install-native-")
