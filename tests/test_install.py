@@ -90,6 +90,10 @@ class InstallerTests(unittest.TestCase):
             "EXA_API_KEY": "environment-secret-marker", "TAVILY_API_KEY": "environment-secret-marker"})
         environment.start()
         self.addCleanup(environment.stop)
+        # These contracts register the source itself; PinnedInterpreterTests covers Windows pinning.
+        pin = mock.patch.object(install, "_pin_interpreter", return_value=False)
+        pin.start()
+        self.addCleanup(pin.stop)
 
     def test_invalid_preferences_stop_before_native_registration(self):
         path = self.base / "preferences.json"
@@ -399,6 +403,54 @@ class InstallerTests(unittest.TestCase):
 
 
 @unittest.skipUnless(shutil.which("codex"), "Codex CLI unavailable; native registration test skipped")
+class PinnedInterpreterTests(unittest.TestCase):
+    """Windows pins the detected interpreter; simulated with the running Python."""
+    setUp = InstallerTests.setUp
+
+    def test_install_registers_a_pinned_copy_and_update_refreshes_it(self):
+        home = self.base / "managed"
+        bundle = home / "codex-pinned" / "bundle"
+        with mock.patch.dict(os.environ, {"BOOKMARK_RESEARCH_INSTALL_DIR": str(home)}), \
+                mock.patch.object(install, "_pin_interpreter", return_value=True):
+            cli = ScriptedCli([
+                (["plugin", "marketplace", "list"], {"marketplaces": []}),
+                (["plugin", "marketplace", "add", str(bundle)], {"marketplaceName": install.NAME}),
+                (["plugin", "add", install.SELECTOR], {"pluginId": install.SELECTOR, "installedPath": str(bundle)}),
+                (["plugin", "list"], {"installed": [self.registration]}),
+            ])
+            result = install.manage("install", cli, source=self.source)
+            self.assertTrue(result["verified"])
+            self.assertIn("fetch_web", result["runtime"]["mcp_tools"])
+            server = export_bundle.read_plugin_manifest(bundle)["mcpServers"][install.NAME]
+            self.assertEqual(server["command"], sys.executable)
+            self.assertLessEqual({"SystemRoot", "windir"}, set(server["env_vars"]))
+            self.assertEqual(export_bundle.read_plugin_manifest(self.source)["mcpServers"][install.NAME]["command"], "python3")
+            self.assertEqual(json.loads((home / "codex-pinned/origin.json").read_text(encoding="utf-8")),
+                             {"sourceType": "local", "source": str(self.source)})
+            (self.source / "src/pinned_marker.py").write_text("marker = 1\n", encoding="utf-8")
+            marketplace = {"name": install.NAME, "root": str(bundle),
+                           "marketplaceSource": {"sourceType": "local", "source": str(bundle)}}
+            cli = ScriptedCli([
+                (["plugin", "marketplace", "list"], {"marketplaces": [marketplace]}),
+                (["plugin", "list"], {"installed": [self.registration]}),
+                (["plugin", "add", install.SELECTOR], {"pluginId": install.SELECTOR, "installedPath": str(bundle)}),
+                (["plugin", "list"], {"installed": [self.registration]}),
+            ])
+            self.assertTrue(install.manage("update", cli)["verified"])
+            self.assertTrue((bundle / "src/pinned_marker.py").is_file())
+            self.assertEqual(cli.steps, [])
+
+    def test_runtime_check_rejects_unpinned_commands_other_than_python3(self):
+        manifest_path = self.source / ".codex-plugin/plugin.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for command in ("python", "relative/python3", str(self.base / "missing-python")):
+            with self.subTest(command=command):
+                manifest["mcpServers"][install.NAME]["command"] = command
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "Unexpected native MCP launch configuration"):
+                    install._runtime_check(self.source)
+
+
 class NativeCodexInstallerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="bookmark-install-native-")

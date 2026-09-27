@@ -369,6 +369,10 @@ Reference: https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/
 def _write_adapter(stage, format_name, output, manifest, python="python3"):
     metadata = {"name": NAME, "version": manifest["version"], "description": manifest["description"]}
     if format_name == "codex":
+        if python != "python3":
+            # Codex registers this manifest verbatim; pin the detected interpreter.
+            manifest = json.loads(json.dumps(manifest))
+            manifest["mcpServers"][NAME]["command"] = python
         _write_json(stage, ".codex-plugin/plugin.json", manifest)
         _write_json(stage, ".agents/plugins/marketplace.json", {
             "name": NAME, "interface": {"displayName": "Bookmark Research"},

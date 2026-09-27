@@ -39,6 +39,8 @@ npx bookmark-research install
 | Pi | `npx bookmark-research install pi --non-interactive` | `pi install` |
 | DSH | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
 
+**Windows：** Windows 上常常没有能用的 `python3`，所以安装器会把检测到的 Python 路径写进各宿主的 MCP 配置。Codex 请用 `bookmark-research install codex` 安装，不要直接把仓库加进 Codex。`bookmark-research status` 可以查看实际使用的 Python。
+
 一次装多个：`npx bookmark-research install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code、Pi）。全部参数见[安装说明](docs/installation.md)。
 
 **让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code、Pi 或 DSH：
@@ -84,15 +86,17 @@ npx bookmark-research install
 
 ## 插件包含什么
 
-### Skill
+由 1 个 Skill、1 个本地 MCP 服务，以及这个服务内部连接的远程 MCP 和网页服务组成。宿主里只需要登记这 1 个本地 MCP。
 
-| Skill | 用途 |
-| --- | --- |
-| [`bookmark-research`](skills/bookmark-research/SKILL.md) | 查书签、核对链接、对每条书签做完整研究并写出带引用的报告。英文执行版，另有[中文阅读版](skills/bookmark-research/references/zh/skill-guide.md)。 |
+| 层 | 组成 | 运行方式 | 需要配置 |
+| --- | --- | --- | --- |
+| Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) 及 11 份方法参考，每份都有[中文版](skills/bookmark-research/references/zh/skill-guide.md) | 由宿主加载 | 不需要 |
+| 本地 MCP | `bookmark-research`，36 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
+| 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取）、[Tavily](https://tavily.com)（备用搜索） | HTTPS，不启动本地进程 | 可选 API Key |
+| 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索） | HTTPS | 可选 `JINA_API_KEY` |
+| 可选的宿主 MCP | Exa Agent、Parallel Task MCP、Tavily Research | 需自行加到宿主里 | `bookmark-research setup` 会给出步骤 |
 
-### MCP 服务
-
-一个本地 stdio 服务 `bookmark-research`（`python3 src/cli.py serve`），共 36 个工具：
+本地 MCP 的工具：
 
 | 分类 | 工具 |
 | --- | --- |
@@ -102,19 +106,6 @@ npx bookmark-research install
 | 专业研究服务（可选） | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach`、`_import` |
 | 设置 | `get_settings`、`update_settings` |
 | Wiki 与评测 | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search`、`wiki_lint`、`evaluate_research` |
-
-### 网页服务
-
-由插件自带的 MCP 服务直接调用，不需要另外添加它们的 MCP。
-
-| 服务 | 作用 |
-| --- | --- |
-| [Exa](https://exa.ai) | 主要搜索；首选网页读取 |
-| [Parallel](https://parallel.ai) | 主要搜索；备用网页读取 |
-| [Tavily](https://tavily.com) | 备用搜索 |
-| [Jina Reader](https://jina.ai/reader) | 备用网页读取；有 Key 时可搜索 |
-
-另有可选的研究 MCP 可以自己加到宿主里：Exa Agent、Parallel Task、Tavily Research。`bookmark-research setup` 会给出各宿主的接入步骤。
 
 ## 更多
 

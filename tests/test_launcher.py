@@ -55,6 +55,7 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(value["hosts"][0]["profile"], "web")
         self.assertEqual(value["credentials"]["EXA_API_KEY"], "environment")
         self.assertNotIn("secret-value-never-printed", output)
+        self.assertEqual(value["python"]["executable"], sys.executable)
 
     def test_no_arguments_without_terminal_prints_status(self):
         with mock.patch("onboarding.Console.open") as opened:

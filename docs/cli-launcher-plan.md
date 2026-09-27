@@ -55,4 +55,4 @@ bookmark-research doctor          检查 Python 与 SQLite FTS5
 
 - 已实现：`bin/bookmark-research.js`、根目录 `package.json`（含 `bin` 与 `pi.skills`）、`scripts/launcher.py` 主菜单与子命令、Windows 按键／控制台／安装锁／Python 路径适配、`.github/workflows/test.yml` 三系统矩阵、README 与安装文档。
 - 已验证（macOS）：全量 450 个测试通过；`npm pack` 后全局安装的 `bookmark-research` 真实完成 Claude Code 安装、`status`、`verify`（36 个 MCP 工具）；主菜单在伪终端中可用。
-- 待验证：Windows 原生只由 CI 配置与模拟单元测试覆盖，需推送后看 CI；npm 包尚未发布；Codex 在 Windows 上仍使用仓库 manifest 中的 `python3` 启动 MCP，若系统没有 `python3` 命令需另行处理。
+- 已处理（0.5.0-beta.2）：Windows 上 Codex 改为登记固定了检测到的 Python 路径的副本，清单转发 `SystemRoot`／`windir`。仍待真机验证：Windows 上的四宿主实际安装、Pi。

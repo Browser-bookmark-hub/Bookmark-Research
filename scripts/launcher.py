@@ -68,6 +68,9 @@ def status():
                             "search": current["search"]["providers"], "fallback": current["search"]["fallback_providers"],
                             "readers": Settings.fetch_providers(current), "archive": current["archive"]["enabled"]},
             "credentials": {row["name"]: row["source"] or "missing" for row in Credentials(settings).describe()["credentials"]},
+            # The interpreter detected for this run; Windows installs write it into client MCP configs.
+            "python": {"executable": sys.executable, "version": sys.version.split()[0],
+                       "mcp_command": sys.executable if os.name == "nt" else "python3"},
             "settings_path": str(settings.path)}
 
 

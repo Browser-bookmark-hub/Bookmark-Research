@@ -39,6 +39,8 @@ For a permanent `bookmark-research` command: `npm install -g bookmark-research`.
 | Pi | `npx bookmark-research install pi --non-interactive` | `pi install` |
 | DSH | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
 
+**Windows:** the installer writes the detected Python path into each client's MCP config, because Windows often has no working `python3`. Install Codex with `bookmark-research install codex` rather than adding the repository to Codex directly. `bookmark-research status` shows the interpreter in use.
+
 Several at once: `npx bookmark-research install claude dsh --profile web --non-interactive`. Project scope: `--scope project --project /path/to/project` (Claude Code, Pi). All options: [installation guide](docs/installation.en.md).
 
 **Ask your agent to install it.** Paste this into Codex, Claude Code, Pi or DSH:
@@ -84,15 +86,17 @@ Preferences (research depth, answer language, providers, archiving) can also be 
 
 ## What's inside
 
-### Skill
+A bundle of one Skill, one local MCP server, and the remote MCPs and services that server connects to. The client registers only the local MCP.
 
-| Skill | Use it for |
-| --- | --- |
-| [`bookmark-research`](skills/bookmark-research/SKILL.md) | Query bookmarks, check links, run a full research pass over every bookmark and write a cited report. English, with a [Chinese reading copy](skills/bookmark-research/references/zh/skill-guide.md). |
+| Layer | Component | Runs as | Setup |
+| --- | --- | --- | --- |
+| Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) and 11 method references, each with a [Chinese copy](skills/bookmark-research/references/zh/skill-guide.md) | Loaded by the client | None |
+| Local MCP | `bookmark-research`, 36 tools (below) | Python process started by the client | Installed for you |
+| Remote MCPs, called by the local MCP | [Exa](https://exa.ai) (search, page reading), [Parallel](https://parallel.ai) (search, fallback reading), [Tavily](https://tavily.com) (search fallback) | HTTPS, no local process | Optional API keys |
+| HTTP service, called by the local MCP | [Jina Reader](https://jina.ai/reader) (fallback reading; search with a key) | HTTPS | Optional `JINA_API_KEY` |
+| Optional client MCPs | Exa Agent, Parallel Task MCP, Tavily Research | Added to your client by you | `bookmark-research setup` shows the steps |
 
-### MCP server
-
-One local stdio server, `bookmark-research` (`python3 src/cli.py serve`), with 36 tools:
+Local MCP tools:
 
 | Group | Tools |
 | --- | --- |
@@ -104,19 +108,6 @@ One local stdio server, `bookmark-research` (`python3 src/cli.py serve`), with 3
 | Wiki and evaluation | `wiki_write`, `wiki_get`, `wiki_list`, `wiki_search`, `wiki_lint`, `evaluate_research` |
 
 Tool descriptions: [details](docs/details.en.md#mcp-tools).
-
-### Web services
-
-Called by the plugin's own MCP server; you do not add their MCPs separately.
-
-| Service | Role |
-| --- | --- |
-| [Exa](https://exa.ai) | Primary search; first page reader |
-| [Parallel](https://parallel.ai) | Primary search; fallback page reader |
-| [Tavily](https://tavily.com) | Search fallback |
-| [Jina Reader](https://jina.ai/reader) | Fallback page reader; search with a key |
-
-Optional research MCPs you may add to your client yourself: Exa Agent, Parallel Task and Tavily Research. `bookmark-research setup` shows the steps for each client.
 
 ## More
 

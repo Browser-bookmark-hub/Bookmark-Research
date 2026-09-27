@@ -168,7 +168,10 @@ def _runtime_check(root, timeout=30):
     if health.get("fts5") is not True:
         raise RuntimeError("Installed runtime requires SQLite FTS5")
     server = manifest.get("mcpServers", {}).get(NAME, {})
-    if server.get("command") != "python3" or server.get("args") != ["src/cli.py", "serve"] or server.get("cwd") != ".":
+    command = server.get("command")
+    # Windows installs pin the detected interpreter; the repository manifest keeps python3.
+    pinned = isinstance(command, str) and Path(command).is_absolute() and Path(command).is_file()
+    if (command != "python3" and not pinned) or server.get("args") != ["src/cli.py", "serve"] or server.get("cwd") != ".":
         raise ValueError("Unexpected native MCP launch configuration; verify it with Codex directly")
     requests = [
         {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
@@ -298,6 +301,40 @@ def _print_getting_started(guide):
     print("\n".join(lines), file=sys.stderr)
 
 
+def _pin_interpreter():
+    """Windows has no reliable python3 command, so Codex gets this interpreter's absolute path."""
+    return os.name == "nt"
+
+
+def _pinned_home():
+    data = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))).expanduser()
+    root = os.environ.get("BOOKMARK_RESEARCH_INSTALL_DIR") or str(data / "bookmark-research/installations")
+    return Path(root).expanduser().resolve() / "codex-pinned"
+
+
+def _pinned_source(origin, timeout, python=None):
+    """Export a Codex marketplace whose MCP command is the detected interpreter."""
+    from export_bundle import export_bundle
+    from host_install import _checkout
+    base = _pinned_home()
+    base.mkdir(parents=True, exist_ok=True)
+    bundle, stage = base / "bundle", base / "stage"
+    shutil.rmtree(stage, ignore_errors=True)
+    with _checkout(origin, timeout) as (root, _):
+        export_bundle("codex", stage, root, python or sys.executable)
+    shutil.rmtree(bundle, ignore_errors=True)
+    stage.rename(bundle)
+    (base / "origin.json").write_text(json.dumps(origin, ensure_ascii=False), encoding="utf-8")
+    return _source(str(bundle))
+
+
+def _pinned_origin(requested):
+    base = _pinned_home()
+    if requested["sourceType"] != "local" or Path(requested["source"]) != base / "bundle":
+        return None
+    return json.loads((base / "origin.json").read_text(encoding="utf-8"))
+
+
 def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=None, language="auto"):
     language = resolve_language(language)
     if action == "verify":
@@ -305,6 +342,8 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
     current = _marketplace(cli)
     if action == "install":
         requested = _source(source if source is not None else SOURCE_ROOT, ref)
+        if _pin_interpreter() and not dry_run:
+            requested = _pinned_source({key: requested[key] for key in ("sourceType", "source", "ref") if key in requested}, cli.timeout)
         if current:
             _check_source(current, requested)
             if ref:
@@ -318,7 +357,12 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
         if not current or not _installed(cli):
             raise ValueError("No existing bookmark-research installation; run install first")
         requested = _configured_source(current)
-        if requested["sourceType"] == "git":
+        origin = _pinned_origin(requested)
+        if origin and not dry_run:
+            # Refresh from the original source, then reinstall the pinned copy.
+            requested = _pinned_source(origin, cli.timeout)
+            commands = []
+        elif requested["sourceType"] == "git":
             commands = [["plugin", "marketplace", "upgrade", NAME]]
         else:
             # Validate the retained local source before touching the installed cache.
