@@ -306,7 +306,7 @@ Git marketplace 的 `update` 保持已注册的仓库与 ref，刷新其快照�
 
 ```sh
 python3 -m unittest discover -s tests
-python3 scripts/build_zip.py --output dist/bookmark-research-0.5.0-beta.1.zip
+python3 scripts/build_zip.py --output dist/bookmark-research-0.5.0-beta.2.zip
 ```
 
 ZIP 包含原生插件、marketplace、共享运行时、Skill、四宿主源文件及组装器、安装入口、导出器、文档和许可；不包含测试、数据库、页面归档、用户配置或书签数据包。加 `--include-tests` 可另建测试包，包含合成 fixture、宿主 JS 检查、`verify_fixture.py` 和 `verify_quality.py`，可解压后再次导出宿主包。

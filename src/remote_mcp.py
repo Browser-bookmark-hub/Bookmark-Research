@@ -107,7 +107,7 @@ class McpHttpClient:
     def _message(self, body):
         headers = {"Content-Type": "application/json",
                    "Accept": "application/json, text/event-stream",
-                   "User-Agent": "bookmark-research/0.5.0-beta.1"}
+                   "User-Agent": "bookmark-research/0.5.0-beta.2"}
         if self.initialized:
             headers["MCP-Protocol-Version"] = self.protocol
         request = urllib.request.Request(
@@ -232,7 +232,7 @@ class McpHttpClient:
             try:
                 result = self.request("initialize", {
                     "protocolVersion": self.protocol, "capabilities": {},
-                    "clientInfo": {"name": "bookmark-research", "version": "0.5.0-beta.1"}})
+                    "clientInfo": {"name": "bookmark-research", "version": "0.5.0-beta.2"}})
                 if (not isinstance(result, dict) or not isinstance(result.get("protocolVersion"), str)
                         or result["protocolVersion"] not in self.PROTOCOLS):
                     raise McpError("MCP server selected an unsupported protocol version")

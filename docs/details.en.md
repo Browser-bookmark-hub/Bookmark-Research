@@ -261,8 +261,8 @@ From this plugin directory **in a full repository checkout**, developers can run
 python3 -m unittest discover -s tests -v
 python3 scripts/verify_fixture.py --output /tmp/bookmark-research-verification
 python3 scripts/verify_quality.py
-python3 scripts/build_zip.py --output dist/bookmark-research-0.5.0-beta.1.zip
-python3 scripts/build_zip.py --include-tests --output dist/bookmark-research-test-pack-0.5.0-beta.1.zip
+python3 scripts/build_zip.py --output dist/bookmark-research-0.5.0-beta.2.zip
+python3 scripts/build_zip.py --include-tests --output dist/bookmark-research-test-pack-0.5.0-beta.2.zip
 ```
 
 The fixture verifier checks independent bookmark counts, copy-card semantics, scoped queries, unchanged source hashes, incremental sync, and a two-round research lifecycle with a failed page and resumed operation. To additionally validate your own package, append `--package /absolute/path/to/package`; this stays offline and writes derived files only to the new output directory.
