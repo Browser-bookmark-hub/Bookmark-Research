@@ -144,7 +144,7 @@ Without an ID, `research_status` paginates archive listings. With an ID, it retu
 
 Before a network call, the runtime saves pending intent. After a response, it atomically saves a completion receipt before committing state. If the process exits after saving that receipt, later reads recover the operation and sources; the same ID replays saved results and later sources receive new IDs. Without a completed receipt, the operation stays `pending` and the same ID does not send another request. A file lock can identify an operation still executing locally. After confirming interruption, record `interruption` to mark `unknown_outcome`. A justified retry uses a new ID and new budget. Status records alone are not evidence of a live process.
 
-Default storage is `BOOKMARK_RESEARCH_DATA_DIR/research/`, falling back to the XDG data directory:
+Tasks are stored in the central folder `output.directory` (default `BOOKMARK_RESEARCH_DATA_DIR/research/`, falling back to the XDG data directory) or, with `output.mode:beside_input`, beside the single input; `research_start` returns the actual `output.path`, any `fallback_reason` and `work_directory`. Keep all agent scratch files in `work/`. See [settings](settings-and-archive.md#research-output-and-wiki-follow-up).
 
 ```text
 r-<id>/
@@ -157,8 +157,9 @@ r-<id>/
   sources.json           machine-readable sources, claims, questions and operations
   coverage-<hash>.json    delivery coverage and item differences
   external-runs/         complete host/service result attachments
+  work/                  the agent's own intermediate files; nothing else goes elsewhere
 ```
 
-`research_finish` returns a bounded overview and artifact paths; full conclusions and quotes are in the report and source list. Reports use ordinary sections and links, preserving retracted claims, reasons and original citations. Relative local links move with the complete task directory. Share selected reports/sources according to user authorization; archives may contain private scope. Record retrieval and publication times separately; a successful fetch does not prove current origin content.
+`research_finish` returns a bounded overview, artifact paths and `wiki_follow_up` (follow its `policy` and `instruction`); full conclusions and quotes are in the report and source list. Reports use ordinary sections and links, preserving retracted claims, reasons and original citations. Relative local links move with the complete task directory. Share selected reports/sources according to user authorization; archives may contain private scope. Record retrieval and publication times separately; a successful fetch does not prove current origin content.
 
 The CLI uses the same implementation; see [deep research commands](cli.md#deep-research-commands). Repository development checks include `tests/test_research.py` and `scripts/verify_fixture.py`; test material is not automatically imported into user indexes.

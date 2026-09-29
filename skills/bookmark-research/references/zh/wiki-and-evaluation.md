@@ -39,6 +39,10 @@ kind 为 topic 或 entity。每节必须有有效 claim；每页至多 24 个不
 
 `wiki_list` 和 `wiki_search` 分页返回；搜索对象是整理后的标题、章节和正文，采用字面词匹配，可查询中文。保存一份网页正文不会自动写 Wiki；当前不提供 embedding、向量检索、重排或监控。Wiki 默认数据目录 `wiki/`，可通过 `settings.wiki.directory` 改路径，不能放回原包。
 
+每次写入会重新生成 `index.md`（按 kind 列出当前页面：链接、标题、一行摘要、版本、日期、结论数），并向 `log.md` 追加 `## [日期] write | 标题 (rN)` 及 page ID、修改说明和研究 ID。可阅读或 grep 它们了解全貌；`index.json` 与版本文件仍是准确数据，`index.md` 过期或缺失时 `wiki_lint` 给出 `catalog_stale`／`catalog_missing` 警告，下次写入即重新生成。
+
+研究结束后，`research_finish.wiki_follow_up` 按 `settings.wiki.after_research` 处理：`suggest`（默认）→ 展示 `candidates` 与可用结论，征得同意再写；`auto` → 更新匹配页面（先读取以取得 `expected_revision`）或新建页面，只引用 `eligible_claim_ids`，再说明改动；`off` → 用户未要求则不处理。
+
 ## 评测真实运行
 
 在同一问题、冻结输入和可比较预算下分别运行宿主普通研究、宿主工作流、专业服务；记录实际模型、工具、宿主版本、输入版本、时间窗口、失败和可获得用量。无法等同的条件写明，不删失败样本，也不把未知成本当 0。

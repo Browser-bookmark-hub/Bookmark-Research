@@ -56,6 +56,27 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(value["credentials"]["EXA_API_KEY"], "environment")
         self.assertNotIn("secret-value-never-printed", output)
         self.assertEqual(value["python"]["executable"], sys.executable)
+        data = (self.base / "data").resolve()
+        self.assertEqual(value["output"], {"mode": "central", "directory": str(data / "research")})
+        self.assertEqual(value["wiki"], {"directory": str(data / "wiki"), "after_research": "suggest"})
+        self.assertEqual(value["recent_research"]["tasks"], [])
+
+    def test_status_lists_the_newest_registered_research_tasks(self):
+        import research_locations
+        for day in range(1, 8):
+            folder = self.base / "tasks" / ("r%s" % day)
+            if day != 7:
+                folder.mkdir(parents=True)
+            research_locations.register("r%s" % day, folder, "2026-09-%02dT00:00:00+00:00" % day, "central")
+        tasks = json.loads(self.run_main("status")[1])["recent_research"]
+        self.assertEqual(tasks["total"], 7)
+        self.assertEqual([row["id"] for row in tasks["tasks"]], ["r7", "r6", "r5", "r4", "r3"])
+        self.assertEqual([row["exists"] for row in tasks["tasks"]], [False, True, True, True, True])
+        self.assertEqual(tasks["tasks"][1]["path"], str(self.base / "tasks/r6"))
+        research_locations.registry_path().write_text("[]", encoding="utf-8")
+        broken = json.loads(self.run_main("status")[1])["recent_research"]
+        self.assertEqual(broken["tasks"], [])
+        self.assertIn("Invalid research location registry", broken["error"])
 
     def test_no_arguments_without_terminal_prints_status(self):
         with mock.patch("onboarding.Console.open") as opened:

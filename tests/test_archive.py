@@ -93,7 +93,11 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(saved["pages"][1]["content_kind"], "provider_excerpts")
         self.assertEqual(saved["pages"][2]["extraction_status"], "provider_error")
         self.assertEqual(saved["pages"][3]["extraction_status"], "unrecognized_or_not_returned")
-        self.assertEqual(len(list(Path(saved["directory"]).glob("pages/*.md"))), 2)
+        # Bodies live once in the archive's content-addressed page store.
+        self.assertEqual(len(list((self.base / "knowledge" / "pages").glob("*.md"))), 2)
+        self.assertFalse((Path(saved["directory"]) / "pages").exists())
+        manifest = json.loads(Path(saved["manifest_path"]).read_text())
+        self.assertEqual(manifest["pages"][0]["body_file"], "../../pages/%s.md" % manifest["pages"][0]["sha256"])
 
     def test_json_text_payload_is_extracted_without_treating_snippets_as_bodies(self):
         raw = {"content": [{"type": "text", "text": json.dumps({"results": [

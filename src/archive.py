@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import re
 import tempfile
 import uuid
@@ -13,10 +14,84 @@ from settings import Settings
 
 
 class SourceArchive:
-    """Append immutable capture directories; never invent missing page bodies."""
+    """Append immutable capture directories; never invent missing page bodies.
+
+    Layout (manifest schema_version 2)::
+
+        <archive>/sources/<capture_id>/manifest.json   # when/what was fetched
+        <archive>/sources/<capture_id>/response.json   # actual provider response
+        <archive>/pages/<sha256>.md                     # page body, stored once
+
+    Each manifest page entry records ``sha256`` and ``body_file`` relative to
+    its capture directory (``../../pages/<sha256>.md``). Identical bodies from
+    different captures share one content-addressed file. Schema 1 captures kept
+    bodies inside the capture (``pages/<url-hash>.md``); both layouts are read.
+    """
+
+    PAGES = "pages"
 
     def __init__(self, directory):
         self.directory = Settings.external_path(str(directory), "Archive directory")
+
+    def _pages_directory(self):
+        pages = self.directory / self.PAGES
+        if pages.is_symlink() or (pages.exists() and not pages.is_dir()):
+            raise ValueError("Archive page store must be a real directory: " + str(pages))
+        pages.mkdir(parents=True, exist_ok=True)
+        return pages
+
+    def _store_page(self, body):
+        """Write body once under pages/<sha256>.md; reuse (or repair) an existing copy."""
+        data = body.encode("utf-8")
+        digest = hashlib.sha256(data).hexdigest()
+        pages = self._pages_directory()
+        target = pages / (digest + ".md")
+        if target.is_file() and not target.is_symlink():
+            if hashlib.sha256(target.read_bytes()).hexdigest() == digest:
+                return target, digest
+        # Missing, replaced or damaged: the name states the content, so an
+        # atomic rewrite with exactly that content restores it.
+        with tempfile.NamedTemporaryFile(dir=pages, prefix=".page-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.replace(temporary, target)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+        return target, digest
+
+    def captures(self):
+        """Yield (capture_id, capture_directory) for real capture folders inside this archive."""
+        root = self.directory / "sources"
+        if root.is_symlink() or not root.is_dir():
+            return
+        for child in sorted(root.iterdir()):
+            if child.name.startswith(".") or child.is_symlink() or not child.is_dir():
+                continue
+            yield child.name, child
+
+    def page_path(self, capture_directory, entry):
+        """Resolve a manifest page entry's body in either layout, confined to this archive."""
+        relative = entry.get("body_file") if isinstance(entry, dict) else None
+        if not isinstance(relative, str) or not relative or "\x00" in relative or Path(relative).is_absolute():
+            return None
+        target = (Path(capture_directory) / relative).resolve()
+        if self.directory not in target.parents:
+            raise ValueError("Archived page body is outside the archive: " + relative)
+        return target
+
+    def read_page(self, capture_directory, entry):
+        """Return the verified body text for a manifest page entry, or raise ValueError."""
+        target = self.page_path(capture_directory, entry)
+        if target is None:
+            raise ValueError("Archived page has no saved body")
+        data = target.read_bytes()
+        if hashlib.sha256(data).hexdigest() != entry.get("sha256"):
+            raise ValueError("Archived page body does not match its recorded SHA-256")
+        return data.decode("utf-8")
 
     @staticmethod
     def _key(url):
@@ -252,13 +327,13 @@ class SourceArchive:
         Settings.external_path(str(captures), "Archive directory")
         captures.mkdir(parents=True, exist_ok=True)
         destination = captures / capture_id
-        manifest = {"schema_version": 1, "capture_id": capture_id,
+        manifest = {"schema_version": 2, "capture_id": capture_id,
                     "archived_at": archived_at.isoformat(),
                     "provider": fetch["provider"], "tool": fetch["tool"], "retrieved_at": fetch["retrieved_at"],
                     "requested_urls": fetch["urls"], "request_arguments": fetch["request_arguments"],
                     "requested_max_characters": fetch["requested_max_characters"],
                     "character_limit_applied": any(key in fetch["request_arguments"] for key in ("maxCharacters", "max_chars")),
-                    "response_file": "response.json", "pages": [],
+                    "response_file": "response.json", "page_store": "content_addressed", "pages": [],
                     "origin_freshness": "unknown", "forced_live_fetch": False,
                     "note": "Saved provider response and extracts, not original HTML or verified complete pages. Retrieval time is not publication or update time."}
         with tempfile.TemporaryDirectory(prefix=".capture-", dir=captures) as temporary:
@@ -266,6 +341,7 @@ class SourceArchive:
             stage.mkdir()
             self._write_json(stage / "response.json", response)
             manifest["response_sha256"] = hashlib.sha256((stage / "response.json").read_bytes()).hexdigest()
+            bodies = {}
             for url in dict.fromkeys(fetch["urls"]):
                 row, body, status, kind = self._select(by_url.get(self._key(url)))
                 if response.get("isError"):
@@ -283,12 +359,12 @@ class SourceArchive:
                     if row.get("error") or row.get("errors"):
                         entry["provider_error"] = row.get("error") or row.get("errors")
                 if body is not None:
-                    relative = "pages/" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:24] + ".md"
-                    target = stage / relative
-                    target.parent.mkdir(exist_ok=True)
-                    target.write_bytes(body.encode("utf-8"))
-                    entry.update(body_file=relative, page_body_archived=True,
-                                 sha256=hashlib.sha256(body.encode("utf-8")).hexdigest(), characters=len(body))
+                    # Written before the capture is published, so a manifest
+                    # never points at a missing body. Identical bodies share it.
+                    target, digest = self._store_page(body)
+                    entry.update(body_file="../../%s/%s" % (self.PAGES, target.name), page_body_archived=True,
+                                 sha256=digest, characters=len(body))
+                    bodies[url] = target
                     limited = manifest["character_limit_applied"]
                     entry["possibly_truncated"] = bool((row and row.get("truncated")) or
                         (limited and len(body) >= fetch["requested_max_characters"] - 2))
@@ -298,5 +374,5 @@ class SourceArchive:
         return {"status": "saved", "capture_id": capture_id, "directory": str(destination),
                 "manifest_path": str(destination / "manifest.json"),
                 "response_path": str(destination / "response.json"),
-                "pages": [{**row, "body_path": str(destination / row["body_file"]) if row["body_file"] else None}
+                "pages": [{**row, "body_path": str(bodies[row["requested_url"]]) if row["body_file"] else None}
                           for row in manifest["pages"]]}

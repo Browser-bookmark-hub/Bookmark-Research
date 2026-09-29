@@ -11,6 +11,7 @@
 | `index_status`／`sync_package` | `status`／`sync` |
 | `search_bookmarks`／`get_context` | `search`／`context` |
 | `fetch_web`／`search_web` | `fetch-web`／`search-web` |
+| `search_archive` | `search-archive` |
 | `research_start`／`research_fetch` | `research start`／`research fetch` |
 
 ```sh
@@ -42,6 +43,7 @@ python3 <root>/src/cli.py providers --probe
 python3 <root>/src/cli.py search-web --target '示例公司甲 官方价格' --target '示例公司乙 官方价格' --limit 5
 python3 <root>/src/cli.py fetch-web https://example.com/company-a https://example.com/company-b
 python3 <root>/src/cli.py fetch-web https://example.com/company-a --no-archive --max-characters 30000
+python3 <root>/src/cli.py search-archive '精确短语或词' --url example.com --limit 10
 python3 <root>/src/cli.py config show
 python3 <root>/src/cli.py config set --search-provider exa --archive true
 python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
@@ -51,7 +53,7 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 
 `setup` 引导偏好、隐藏密钥输入和服务检查；Agent 使用 `--non-interactive --input FILE`，`--skip-checks` 阻止联网检查。`readiness` 遵循 cached／always／manual 偏好；`--refresh` 强制检查，`--offline` 不联网，`--test-retrieval` 选择执行使用额度的样例搜索／读取。重复 `--provider` 限定检索服务，`--service openai|parallel` 选择专业服务，`--tool` 传入实际观察到的宿主工具；`--host` 为 `codex`、`claude_code`、`pi`、`dsh` 或 `unknown`。新联网问题前运行一次 readiness 并按结果修复，不启动专业任务。状态含义与凭据保存见配置参考。
 
-`fetch-web.pages` 按 URL 返回一份正文，保留各次尝试状态和归档路径；`--raw` 返回完整服务响应。`--timeout` 作用于单个服务 HTTP 请求，发现工具和回退可能使总耗时更长。`research fetch` 只接受文档规定的 MCP JSON 字段，不接受 `timeout`。
+`search-archive` 不联网，查找本地已保存的正文（知识归档与研究证据）；`--url` 按 URL 子串过滤。`fetch-web.pages` 按 URL 返回一份正文，保留各次尝试状态和归档路径；`--raw` 返回完整服务响应。`--timeout` 作用于单个服务 HTTP 请求，发现工具和回退可能使总耗时更长。`research fetch` 只接受文档规定的 MCP JSON 字段，不接受 `timeout`。
 
 `providers` 只描述配置；`--probe` 才联网检查握手和工具列表。Exa/Parallel 公共端点是否可匿名使用取决于服务当前限额；可在启动进程前设置 `EXA_API_KEY` / `PARALLEL_API_KEY`。可选 `--provider tavily`：存在 `TAVILY_API_KEY` 时使用 Bearer，否则发送明确 keyless header。工具列出不证明当前凭据能够执行。不要把密钥写进 manifest 或报告。
 

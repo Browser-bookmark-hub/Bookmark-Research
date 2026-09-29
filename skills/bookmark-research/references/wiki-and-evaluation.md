@@ -39,6 +39,10 @@ Write target entity/topic pages before adding `links:[{page_id,relation}]`. For 
 
 `wiki_list` and `wiki_search` are paginated. Search matches literal terms in authored titles, headings and text, including Chinese. Saving page text does not automatically write a Wiki. There are no embeddings, vector retrieval, reranking or monitoring. Default storage is the data directory's `wiki/`, overridable with `settings.wiki.directory`; keep it outside the original package.
 
+Each write regenerates `index.md` (current pages by kind: link, title, one-line summary, revision, date, claim count) and appends `log.md` (`## [date] write | title (rN)` with page ID, change note and research IDs). Read or grep them to orient; `index.json` and revision files remain authoritative, and `wiki_lint` warns `catalog_stale`/`catalog_missing` until the next write regenerates `index.md`.
+
+After research, `research_finish.wiki_follow_up` applies `settings.wiki.after_research`: `suggest` (default) → show `candidates` and eligible claims and ask before writing; `auto` → update a matching page (read it for `expected_revision`) or create one using only `eligible_claim_ids`, then report the changes; `off` → nothing unless requested.
+
 ## Evaluate actual runs
 
 Run native host research, a host workflow and a professional service on the same question, frozen inputs and comparable budgets. Record actual model, tools, host version, input version, time window, failures and available usage. Disclose conditions that cannot be matched. Retain failures and keep unknown costs unknown rather than treating them as 0.

@@ -159,7 +159,9 @@ Run `python3 src/cli.py setup` to revisit the terminal wizard. Before each new w
 
 The default configuration file is `~/.config/bookmark-research/settings.json`, created on the first update. Page archives default to `~/.local/share/bookmark-research/knowledge/`; XDG and plugin data-directory environment variables are respected. You can choose your own absolute paths. These files live outside the plugin and canvas package, so plugin updates do not replace them.
 
-With archiving enabled, received fetch responses create a snapshot directory: `response.json` stores the actual MCP response; `manifest.json` records URLs, provider, fetch time, response and text hashes, and status; `pages/<URL-hash>.md` stores successfully recognized text. Transport failures without a response return a classified error and no `result` or invented archive. Publication dates and authors are recorded separately. Conflicting responses for the same URL are retained and marked. Excerpts and unknown completeness are identified, and archive errors are returned with the fetch result. Later reads add snapshots without overwriting earlier ones.
+Research task folders go to `~/.local/share/bookmark-research/research/` by default (`output.mode: central`, path changeable) or, with `beside_input`, next to a single bookmark file or folder as `<name>.bookmark-research/`; URL lists, several sources, Git repositories, canvas packages and unwritable locations fall back to the central folder with a stated reason. Changes apply to new tasks only; `research-locations.json` keeps every task listed. `wiki.after_research` (`suggest` by default, `auto`, `off`) decides whether finished research proposes or writes Wiki updates. Each Wiki write also refreshes `wiki/index.md` and appends `wiki/log.md`.
+
+With archiving enabled, received fetch responses create a snapshot directory: `response.json` stores the actual MCP response; `manifest.json` records URLs, provider, fetch time, response and text hashes, and status; successfully recognized text is stored once per distinct body in the archive's `pages/<SHA-256>.md`. `search_archive` searches that text and all research evidence without network access. Transport failures without a response return a classified error and no `result` or invented archive. Publication dates and authors are recorded separately. Conflicting responses for the same URL are retained and marked. Excerpts and unknown completeness are identified, and archive errors are returned with the fetch result. Later reads add snapshots without overwriting earlier ones.
 
 ```sh
 python3 src/cli.py config show
@@ -185,6 +187,7 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | `search_providers` | List configured web providers |
 | `search_web` | Search through Exa / Parallel / Tavily / keyed Jina and merge results per target |
 | `fetch_web` | Read known URLs and optionally archive responses and page text |
+| `search_archive` | Literal full-text search over saved page text in the knowledge archive and all research evidence, merged by content hash |
 | `get_settings` | Read current settings and storage paths |
 | `update_settings` | Update persistent settings |
 | `research_readiness` | Check credentials, selected services and observed host tools; return setup/login guidance |

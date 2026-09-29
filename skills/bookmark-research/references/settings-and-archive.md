@@ -60,11 +60,18 @@ The effective configuration shape is below. Replace example `directory` values w
   "professional_research": {"enabled": false, "provider": null,
     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
-  "wiki": {"directory": "/absolute/path/to/wiki"}
+  "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest"},
+  "output": {"mode": "central", "directory": "/absolute/path/to/research"}
 }
 ```
 
 Precedence is per-call arguments → saved preferences → built-in defaults. `fetch_web.archive=false` disables saving for one call; `update_settings` changes the future default. `max_characters` ranges from 100 to 100000 and is forwarded only when the provider supports the corresponding limit. Archives record actual request parameters. `character_limit_applied:false` means the provider has no length parameter supported by this adapter. A larger limit does not guarantee a complete page.
+
+## Research output and Wiki follow-up
+
+`output.mode` places new research task folders. `central` (default) uses `output.directory` (`<data dir>/research`). `beside_input` puts a task next to its single input: file `a.json` → `a.json`'s sibling `a.bookmark-research/`, folder or ZIP `pkg` → sibling `pkg.bookmark-research/`, never inside the original folder. It falls back to the central folder, with `output.fallback_reason` in `research_start`, for URL lists, several sources, Git repositories, canvas packages, plugin directories and unwritable locations. Changes affect new tasks only; existing tasks are not moved. `<data dir>/research-locations.json` registers every task folder so all stay listed; a moved or deleted folder is reported as missing. Each task has a `work/` folder for agent scratch files.
+
+`wiki.after_research` controls `research_finish.wiki_follow_up`: `suggest` (default) lists candidate pages and asks the user first, `auto` writes reviewed claims without asking, `off` suggests nothing.
 
 Config path: CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/settings.json`. Archives default to `${BOOKMARK_RESEARCH_DATA_DIR}/knowledge`, or `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/knowledge` without that override. Clients sharing config and data paths share preferences and records. API keys remain separate from preferences, in the environment or private credential file.
 
@@ -88,17 +95,17 @@ knowledge/
     <fetch-time-and-unique-id>/
       response.json
       manifest.json
-      pages/<URL-hash>.md
+  pages/<SHA-256>.md      one file per distinct body, shared by captures
 ```
 
 - `response.json` is the raw MCP result object, including content blocks and provider status. It is not original webpage HTML and contains no authentication headers added by this plugin.
-- Markdown contains actual extracted text reliably associated with the requested URL. Do not reconstruct it from snippets. Source metadata stays in `manifest.json`, outside the original text.
+- Markdown contains actual extracted text reliably associated with the requested URL; identical text is stored once and referenced by each manifest's `body_file` (older captures kept `pages/<URL-hash>.md` inside the capture; both are read). Do not reconstruct it from snippets. Source metadata stays in `manifest.json`, outside the original text.
 - The manifest records requested/returned URLs, provider, tool, actual parameters, retrieval time, `response_sha256`, body paths/hashes, and failure/missing/excerpt/possible-truncation markers. Provider publication time and author are stored in `provider_published_at` and `provider_author`, not inserted into text. `completeness:"unknown"` means completeness is unproven. `possibly_truncated:false` is not a completeness guarantee either.
 - Fragments such as `#comments` remain, but extraction does not guarantee all comments were loaded. `fragment_scope_verified:false` makes this explicit. Retrieval time differs from publication, update and cache time.
 - Unrecognized response formats still retain the response and manifest, with no body path. Partial failures save only recognized successful text. Per-page `extraction_status:"provider_error"` means the provider reported failure; conflicting text for one URL becomes `conflicting_provider_results` without arbitrarily choosing a body. Archive failure is explicit in `archive.status:"error"`; the actual received content is still returned without automatically repeating a paid fetch.
 - Exa batch records support indented multiline titles. Every standalone `URL:` field must belong to a recognized record; unmatched, malformed or duplicate boundaries leave the block raw. Unrequested redirect records also delimit pages. This conservative check may withhold text containing ambiguous record-like fields; inspect the raw response instead of treating it as another page's body.
 - Reading the URL again appends a new snapshot without replacing prior records. This is per-call retention, not background version monitoring.
 
-Reports can cite `archive.manifest_path` and page `body_path`. Archives do not automatically enter the bookmark SQLite index or become Wiki pages. Use `research_import_evidence` for original text actually obtained by the host with real provenance. Mark external research reports as external_report; their citation lists do not count as original-page review. Use `wiki_write` for knowledge synthesis.
+Reports can cite `archive.manifest_path` and page `body_path`. `search_archive` (CLI `search-archive`) is a literal full-text search over saved bodies in this archive and in all registered research tasks' evidence, merged by content hash; its rebuildable index is `<data dir>/raw-library.sqlite3`. Archives do not automatically enter the bookmark SQLite index or become Wiki pages. Use `research_import_evidence` for original text actually obtained by the host with real provenance. Mark external research reports as external_report; their citation lists do not count as original-page review. Use `wiki_write` for knowledge synthesis.
 
-Deep research keeps separate state/evidence under `research/`. `research_fetch` always saves actual research responses and text regardless of ordinary fetch archiving, because resume and citation validation need these snapshots. See [deep research](deep-research.md) for sessions and pagination.
+Deep research keeps separate state/evidence in each task folder (see output above). `research_fetch` always saves actual research responses and text regardless of ordinary fetch archiving, because resume and citation validation need these snapshots. See [deep research](deep-research.md) for sessions and pagination.

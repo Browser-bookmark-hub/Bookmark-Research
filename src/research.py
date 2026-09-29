@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import research_locations
 from archive import SourceArchive
 from research_coverage import ResearchCoverage
 from settings import Settings
@@ -33,6 +34,10 @@ class ResearchSessions:
 
     def __init__(self, directory=None, settings=None, engine=None, db_path=None):
         self.settings = settings if settings is not None else Settings()
+        # An explicit directory keeps the original behavior: every new task
+        # goes there and listing scans only it. Otherwise settings decide where
+        # new tasks go; this default root is still scanned for legacy tasks.
+        self.explicit_directory = bool(directory)
         self.directory = Settings.external_path(
             str(directory or (Settings.data_directory() / "research")), "Research directory")
         self.engine = engine
@@ -77,16 +82,113 @@ class ResearchSessions:
                 "question": cls._text(value["question"], "Question"),
                 "status": "open", "answer": None, "claim_ids": [], "gap": None}
 
-    def _path(self, research_id):
+    @staticmethod
+    def _research_id(research_id):
         if not isinstance(research_id, str) or not re.fullmatch(r"r-[a-f0-9]{16}", research_id):
             raise ValueError("Invalid research_id")
+        return research_id
+
+    @staticmethod
+    def _registry():
+        """Return the location registry; an unreadable registry means legacy lookup only."""
+        try:
+            tasks = research_locations.load()
+        except (OSError, ValueError):
+            return {}
+        return tasks if isinstance(tasks, dict) else {}
+
+    @staticmethod
+    def _registered_path(research_id, entry):
+        """Trust a user-writable registry entry only if it names this task's own folder."""
+        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str) or "\x00" in entry["path"]:
+            return None
+        path = Path(entry["path"])
+        if not path.is_absolute() or path.name != research_id:
+            return None
+        try:
+            # Registered paths are saved fully resolved, so any symlink or ".."
+            # component, or a location in a plugin or canvas package, is rejected.
+            if path.is_symlink() or Settings.external_path(str(path), "Research session") != path:
+                return None
+        except (OSError, ValueError):
+            return None
+        return path
+
+    def _path(self, research_id):
+        research_id = self._research_id(research_id)
+        entry = self._registry().get(research_id)
+        registered = self._registered_path(research_id, entry) if entry is not None else None
         path = self.directory / research_id
+        if registered is not None and registered != path and (registered.is_dir() or not path.exists()):
+            if not registered.is_dir():
+                raise ValueError("Research task folder is missing: " + str(registered))
+            return registered
         if path.is_symlink() or path.resolve().parent != self.directory:
             raise ValueError("Research session must stay inside its data directory")
         return Settings.external_path(str(path), "Research session")
 
-    def _load(self, research_id):
-        path = self._path(research_id)
+    def _placement(self, source_ids, output_directory):
+        """Choose the parent folder for a new task and explain any fallback."""
+        if output_directory is not None:
+            root = Settings.external_path(self._text(output_directory, "output_directory", 4096),
+                                          "Research output directory")
+            try:
+                root.mkdir(parents=True, exist_ok=True)
+            except OSError as error:
+                raise ValueError("output_directory is not writable: " + str(error)) from error
+            if not root.is_dir() or not os.access(root, os.W_OK):
+                raise ValueError("output_directory must be a writable directory")
+            return root.resolve(), "explicit", None
+        if self.explicit_directory:
+            return self.directory, "central", None
+        output = self.settings.load()["output"]
+        central = Settings.external_path(output["directory"], "Research output directory")
+        if output["mode"] != "beside_input":
+            return central, "central", None
+        root, reason = self._beside_input(source_ids)
+        return (root, "beside_input", None) if root is not None else (central, "central", reason)
+
+    def _beside_input(self, source_ids):
+        """Return (sibling folder, None) or (None, machine-readable fallback reason)."""
+        if not source_ids:
+            return None, "no_input_path"
+        if len(source_ids) > 1:
+            return None, "multiple_sources"
+        try:
+            from bookmark_index import BookmarkIndex
+            from source_manager import SourceManager
+            with BookmarkIndex(self.db_path) as index:
+                record = SourceManager(index)._record(source_ids[0])
+            source = Path(record["input_path"])
+            kind = record.get("input_kind")
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error):
+            return None, "input_unavailable"
+        storage = self.db_path.with_name(self.db_path.name + ".sources")
+        if (not source.is_absolute() or not source.exists()
+                or storage == source or storage in source.parents):
+            return None, "input_unavailable"
+        name = source.name if kind == "directory" or source.is_dir() else source.stem
+        if not name:
+            return None, "input_unavailable"
+        sibling = source.parent / (name + ".bookmark-research")
+        if any((parent / ".git").exists() for parent in (sibling, *sibling.parents)):
+            return None, "inside_git_repository"
+        try:
+            sibling = Settings.external_path(str(sibling), "Research output directory")
+        except ValueError as error:
+            return None, "inside_plugin_directory" if "plugin" in str(error) else "inside_canvas_package"
+        try:
+            if sibling.is_symlink():
+                return None, "not_writable"
+            sibling.mkdir(exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=sibling, prefix=".write-check-"):
+                pass
+        except OSError:
+            return None, "not_writable"
+        return sibling.resolve(), None
+
+    def _load(self, research_id, path=None):
+        path = self._path(research_id) if path is None else path
         state_path = path / "state.json"
         if state_path.is_symlink():
             raise ValueError("Research state must not be a symlink")
@@ -229,6 +331,7 @@ class ResearchSessions:
         coverage = self._coverage(path, state)
         coverage["source_scope"] = self._scope_preview(path, state.get("source_scope"))
         return {"research_id": state["research_id"], "directory": str(path),
+                "work_directory": str(path / "work"),
                 "status": state["status"], "brief": state["brief"], "scope": state["scope"],
                 "source_ids": state["source_ids"], "providers": state["providers"],
                 "search_fallback_providers": state.get("search_fallback_providers", []),
@@ -245,7 +348,10 @@ class ResearchSessions:
                 "pagination": {section: {"total": len(state.get(section, [])), "next_offset": 20 if len(state.get(section, [])) > 20 else None}
                                for section in collections},
                 "detail_note": "Overview includes at most 20 previews per collection. Use research_status section with offset/limit for full entries, research_source for page text.",
-                "artifacts": state.get("artifacts"),
+                # Deliverables sit in the task root; report their current location
+                # even after the whole task folder was moved.
+                "artifacts": ({key: str(path / Path(value).name) for key, value in state["artifacts"].items()}
+                              if isinstance(state.get("artifacts"), dict) else state.get("artifacts")),
                 "execution": "Host model must choose each next action; no background worker is running.",
                 "budget_unit": "Reserved provider attempts: one per MCP batch or Jina HTTP request (one Reader request per URL). Search batches also consume a round. Failures and unknown outcomes keep their reservation.",
                 "evidence_note": "Quotes are checked against saved extracts. Relevance, factual support and independence require model review; provider agreement is not confirmation."}
@@ -366,7 +472,7 @@ class ResearchSessions:
         return manifest, entries, context, selection
 
     def start(self, brief, questions, budget=None, providers=None, scope="", source_ids=None,
-              bookmark_refs=None, scope_mode="whole", inventory_ids=None, urls=None):
+              bookmark_refs=None, scope_mode="whole", inventory_ids=None, urls=None, output_directory=None):
         brief = self._text(brief, "Research brief", 12000)
         if not isinstance(questions, list) or not 1 <= len(questions) <= 24:
             raise ValueError("questions must contain 1 to 24 questions")
@@ -408,7 +514,13 @@ class ResearchSessions:
                       "scope_preserved": True,
                       "basis": "Initial lower bound assuming full batches. Grouping, failures and supplementary reads can need more calls; imported evidence may need fewer."}
         research_id = "r-" + uuid.uuid4().hex[:16]
-        path = self._path(research_id)
+        root, placement, fallback_reason = self._placement(source_ids, output_directory)
+        if not self.explicit_directory or placement == "explicit":
+            root.mkdir(parents=True, exist_ok=True)
+            root = root.resolve()
+        path = root / research_id
+        if path.exists() or path.is_symlink():
+            raise ValueError("Research task folder already exists: " + str(path))
         state = {"schema_version": 2, "research_id": research_id, "status": "active",
                  "brief": brief, "scope": scope, "source_ids": source_ids, "providers": names,
                  "search_fallback_providers": search_fallbacks,
@@ -419,15 +531,74 @@ class ResearchSessions:
                  "initial_fetch_plan": fetch_plan,
                  "usage": {"search_calls": 0, "fetch_calls": 0, "rounds": 0},
                  "questions": rows, "claims": [], "conflicts": [], "sources": [],
-                 "operations": [], "events": []}
+                 "operations": [], "events": [],
+                 "output": {"placement": placement, "fallback_reason": fallback_reason}}
         path.mkdir(parents=True, mode=0o700)
+        (path / "work").mkdir(mode=0o700)
         self._write(path / "inventory.json", manifest)
         state["inventory_manifest_sha256"] = hashlib.sha256((path / "inventory.json").read_bytes()).hexdigest()
         self._write(path / "context.json", {"schema_version": 1, "captured_at": self._now(),
                     "kind": "local_bookmark_metadata", "bookmarks": bookmark_context, "source_scope": selection,
                     "boundary": "Frozen research input; never automatically sent to web providers. Full input structure is in inventory.json."})
         self._save(path, state)
-        return self._summary(path, state)
+        if not self.explicit_directory or placement == "explicit":
+            # Instances bound to an explicit directory find their own tasks by
+            # scanning it; everything else must be registered to stay listed.
+            research_locations.register(research_id, path, state["created_at"], placement)
+        result = self._summary(path, state)
+        result["output"] = {"placement": placement, "path": str(path), "fallback_reason": fallback_reason}
+        return result
+
+    def _sessions(self):
+        """List scanned roots plus registered tasks; a vanished task is listed, never raised."""
+        found = {}
+
+        def add(research_id, path, entry=None):
+            row = {"research_id": research_id, "brief": None, "status": None, "updated_at": None, "usage": None,
+                   "path": str(path), "location_status": "ok",
+                   "placement": (entry or {}).get("placement") if isinstance(entry, dict) else None}
+            if not (path / "state.json").is_file():
+                row["location_status"] = "missing"
+            else:
+                try:
+                    _, state = self._load(research_id, path)
+                    row.update({key: state[key] for key in ("brief", "status", "updated_at", "usage")})
+                    row["placement"] = row["placement"] or state.get("output", {}).get("placement")
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    row.update(location_status="invalid", error=str(error)[:500])
+            found[research_id] = row
+
+        roots = [self.directory]
+        if not self.explicit_directory:
+            try:
+                roots.append(Settings.external_path(self.settings.load()["output"]["directory"], "Research output directory"))
+            except (OSError, ValueError, KeyError):
+                pass
+        for root in dict.fromkeys(roots):
+            for state_path in sorted(root.glob("r-*/state.json")) if root.is_dir() else []:
+                path = state_path.parent
+                if (not re.fullmatch(r"r-[a-f0-9]{16}", path.name) or path.name in found
+                        or path.is_symlink() or path.resolve().parent != root):
+                    continue
+                add(path.name, path)
+        if not self.explicit_directory:
+            for research_id, entry in self._registry().items():
+                if not isinstance(research_id, str) or not re.fullmatch(r"r-[a-f0-9]{16}", research_id):
+                    continue
+                path = self._registered_path(research_id, entry)
+                if research_id in found:
+                    if found[research_id]["placement"] is None and isinstance(entry, dict):
+                        found[research_id]["placement"] = entry.get("placement")
+                    continue
+                if path is None:
+                    found[research_id] = {"research_id": research_id, "brief": None, "status": None,
+                                          "updated_at": None, "usage": None,
+                                          "path": entry.get("path") if isinstance(entry, dict) else None,
+                                          "location_status": "invalid", "placement": None,
+                                          "error": "Registry entry is not an absolute, symlink-free path to this task's own folder"}
+                    continue
+                add(research_id, path, entry)
+        return [found[key] for key in sorted(found)]
 
     def status(self, research_id=None, section=None, offset=0, limit=20):
         self._integer(offset, "offset", 0, 10000000)
@@ -435,11 +606,7 @@ class ResearchSessions:
         if research_id is None:
             if section is not None:
                 raise ValueError("section requires research_id")
-            sessions = []
-            for path in sorted(self.directory.glob("r-*/state.json")) if self.directory.exists() else []:
-                _, state = self._load(path.parent.name)
-                sessions.append({key: state[key] for key in
-                                 ("research_id", "brief", "status", "updated_at", "usage")})
+            sessions = self._sessions()
             return {"directory": str(self.directory), "sessions": sessions[offset:offset + limit], "total": len(sessions),
                     "next_offset": offset + limit if offset + limit < len(sessions) else None}
         path, state = self._load(research_id)
@@ -1231,7 +1398,60 @@ class ResearchSessions:
                         "inventory_reviews": state.get("inventory_reviews", []), "external_runs": state.get("external_runs", []),
                         "coverage": {key: value for key, value in coverage.items() if key != "rows"}})
             self._save(path, state)
-            return self._summary(path, state)
+            result = self._summary(path, state)
+        # Outside the task lock: the Wiki lookup reads other research tasks.
+        result["wiki_follow_up"] = self._wiki_follow_up(state)
+        return result
+
+    WIKI_STOPWORDS = frozenset(
+        "the and for are was were with that this from what which who whom how why when where does did "
+        "can could should would will into about than then them they their there these those have has "
+        "had not but its our your you any all each more most other some such only also over under".split())
+
+    @classmethod
+    def _wiki_terms(cls, state, maximum=6):
+        """Pick distinctive literal terms from the questions and active claims."""
+        counts = {}
+        texts = [question["question"] for question in state["questions"]]
+        texts += [claim["statement"] for claim in state["claims"] if claim.get("status", "active") == "active"]
+        for text in texts:
+            for token in re.findall(r"\w+", text.casefold()):
+                if token.isdigit() or token in cls.WIKI_STOPWORDS or len(token) < (3 if token.isascii() else 2):
+                    continue
+                counts[token] = counts.get(token, 0) + 1
+        ranked = sorted(counts, key=lambda token: -counts[token])  # Stable: ties keep first appearance.
+        return ranked[:maximum]
+
+    def _wiki_follow_up(self, state):
+        try:
+            policy = self.settings.load()["wiki"]["after_research"]
+        except (OSError, ValueError, KeyError):
+            policy = "suggest"
+        if policy == "off":
+            return {"policy": "off"}
+        eligible = [claim["id"] for claim in state["claims"] if claim.get("status", "active") == "active"
+                    and all(self._find(state["sources"], citation["source_id"], "source").get("review", {}).get("verdict")
+                            == "accepted" for citation in claim["citations"])]
+        candidates = {}
+        try:
+            from wiki import WikiStore  # Lazy: wiki imports this module.
+            store = WikiStore(settings=self.settings, research_sessions=self)
+            for term in self._wiki_terms(state):
+                for row in store.search(term, limit=20)["results"]:
+                    match = candidates.setdefault(row["page_id"], {"page_id": row["page_id"], "title": row["title"],
+                                                                   "matched_terms": []})
+                    match["matched_terms"].append(term)
+            ranked = sorted(candidates.values(), key=lambda row: (-len(row["matched_terms"]), row["page_id"]))[:5]
+        except Exception:  # A Wiki problem must never undo a saved report.
+            ranked = []
+        if policy == "auto":
+            instruction = ("Without asking the user, write or update Wiki pages with the reviewed claims: update a matching "
+                           "candidate page (read it with wiki_get and pass its expected_revision) or create a new page, "
+                           "citing only eligible_claim_ids. Then tell the user which pages changed.")
+        else:
+            instruction = ("Present the candidate Wiki pages to update, or a proposed new page, to the user together with "
+                           "the eligible reviewed claims. Call wiki_write only after the user confirms.")
+        return {"policy": policy, "candidates": ranked, "eligible_claim_ids": eligible, "instruction": instruction}
 
     @staticmethod
     def _report(state, coverage=None):

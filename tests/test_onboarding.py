@@ -269,6 +269,34 @@ class OnboardingTests(SetupFixture):
         self.assertFalse(result["readiness"]["network_checked"])
         self.assertNotIn("hidden-key-in-store", output.getvalue() + json.dumps(result))
 
+    def test_output_location_and_wiki_follow_up_questions(self):
+        default_output = self.settings.load()["output"]["directory"]
+        # Prompts: depth, language, search, fallback, reader, extra readers, archive, archive dir, output, wiki,
+        # readiness, professional API.
+        defaults = Onboarding(self.settings, Console(io.StringIO("\n" * 12), io.StringIO()))._preferences()
+        self.assertEqual(defaults["output"], {"mode": "central"})
+        self.assertEqual(defaults["wiki"], {"after_research": "suggest"})
+        custom = self.base / "reports"
+        output = io.StringIO()
+        answers = "\n" * 8 + "2\nrelative/path\n" + str(custom) + "\n3\n\n\n"
+        chosen = Onboarding(self.settings, Console(io.StringIO(answers), output))._preferences()
+        self.assertEqual(chosen["output"], {"mode": "central", "directory": str(custom.resolve())})
+        self.assertEqual(chosen["wiki"], {"after_research": "off"})
+        self.assertIn(default_output, output.getvalue())
+        self.assertIn("new research tasks only", output.getvalue())
+        self.assertIn("absolute directory", output.getvalue())
+        beside = Onboarding(self.settings, Console(io.StringIO("\n" * 8 + "3\n2\n\n\n"), io.StringIO(), "zh"))._preferences()
+        self.assertEqual(beside["output"], {"mode": "beside_input"})
+        self.assertEqual(beside["wiki"], {"after_research": "auto"})
+        self.settings.update({key: beside[key] for key in ("output", "wiki")})
+        current = self.settings.load()
+        self.assertEqual(current["output"], {"mode": "beside_input", "directory": default_output})
+        self.assertEqual(current["wiki"]["directory"], str(self.base / "data/wiki"))
+        self.assertEqual(current["wiki"]["after_research"], "auto")
+        self.assertNotIn("directory", json.loads(self.settings.path.read_text())["output"])
+        kept = Onboarding(self.settings, Console(io.StringIO("\n" * 12), io.StringIO()))._preferences()
+        self.assertEqual((kept["output"], kept["wiki"]), ({"mode": "beside_input"}, {"after_research": "auto"}))
+
     def test_noninteractive_cli_applies_json_preferences_and_returns_missing_steps(self):
         preferences = self.base / "preferences.json"
         preferences.write_text(json.dumps({"professional_research": {"enabled": True, "provider": "openai"},
@@ -376,8 +404,8 @@ class RecheckTests(SetupFixture):
         fixed = {"checks": [{"id": "retrieval:exa", "status": "retrieval_verified"}],
                  "host_integrations": {"host": "codex", "native_research_mcps": []}}
         output = io.StringIO()
-        # 11 preference/key/test prompts accept defaults, then re-enter yes, keep EXA preselected, secret, integrations.
-        console = Console(io.StringIO("\n" * 12 + "y\n\n\n"), output)
+        # 14 preference/key/test prompts accept defaults, then re-enter yes, keep EXA preselected, secret, integrations.
+        console = Console(io.StringIO("\n" * 14 + "y\n\n\n"), output)
         with mock.patch("onboarding.Readiness") as engine, mock.patch("getpass.getpass", return_value="new-exa-key"):
             engine.return_value.check.side_effect = [failed, fixed]
             result = Onboarding(self.settings, console).run()

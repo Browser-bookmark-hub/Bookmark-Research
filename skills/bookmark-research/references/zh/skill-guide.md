@@ -33,6 +33,8 @@ python3 <插件根目录>/src/cli.py fetch-web 'https://example.com/page' --time
 
 `fetch_web.pages` 按 URL 返回一份选中的正文，各次尝试保留状态与归档路径。读取相关内容并引用原 URL；完整服务响应仍在归档内，需要时可用 `raw:true`（CLI `--raw`）返回。注意归档错误和完整性标记，抽取文本不证明取得了完整或实时原页。
 
+再次读取某页之前，可用 `search_archive`（CLI `search-archive`）在知识归档和所有已登记研究任务的证据中字面查找已保存正文；相同正文合并，列出每处出现及检索时间。检索时间符合问题时复用，否则重新读取。它不是网络搜索。
+
 ## 搜索、判断、补查
 
 由当前宿主模型先处理。已有 URL 直接读取；需要发现来源才用 `search_web`，随后读取关键页。普通比较可以直接答复；需要保存进度或报告时再建立研究档案。
@@ -60,6 +62,8 @@ python3 <插件根目录>/src/cli.py fetch-web 'https://example.com/page' --time
 - 画布数据包：传已索引的 `source_ids`，默认整包。用户明确要求子集时才用 `scope_mode:subset` 及选中的 inventory ID 或书签引用。
 - 没有原始书签清单的公开问题可省略两类输入；仅写在 brief 里的 URL 不进入覆盖统计。
 
+`research_start` 返回 `output`（`placement`、`path`、`fallback_reason`）和 `work_directory`。任务放在统一目录；设置 `output.mode:beside_input` 时放在单个书签文件／文件夹旁边（`<名称>.bookmark-research/`）。无法这样放（URL 列表、多个来源、Git 仓库、画布包内、没有写权限）时退回统一目录，`fallback_reason` 说明原因，须告知用户。自己的中间文件和草稿只放在 `work_directory` 内，不放到数据目录其他位置，也不放在用户文件旁边。
+
 跟随全部 `research_inventory.next_offset`。区分原始 `u-...` inventory ID 与正文 `sN` evidence ID。阅读、审阅原文，记录带引文结论与逐项清单判断。已有判断用 `research_record.entries` 批量提交（至多 50 条），附稳定的 `batch_id`；后续批次引用真实返回 ID。检查覆盖差集，直到完成或预算用尽。失败说明、批量排除、搜索摘要和外部报告的引文列表不能证明完整原始来源已审阅。
 
 主代理负责综合。当前允许委派且具备能力时，给独立读者／核验者明确范围、问题、语言、相关指引与真实 MCP／CLI 入口；执行细节按需读 [宿主工作流](host-workflows.md)，适用 Codex、Claude、Pi、DSH，不假定子代理继承上下文。不能委派时由当前代理复核并说明。
@@ -70,6 +74,6 @@ python3 <插件根目录>/src/cli.py fetch-web 'https://example.com/page' --time
 
 简单问题直接答复。报告结束前，对照证据与反证复核实际交付的短答；压缩结论时保留原有条件和限制。`research_finish` 生成报告、来源和覆盖文件，分别说明逐项交代、可用正文、实质审阅与问题完成度。覆盖、答案证据及冲突检查通过才用 `completed`，否则保留 `incomplete` 与缺口；继续未完成档案先写 `resume`。保存状态不代表后台代理。
 
-用户要求将结论保存在 Wiki 或知识库中时才编写 Wiki；发表、lint 和有真实评审标签的质量比较见 [Wiki 与评测](wiki-and-evaluation.md)。引文／哈希检查不证明语义正确。
+`research_finish` 之后按其 `wiki_follow_up` 处理：`suggest` → 向用户展示 `candidates` 与可用的已审核结论，征得同意后再 `wiki_write`；`auto` → 只引用 `eligible_claim_ids` 写入或更新页面，再告知改了哪些页；`off` → 用户未要求则跳过。用户要求将结论保存在 Wiki 或知识库中时也编写 Wiki；发表、lint 和有真实评审标签的质量比较见 [Wiki 与评测](wiki-and-evaluation.md)。Wiki 的 `index.md`（目录）和 `log.md`（时间线）可直接阅读或 grep。引文／哈希检查不证明语义正确。
 
 配置问题用 `get_settings`，长期偏好用 `update_settings`，临时选择用本次参数。[配置与归档](settings-and-archive.md) 说明保存位置；索引、归档和产出均位于原包之外。

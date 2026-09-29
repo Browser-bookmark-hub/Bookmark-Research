@@ -66,7 +66,7 @@ No reinstall is needed. Settings and keys apply to every installed client; start
 | --- | --- |
 | Menu: configure, check, install, update | `bookmark-research` |
 | Preferences and API keys | `bookmark-research setup` |
-| Installed clients, preferences, key status | `bookmark-research status` |
+| Installed clients, preferences, storage locations, recent research, key status | `bookmark-research status` |
 | Script preferences | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | Update or verify all clients | `bookmark-research update` · `bookmark-research verify` |
 
@@ -82,7 +82,23 @@ Use `npx bookmark-research …` if the command is not installed globally.
 | `JINA_API_KEY` | Jina search | Jina Reader still reads pages anonymously |
 | `OPENAI_API_KEY` | Optional OpenAI Deep Research runs | Feature off; host-led research still works |
 
-Preferences (research depth, answer language, providers, archiving) can also be changed by asking the agent in a client session; it uses the `update_settings` tool.
+Setup also asks where research reports and evidence go: a central folder (default `<data dir>/research`, path changeable) or beside the bookmark file or folder (falls back to the central folder when that is not possible). This affects new research only; existing tasks stay where they are. It then asks whether finished research should update the Wiki: suggest pages and ask first (default), automatic, or off.
+
+Preferences (research depth, answer language, providers, archiving, output location, Wiki follow-up) can also be changed by asking the agent in a client session; it uses the `update_settings` tool.
+
+## Where data is stored
+
+Nothing is written into your bookmark files or the plugin. The data directory is `$BOOKMARK_RESEARCH_DATA_DIR`, or `${XDG_DATA_HOME:-~/.local/share}/bookmark-research`.
+
+| Location | Contents |
+| --- | --- |
+| `research/` (or `<input>.bookmark-research/` beside the input) | One folder per research task: report, sources, evidence, and `work/` for the agent's intermediate files |
+| `research-locations.json` | Where every task folder is, so tasks stay listed after the location setting changes |
+| `knowledge/` | Saved page reads: `sources/` per fetch, `pages/` with each distinct text stored once |
+| `wiki/` | Reviewed knowledge pages and revisions; `index.md` catalog and `log.md` timeline |
+| `index.sqlite3`, `index.sqlite3.sources/` | Bookmark search index and managed snapshots of imported packages |
+| `raw-library.sqlite3` | Rebuildable full-text index for `search_archive` |
+| `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/` | `settings.json` and `credentials.json` (private, owner-only) |
 
 ## What's inside
 
@@ -91,7 +107,7 @@ A bundle of one Skill, one local MCP server, and the remote MCPs and services th
 | Layer | Component | Runs as | Setup |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) and 11 method references, each with a [Chinese copy](skills/bookmark-research/references/zh/skill-guide.md) | Loaded by the client | None |
-| Local MCP | `bookmark-research`, 36 tools (below) | Python process started by the client | Installed for you |
+| Local MCP | `bookmark-research`, 37 tools (below) | Python process started by the client | Installed for you |
 | Remote MCPs, called by the local MCP | [Exa](https://exa.ai) (search, page reading), [Parallel](https://parallel.ai) (search, fallback reading), [Tavily](https://tavily.com) (search fallback) | HTTPS, no local process | Optional API keys |
 | HTTP service, called by the local MCP | [Jina Reader](https://jina.ai/reader) (fallback reading; search with a key) | HTTPS | Optional `JINA_API_KEY` |
 | Optional client MCPs | Exa Agent, Parallel Task MCP, Tavily Research | Added to your client by you | `bookmark-research setup` shows the steps |
@@ -101,7 +117,7 @@ Local MCP tools:
 | Group | Tools |
 | --- | --- |
 | Bookmarks | `sync_package`, `index_status`, `source_history`, `search_bookmarks`, `get_context` |
-| Web | `search_web`, `fetch_web`, `search_providers` |
+| Web | `search_web`, `fetch_web`, `search_archive`, `search_providers` |
 | Research | `research_readiness`, `research_start`, `research_status`, `research_search`, `research_fetch`, `research_source`, `research_record`, `research_inventory`, `research_coverage`, `research_import_evidence`, `research_finish`, `research_route` |
 | Research services (optional) | `research_services`, `research_service_prepare`, `_start`, `_status`, `_result`, `_cancel`, `_attach`, `_import` |
 | Settings | `get_settings`, `update_settings` |

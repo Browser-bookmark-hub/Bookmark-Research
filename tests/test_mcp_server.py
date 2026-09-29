@@ -75,7 +75,7 @@ class McpServerTests(unittest.TestCase):
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
         self.assertEqual({tool["name"] for tool in listing}, {
             "sync_package", "source_history", "search_bookmarks", "get_context", "index_status",
-            "search_web", "fetch_web", "search_providers", "get_settings", "update_settings", "research_readiness",
+            "search_web", "fetch_web", "search_providers", "search_archive", "get_settings", "update_settings", "research_readiness",
             "research_start", "research_status", "research_search", "research_fetch",
             "research_source", "research_record", "research_finish", "research_inventory",
             "research_coverage", "research_import_evidence", "research_route", "research_services",
@@ -247,6 +247,28 @@ class McpServerTests(unittest.TestCase):
             disabled = decode_tool(self.call("fetch_web", {"urls": ["https://example.test/page"]}))
             self.assertEqual(disabled["archive"]["status"], "disabled")
         self.assertFalse(self.db_path.exists())
+
+    def test_search_archive_finds_saved_page_text_without_network(self):
+        from archive import SourceArchive
+        data = self.base / "data"
+        with mock.patch.dict("os.environ", {"BOOKMARK_RESEARCH_DATA_DIR": str(data)}):
+            self.ready()
+            store = SourceArchive(data / "knowledge")
+            for _ in range(2):
+                store.save({"provider": "exa", "tool": "web_fetch_exa", "urls": ["https://example.test/page"],
+                            "result": {"structuredContent": {"url": "https://example.test/page", "text": "Saved archive marker text"}},
+                            "retrieved_at": "2026-09-29T00:00:00+00:00", "request_arguments": {}, "requested_max_characters": 12000})
+            with mock.patch("web_search.SearchProviders._client", side_effect=AssertionError("no network")):
+                response = self.call("search_archive", {"query": "archive marker", "url": "example.test"})
+            self.assertFalse(response["result"]["isError"], response)
+            result = decode_tool(response)
+            self.assertEqual(result["total"], 1)
+            self.assertEqual([row["kind"] for row in result["results"][0]["occurrences"]], ["archive", "archive"])
+            self.assertEqual(result["indexed"]["documents"], 1)
+            self.assertTrue((data / "raw-library.sqlite3").is_file())
+            self.assertEqual(decode_tool(self.call("search_archive", {"query": "marker", "url": "other.test"}))["total"], 0)
+            self.assertEqual(self.call("search_archive", {"query": "x" * 501})["error"]["code"], -32602)
+            self.assertEqual(self.call("search_archive", {"query": "marker", "limit": 51})["error"]["code"], -32602)
 
     def test_readiness_is_available_without_creating_index_or_running_research(self):
         self.ready()

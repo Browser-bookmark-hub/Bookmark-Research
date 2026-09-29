@@ -51,7 +51,10 @@ SETTINGS_SCHEMA = _object_schema({
         "openai": _object_schema({"model": {"type": "string", "enum": ["o3-deep-research", "o4-mini-deep-research"]},
             "max_tool_calls": {"type": "integer", "minimum": 1, "maximum": 1000}}),
         "parallel": _object_schema({"processor": _text_schema(64)})}),
-    "wiki": _object_schema({"directory": _text_schema(4096)}),
+    "wiki": _object_schema({"directory": _text_schema(4096),
+        "after_research": {"type": "string", "enum": ["suggest", "auto", "off"]}}),
+    "output": _object_schema({"mode": {"type": "string", "enum": ["central", "beside_input"]},
+        "directory": _text_schema(4096)}),
     "readiness": _object_schema({"mode": {"type": "string", "enum": ["cached", "always", "manual"]},
         "ttl_seconds": {"type": "integer", "minimum": 60, "maximum": 86400},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 30}}),
@@ -100,11 +103,17 @@ TOOL_SCHEMAS = {
     "search_providers": _object_schema({
         "probe": {"type": "boolean", "default": False}, "providers": PROVIDERS,
     }),
+    "search_archive": _object_schema({
+        "query": {**_text_schema(500), "description": "Literal text; every whitespace-separated term must occur. Wrap in double quotes for one exact phrase."},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 10000000, "default": 0},
+        "url": {**_text_schema(2048), "description": "Only bodies saved for a URL containing this substring (case-insensitive)."},
+    }, ["query"]),
 }
 
 TOOL_DESCRIPTIONS = {
     "get_settings": "Read effective user preferences and their persistent config path without network access or creating files. Per-call options override saved preferences.",
-    "update_settings": "Persist requested preferences outside the plugin and canvas packages: retrieval, archiving, research routes/methods, optional professional services and Wiki storage. Applies to subsequent calls without restart. Does not store credentials or modify host integrations.",
+    "update_settings": "Persist requested preferences outside the plugin and canvas packages: retrieval, archiving, research routes/methods, optional professional services, Wiki storage and the research output location (central or beside_input; changes affect new tasks only). Applies to subsequent calls without restart. Does not store credentials or modify host integrations.",
     "research_readiness": "Check retrieval and optional research service readiness before each new web research question. Respects cached/always/manual preferences; refresh forces checks and offline prevents network. Reports missing credentials, catalog reachability and the exact scope of verified auth separately. observed_tools establish host tool visibility, not OAuth login. test_retrieval additionally uses provider quota for a sample search/read; no professional research job is started.",
     "sync_package": "Import a directory, ZIP or single section JSON, retaining a managed snapshot outside the original. Reuse source_id for a moved or partial export of the same canvas; path aliases are remembered. New exports default to snapshot; Git directories default to live monitoring. Existing sources retain their mode. completeness=partial preserves absent cards; complete reconciles a full mirror. Single cards must be partial. Source files are never modified.",
     "source_history": "List saved source versions and their complete managed snapshot paths, including data retained from partial imports. Reimport a snapshot path to recover its data and recorded relationships. This does not refresh sources or change existing research inventories.",
@@ -114,6 +123,7 @@ TOOL_DESCRIPTIONS = {
     "search_web": "Search with saved primary providers concurrently, then saved fallback providers only for queries with no usable result (defaults: Exa + Parallel, then Tavily + keyed Jina). Missing fallback credentials are skipped. Explicit providers restrict the call to that list. Search snippets are not verified page evidence; result pages are not automatically fetched.",
     "fetch_web": "Read known URLs; pages contains one selected text per URL, with attempt statuses and archive paths. Omit provider for the saved waterfall (initially Exa then concurrent Parallel/Jina on unresolved URLs); an explicit provider selects one service. raw=true returns full provider envelopes; archive=false disables saving. Review page identity and meaning before citing.",
     "search_providers": "Describe Exa/Parallel/Tavily MCP and Jina HTTP capabilities and authentication per operation. Jina Reader supports anonymous access; Jina Search requires JINA_API_KEY. probe=true discovers MCP catalogs; HTTP mappings are local. Discovery does not prove successful retrieval.",
+    "search_archive": "Literal full-text search over page text already saved locally: the knowledge archive and every registered research task's evidence. Not web search and not semantic retrieval; no network access. Identical bodies are merged by SHA-256 and list every occurrence (archive capture or research_id+source_id, path, retrieval time). Bodies whose hash no longer matches are skipped and counted. The index refreshes incrementally on each call.",
 }
 
 RESEARCH_ID = _text_schema(80)
@@ -155,6 +165,7 @@ TOOL_SCHEMAS.update({
         "budget": _object_schema({"max_search_calls": {"type": "integer", "minimum": 0, "maximum": 120},
             "max_fetch_calls": {"type": "integer", "minimum": 0, "maximum": 80},
             "max_rounds": {"type": "integer", "minimum": 0, "maximum": 40}}),
+        "output_directory": {**_text_schema(4096), "description": "Absolute folder for this task only; overrides the output setting. Omit to follow it."},
     }, ["brief", "questions"]),
     "research_status": _object_schema({"research_id": RESEARCH_ID,
         "section": {"type": "string", "enum": ["questions", "claims", "sources", "operations", "conflicts", "bookmark_context", "events", "inventory", "inventory_reviews", "external_runs"]},
@@ -203,7 +214,7 @@ TOOL_SCHEMAS.update({
     }, ["research_id", "summary"]),
 })
 TOOL_DESCRIPTIONS.update({
-    "research_start": "Start host-led research with questions, budgets and frozen original inputs. Supply urls for ordinary bookmarks or indexed source_ids for Canvas packages; preserves every URL and duplicate instance by default. A subset requires scope_mode=subset explicitly. With neither input, tracks questions only. Makes no network calls or background worker.",
+    "research_start": "Start host-led research with questions, budgets and frozen original inputs. Supply urls for ordinary bookmarks or indexed source_ids for Canvas packages; preserves every URL and duplicate instance by default. A subset requires scope_mode=subset explicitly. With neither input, tracks questions only. Makes no network calls or background worker. Returns the task folder (output.placement/path/fallback_reason) and work_directory: keep all your intermediate files there.",
     "research_status": "List saved research sessions or read a bounded progress overview, including source_freshness against the current indexed input. Requires review when the input changed; frozen evidence is not rewritten. For complete entries, select section and paginate; overview shows at most 20 previews per collection. No network requests. A pending intent is not proof that a research worker is running.",
     "research_search": "Execute one search round using frozen primary providers and fallbacks for unresolved queries. Explicit providers disable fallback. Reserve each provider/question/query before access, including budget-limited fallbacks; inspect unresolved_queries and remaining_attempts. Identical operation_id and arguments replay the saved outcome without resubmission.",
     "research_fetch": "Read URLs and retain each provider's actual response and identified text as session evidence. Omit provider to try session providers in a waterfall: first provider, then remaining providers concurrently for unresolved URLs, reserving each attempt within the fetch budget. Explicit provider selects one service. Inspect unresolved_urls and remaining_providers. Reuse operation_id for safe outcome lookup.",
@@ -373,6 +384,7 @@ class StdioMcpServer:
         self._research_sessions = None
         self._research_services = None
         self._wiki_store = None
+        self._raw_library = None
         self.settings = settings if settings is not None else Settings()
 
     def close(self):
@@ -428,6 +440,13 @@ class StdioMcpServer:
             from wiki import WikiStore
             self._wiki_store = WikiStore(settings=self.settings, research_sessions=self._research())
         return self._wiki_store
+
+    def _raw(self):
+        # Rebuilt per call so archive/output setting changes apply without restart.
+        if self._raw_library is not None:
+            return self._raw_library
+        from raw_library import RawLibrary
+        return RawLibrary(settings=self.settings)
 
     def _call(self, name, arguments):
         # Explicit dispatch ensures input can never select a Python method,
@@ -492,6 +511,8 @@ class StdioMcpServer:
             raw = options.pop("raw", False)
             result = self._web().fetch(**options)
             return result if raw else SourceArchive.compact_fetch(result)
+        if name == "search_archive":
+            return self._raw().search(**arguments)
         if name == "search_providers":
             options = dict(arguments)
             probe = options.pop("probe", False)

@@ -17,7 +17,7 @@ USAGE = """usage: bookmark-research [--lang auto|en|zh] [COMMAND] [ARGS...]
   update [HOST...]      Update installed hosts (all when omitted)
   verify [HOST...]      Verify installed hosts (all when omitted)
   setup                 Preferences, services, hidden API-key entry and checks
-  status                Installed hosts, preferences and key status as JSON
+  status                Installed hosts, preferences, storage locations, recent tasks and key status as JSON
   config show|set       View or change preferences (set reads --input FILE or -)
   doctor                Check Python and SQLite FTS5
 
@@ -58,6 +58,19 @@ def installed_targets(codex="codex"):
     return rows
 
 
+def recent_research(limit=5):
+    """Newest registered research task folders; moved or deleted folders report exists=false."""
+    import research_locations
+    try:
+        tasks = research_locations.load()
+    except (OSError, ValueError) as error:
+        return {"error": str(error)[:500], "tasks": []}
+    rows = sorted(tasks.items(), key=lambda row: (str(row[1].get("created_at", "")), row[0]), reverse=True)[:limit]
+    return {"registry": str(research_locations.registry_path()), "total": len(tasks),
+            "tasks": [{"id": key, "path": value.get("path"), "created_at": value.get("created_at"),
+                       "exists": bool(value.get("path")) and Path(value["path"]).is_dir()} for key, value in rows]}
+
+
 def status():
     from credentials import Credentials
     from settings import Settings
@@ -67,6 +80,9 @@ def status():
             "preferences": {"depth": current["research"]["depth"], "language": current["research"]["response_language"],
                             "search": current["search"]["providers"], "fallback": current["search"]["fallback_providers"],
                             "readers": Settings.fetch_providers(current), "archive": current["archive"]["enabled"]},
+            "output": {"mode": current["output"]["mode"], "directory": current["output"]["directory"]},
+            "wiki": {"directory": current["wiki"]["directory"], "after_research": current["wiki"]["after_research"]},
+            "recent_research": recent_research(),
             "credentials": {row["name"]: row["source"] or "missing" for row in Credentials(settings).describe()["credentials"]},
             # The interpreter detected for this run; Windows installs write it into client MCP configs.
             "python": {"executable": sys.executable, "version": sys.version.split()[0],

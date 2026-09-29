@@ -60,11 +60,18 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
   "professional_research": {"enabled": false, "provider": null,
     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
-  "wiki": {"directory": "/absolute/path/to/wiki"}
+  "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest"},
+  "output": {"mode": "central", "directory": "/absolute/path/to/research"}
 }
 ```
 
 优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，只有 provider 支持对应参数时才会传递限制，实际请求参数记录在归档中；`character_limit_applied: false` 表示服务未提供本插件支持的长度参数。加大限额不保证得到完整页面。
+
+## 研究结果位置与 Wiki 后续整理
+
+`output.mode` 决定新研究任务文件夹的位置。`central`（默认）使用 `output.directory`（`<数据目录>/research`）。`beside_input` 放在唯一输入旁边：文件 `a.json` → 同级 `a.bookmark-research/`，文件夹或 ZIP `pkg` → 同级 `pkg.bookmark-research/`，不进入原文件夹。URL 列表、多个来源、Git 仓库、画布包、插件目录或没有写权限时退回统一目录，`research_start` 的 `output.fallback_reason` 说明原因。修改只影响新任务，已有任务不迁移；`<数据目录>/research-locations.json` 登记所有任务文件夹，移动或删除的标为 missing。每个任务有 `work/` 文件夹，供 agent 存放中间文件。
+
+`wiki.after_research` 决定 `research_finish.wiki_follow_up`：`suggest`（默认）列出候选页面并先征求用户同意，`auto` 直接写入已审核结论，`off` 不给建议。
 
 配置文件路径：CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/settings.json`。归档默认目录为 `${BOOKMARK_RESEARCH_DATA_DIR}/knowledge`；未指定数据目录时采用 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/knowledge`。不同载体指向同一配置文件和数据目录即可共享偏好及档案。API key 与偏好分开，放在环境变量或私有凭据文件。
 
@@ -88,17 +95,17 @@ knowledge/
     <本次抓取时间与唯一 ID>/
       response.json
       manifest.json
-      pages/<URL 哈希>.md
+  pages/<SHA-256>.md      每份不同正文一个文件，多次抓取共用
 ```
 
 - `response.json` 是 MCP 返回的原始结果对象，包含文本块和 provider 状态；不是网页原始 HTML，也不包含本插件的认证请求头。
-- Markdown 保存能确认关联到指定 URL 的实际提取文本，不让模型凭摘要补全文。来源信息放在 `manifest.json`，避免混入原文。
+- Markdown 保存能确认关联到指定 URL 的实际提取文本，不让模型凭摘要补全文；相同正文只存一份，由各 manifest 的 `body_file` 引用（旧抓取在其目录内保存 `pages/<URL 哈希>.md`，两种都可读取）。来源信息放在 `manifest.json`，避免混入原文。
 - manifest 记录请求 URL、返回 URL、provider、tool、实际请求参数、检索时间、响应哈希 `response_sha256`、正文路径与哈希，以及失败、缺失、摘录或可能截断的标记。服务返回的发布时间与作者分别放在 `provider_published_at`、`provider_author`，不混入正文。`completeness: "unknown"` 表示不能证明完整。`possibly_truncated: false` 也不是完整性保证。
 - `#comments` 等锚点会保留，但网页提取不保证所有评论已加载；`fragment_scope_verified: false` 明示这一点。检索时间不等于网页发布时间、更新时间或缓存时间。
 - 返回格式无法识别时仍保存响应与 manifest，正文路径为空；部分 URL 失败时只保存成功识别的正文。每页的 `extraction_status: "provider_error"` 表示服务报告失败；同一 URL 的正文冲突时为 `conflicting_provider_results`，不自动挑选一份正文。归档失败会在 `archive.status: "error"` 明示，工具仍返回已收到的内容，不自动重复付费抓取。
 - Exa 批量记录支持带缩进的多行标题。每个独占行的 `URL:` 字段都必须属于已识别的记录；边界缺失、格式异常或重复时，该文本块只保留原始响应。未请求的重定向页面同样构成边界。正文内出现类似记录字段的歧义内容时，这项保守检查可能不提取正文，应检查原始响应，不将其归给另一页。
 - 再读同一 URL 会追加新快照，不覆盖旧档案；这只是按调用保存，不是后台版本监控。
 
-报告可引用 `archive.manifest_path` 和各页 `body_path`。档案不自动加入书签 SQLite 或生成 Wiki。宿主实际取得的原文可用 `research_import_evidence` 导入并标明 provenance；外部研究报告用 external_report，引用列表不算原页阅读。整理知识页使用 `wiki_write`。
+报告可引用 `archive.manifest_path` 和各页 `body_path`。`search_archive`（CLI `search-archive`）对本归档和所有已登记研究任务证据中的已保存正文做字面全文检索，按内容哈希合并；可重建的索引为 `<数据目录>/raw-library.sqlite3`。档案不自动加入书签 SQLite 或生成 Wiki。宿主实际取得的原文可用 `research_import_evidence` 导入并标明 provenance；外部研究报告用 external_report，引用列表不算原页阅读。整理知识页使用 `wiki_write`。
 
-深度研究使用独立的 `research/` 目录保存状态和证据。`research_fetch` 始终保存已取得的研究响应和正文，普通 fetch 的 archive 开关不影响它；任务恢复和引用校验需要这些快照。会话详情与分页见 [深度研究流程](deep-research.md)。
+深度研究在各自的任务文件夹保存状态和证据（位置见上文）。`research_fetch` 始终保存已取得的研究响应和正文，普通 fetch 的 archive 开关不影响它；任务恢复和引用校验需要这些快照。会话详情与分页见 [深度研究流程](deep-research.md)。

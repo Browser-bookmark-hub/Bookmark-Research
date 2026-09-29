@@ -131,6 +131,11 @@ def _parser():
     archival = fetch.add_mutually_exclusive_group()
     archival.add_argument("--archive", dest="archive", action="store_true", default=None)
     archival.add_argument("--no-archive", dest="archive", action="store_false")
+    raw = commands.add_parser("search-archive", help="Literal full-text search over saved page text (knowledge archive and research evidence)")
+    raw.add_argument("query")
+    raw.add_argument("--limit", type=int, default=10)
+    raw.add_argument("--offset", type=int, default=0)
+    raw.add_argument("--url", help="Only bodies saved for a URL containing this substring")
     merge = commands.add_parser("merge-results", help="Fuse normalized batches from existing MCPs")
     merge.add_argument("input", help="JSON input file, or '-' for stdin")
     research = commands.add_parser("research", help="Durable host-led deep research, evidence and reports")
@@ -291,7 +296,7 @@ def main(argv=None):
                 payload = _read_json(args.input)
                 if not isinstance(payload, dict):
                     raise ValueError("Research input must be an object")
-                allowed = {"start": {"brief", "questions", "budget", "providers", "scope", "source_ids", "bookmark_refs", "scope_mode", "inventory_ids", "urls"},
+                allowed = {"start": {"brief", "questions", "budget", "providers", "scope", "source_ids", "bookmark_refs", "scope_mode", "inventory_ids", "urls", "output_directory"},
                            "search": {"operation_id", "queries", "providers", "limit_per_target"},
                            "fetch": {"operation_id", "question_id", "urls", "provider", "max_characters"}}
                 required = {"start": {"brief", "questions"}, "search": {"operation_id", "queries"},
@@ -386,6 +391,9 @@ def main(argv=None):
                     raise ValueError("Search input accepts targets, providers and limit_per_target only")
                 result = engine.search(payload.get("targets"), args.provider if args.provider is not None else payload.get("providers"),
                                        args.limit if args.limit is not None else payload.get("limit_per_target"))
+        elif args.command == "search-archive":
+            from raw_library import RawLibrary
+            result = RawLibrary(settings=settings).search(args.query, args.limit, args.offset, args.url)
         elif args.command == "merge-results":
             result = fuse_results(_read_json(args.input))
         else:

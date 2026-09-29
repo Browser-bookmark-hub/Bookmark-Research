@@ -69,7 +69,7 @@ Codex 分支管理 `bookmark-research@bookmark-research`。已通过 `personal` 
 
 ## 向导与就绪检查
 
-安装成功后可依次设置研究深度、答复语言、主要／备用搜索服务、正文读取服务、归档目录、检查频率和可选专业 API。回车保留显示的偏好。API Key 掩码输入并立即检查，失败可重新输入；密钥单独保存为配置旁权限 `0600` 的 `credentials.json`，是本地明文文件；可用 `BOOKMARK_RESEARCH_CREDENTIALS` 指定位置。环境变量优先于保存的密钥，密钥不进入偏好 JSON、安装包、安装记录或就绪检查输出。ChatGPT／Codex 登录与 OpenAI API Key 分开。
+安装成功后可依次设置研究深度、答复语言、主要／备用搜索服务、正文读取服务、归档目录、研究报告和证据的位置（统一目录、自定义统一目录，或放在书签文件／文件夹旁边、放不了时退回统一目录；只影响新任务）、研究结束后是否整理进 Wiki（建议并先询问、自动、关闭）、检查频率和可选专业 API。回车保留显示的偏好。API Key 掩码输入并立即检查，失败可重新输入；密钥单独保存为配置旁权限 `0600` 的 `credentials.json`，是本地明文文件；可用 `BOOKMARK_RESEARCH_CREDENTIALS` 指定位置。环境变量优先于保存的密钥，密钥不进入偏好 JSON、安装包、安装记录或就绪检查输出。ChatGPT／Codex 登录与 OpenAI API Key 分开。
 
 以后随时运行 `python3 <安装路径>/src/cli.py setup` 重开向导，完整命令（JSON 结果中的 `getting_started.setup_command`）会在安装结束时打印；在源码中可运行：
 

@@ -66,7 +66,7 @@ npx bookmark-research install
 | --- | --- |
 | 主菜单：配置、检查、安装、更新 | `bookmark-research` |
 | 修改偏好和 API Key | `bookmark-research setup` |
-| 查看已装宿主、偏好、Key 状态 | `bookmark-research status` |
+| 查看已装宿主、偏好、保存位置、最近研究、Key 状态 | `bookmark-research status` |
 | 用脚本改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
 
@@ -82,7 +82,23 @@ npx bookmark-research install
 | `JINA_API_KEY` | Jina 搜索 | Jina Reader 仍可匿名读取网页 |
 | `OPENAI_API_KEY` | 可选的 OpenAI Deep Research 任务 | 功能关闭；宿主自己的研究不受影响 |
 
-研究深度、答复语言、服务选择、归档这些偏好，也可以直接在宿主会话里让 agent 改，它会调用 `update_settings` 工具。
+setup 还会问研究报告和证据放在哪里：统一目录（默认 `<数据目录>/research`，路径可改），或放在书签文件／文件夹旁边（放不了时退回统一目录）。只影响新的研究，已有任务留在原处。接着问研究结束后是否整理进 Wiki：给出建议并先问你（默认）、自动、关闭。
+
+研究深度、答复语言、服务选择、归档、结果位置、Wiki 整理这些偏好，也可以直接在宿主会话里让 agent 改，它会调用 `update_settings` 工具。
+
+## 数据保存在哪里
+
+不会写入你的书签文件或插件目录。数据目录为 `$BOOKMARK_RESEARCH_DATA_DIR`，未设置时为 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research`。
+
+| 位置 | 内容 |
+| --- | --- |
+| `research/`（或输入旁边的 `<输入名>.bookmark-research/`） | 每个研究任务一个文件夹：报告、来源、证据，以及存放 agent 中间文件的 `work/` |
+| `research-locations.json` | 所有任务文件夹的位置，改了位置设置后旧任务仍能列出 |
+| `knowledge/` | 保存的网页读取：`sources/` 按每次读取保存，`pages/` 中相同正文只存一份 |
+| `wiki/` | 审核后的知识页面与历史版本；`index.md` 目录、`log.md` 时间线 |
+| `index.sqlite3`、`index.sqlite3.sources/` | 书签检索索引，以及导入数据包的托管快照 |
+| `raw-library.sqlite3` | `search_archive` 使用的全文索引，可重建 |
+| `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/` | `settings.json` 和 `credentials.json`（仅当前用户可读） |
 
 ## 插件包含什么
 
@@ -91,7 +107,7 @@ npx bookmark-research install
 | 层 | 组成 | 运行方式 | 需要配置 |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) 及 11 份方法参考，每份都有[中文版](skills/bookmark-research/references/zh/skill-guide.md) | 由宿主加载 | 不需要 |
-| 本地 MCP | `bookmark-research`，36 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
+| 本地 MCP | `bookmark-research`，37 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
 | 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取）、[Tavily](https://tavily.com)（备用搜索） | HTTPS，不启动本地进程 | 可选 API Key |
 | 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索） | HTTPS | 可选 `JINA_API_KEY` |
 | 可选的宿主 MCP | Exa Agent、Parallel Task MCP、Tavily Research | 需自行加到宿主里 | `bookmark-research setup` 会给出步骤 |
@@ -101,7 +117,7 @@ npx bookmark-research install
 | 分类 | 工具 |
 | --- | --- |
 | 书签 | `sync_package`、`index_status`、`source_history`、`search_bookmarks`、`get_context` |
-| 网页 | `search_web`、`fetch_web`、`search_providers` |
+| 网页 | `search_web`、`fetch_web`、`search_archive`、`search_providers` |
 | 研究 | `research_readiness`、`research_start`、`research_status`、`research_search`、`research_fetch`、`research_source`、`research_record`、`research_inventory`、`research_coverage`、`research_import_evidence`、`research_finish`、`research_route` |
 | 专业研究服务（可选） | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach`、`_import` |
 | 设置 | `get_settings`、`update_settings` |

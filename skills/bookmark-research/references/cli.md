@@ -11,6 +11,7 @@ Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<roo
 | `index_status` / `sync_package` | `status` / `sync` |
 | `search_bookmarks` / `get_context` | `search` / `context` |
 | `fetch_web` / `search_web` | `fetch-web` / `search-web` |
+| `search_archive` | `search-archive` |
 | `research_start` / `research_fetch` | `research start` / `research fetch` |
 
 ```sh
@@ -42,6 +43,7 @@ python3 <root>/src/cli.py providers --probe
 python3 <root>/src/cli.py search-web --target 'Example Company A official pricing' --target 'Example Company B official pricing' --limit 5
 python3 <root>/src/cli.py fetch-web https://example.com/company-a https://example.com/company-b
 python3 <root>/src/cli.py fetch-web https://example.com/company-a --no-archive --max-characters 30000
+python3 <root>/src/cli.py search-archive 'exact phrase or terms' --url example.com --limit 10
 python3 <root>/src/cli.py config show
 python3 <root>/src/cli.py config set --search-provider exa --archive true
 python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
@@ -51,7 +53,7 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 
 `setup` guides preferences, hidden key entry and selected service checks. `--non-interactive --input FILE` is the agent path; `--skip-checks` prevents network checks. `readiness` uses saved cached/always/manual policy; `--refresh` forces checks, `--offline` prevents network, and `--test-retrieval` opts into sample search/read quota. Repeat `--provider` to restrict retrieval checks, `--service openai|parallel` to select a professional service, and `--tool` for actually observed host tools. `--host` accepts `codex`, `claude_code`, `pi`, `dsh`, `unknown`. Before a new web question, run readiness once and follow its remediation; no professional job is started. See the settings reference for status meanings and private credential storage.
 
-`fetch-web` returns one selected text per URL in `pages`, with all attempt statuses and archive paths. `--raw` returns the full provider envelopes. Its `--timeout` applies per provider HTTP request; discovery and fallback can take longer overall. `research fetch` accepts only its documented MCP JSON fields and does not accept `timeout`.
+`search-archive` searches text already saved locally (knowledge archive and research evidence) without network access; `--url` filters by URL substring. `fetch-web` returns one selected text per URL in `pages`, with all attempt statuses and archive paths. `--raw` returns the full provider envelopes. Its `--timeout` applies per provider HTTP request; discovery and fallback can take longer overall. `research fetch` accepts only its documented MCP JSON fields and does not accept `timeout`.
 
 `providers` describes configuration only; `--probe` checks online handshake and tool discovery. Anonymous Exa/Parallel access depends on current provider limits. Set `EXA_API_KEY` / `PARALLEL_API_KEY` before starting the process when needed. Optional `--provider tavily` uses Bearer with `TAVILY_API_KEY` or an explicit keyless header without it. A listed tool does not prove execution authorization. Never place keys in manifests or reports.
 

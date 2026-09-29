@@ -186,6 +186,11 @@ class Onboarding:
                     return ("Use an absolute directory outside plugins and canvas packages.", "请使用插件与画布包以外的绝对目录。")
                 return None
             directory = console.input("Archive directory", "归档目录", directory, check)
+        output = self._output(current)
+        after = console.select("After research, update the Wiki?", "研究结束后整理进 Wiki？", [
+            Option("suggest", "Suggest", "建议", "suggest pages and ask first", "给出建议页面，先征求同意"),
+            Option("auto", "Automatic", "自动", "write reviewed claims without asking", "直接写入已审核的结论"),
+            Option("off", "Off", "关闭", "do not suggest Wiki updates", "不提示 Wiki 更新")], current["wiki"]["after_research"])
         mode = console.select("Check availability before web research", "联网研究前的可用性检查", [
             Option("cached", "Cached", "缓存", "refresh on first use, changes or expiry (15 minutes by default)", "首次、配置变化或过期时检查（默认 15 分钟）"),
             Option("always", "Always", "总是", "check for every new research question", "每次开始研究问题时检查"),
@@ -213,7 +218,34 @@ class Onboarding:
                         "Parallel processor 沿用 " + config["parallel"]["processor"] + "；可通过 config set 修改。")
         return {"research": {"depth": depth, "response_language": language}, "search": {"providers": providers, "fallback_providers": fallbacks},
                 "fetch": {"provider": readers[0], "providers": readers},
-                "archive": {"enabled": archive, "directory": directory}, "readiness": {"mode": mode}, "professional_research": services}
+                "archive": {"enabled": archive, "directory": directory}, "readiness": {"mode": mode}, "professional_research": services,
+                "output": output, "wiki": {"after_research": after}}
+
+    def _output(self, current):
+        """Ask where new research tasks go; an unchanged directory stays inherited from the data directory."""
+        console, saved = self.console, current["output"]
+        console.say("Location changes apply to new research tasks only; existing tasks stay where they are.",
+                    "位置设置只影响新的研究任务；已有任务保留在原处。")
+        choice = console.select("Where should research reports and evidence go?", "研究报告和证据保存在哪里？", [
+            Option("central", "Central folder", "统一目录", saved["directory"], saved["directory"], hint_always=True),
+            Option("custom", "Central folder at a custom path", "统一目录（自定义路径）"),
+            Option("beside_input", "Beside the bookmark file or folder", "放在书签文件或文件夹旁边",
+                   "falls back to the central folder when not possible", "无法放置时退回统一目录", hint_always=True)],
+            "beside_input" if saved["mode"] == "beside_input" else "central")
+        directory = saved["directory"]
+        if choice == "custom":
+            def check(value):
+                try:
+                    Settings.external_path(value, "Research output directory")
+                except ValueError:
+                    return ("Use an absolute directory outside plugins and canvas packages.", "请使用插件与画布包以外的绝对目录。")
+                return None
+            directory = str(Settings.external_path(
+                console.input("Research output directory", "研究结果目录", directory, check), "Research output directory"))
+        result = {"mode": "beside_input" if choice == "beside_input" else "central"}
+        if directory != saved["directory"]:
+            result["directory"] = directory
+        return result
 
     def _keys(self, defaults=()):
         console = self.console

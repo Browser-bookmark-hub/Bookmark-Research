@@ -64,7 +64,9 @@ class Settings:
                 "professional_research": {"enabled": False, "provider": None,
                     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
                     "parallel": {"processor": "pro"}},
-                "wiki": {"directory": str(cls.data_directory() / "wiki")}}
+                "wiki": {"directory": str(cls.data_directory() / "wiki"), "after_research": "suggest"},
+                # Where new research task folders go; existing tasks are never moved.
+                "output": {"mode": "central", "directory": str(cls.data_directory() / "research")}}
 
     @staticmethod
     def _merge(base, patch):
@@ -83,7 +85,7 @@ class Settings:
         defaults = cls.defaults()
         if set(value) - set(defaults):
             raise ValueError("Unknown settings fields; credentials belong in the environment or private credential file")
-        for section in ("search", "fetch", "archive", "research", "readiness", "professional_research", "wiki"):
+        for section in ("search", "fetch", "archive", "research", "readiness", "professional_research", "wiki", "output"):
             if not isinstance(value.get(section), dict) or set(value[section]) != set(defaults[section]):
                 raise ValueError("Invalid settings fields in " + section)
         for label, number, minimum, maximum in (
@@ -143,6 +145,14 @@ class Settings:
         if not isinstance(wiki_directory, str) or not wiki_directory.strip() or "\x00" in wiki_directory:
             raise ValueError("wiki.directory must be a nonempty path")
         value["wiki"]["directory"] = str(cls.external_path(wiki_directory, "Wiki directory"))
+        if value["wiki"]["after_research"] not in ("suggest", "auto", "off"):
+            raise ValueError("wiki.after_research must be suggest, auto or off")
+        output = value["output"]
+        if output["mode"] not in ("central", "beside_input"):
+            raise ValueError("output.mode must be central or beside_input")
+        if not isinstance(output["directory"], str) or not output["directory"].strip() or "\x00" in output["directory"]:
+            raise ValueError("output.directory must be a nonempty path")
+        output["directory"] = str(cls.external_path(output["directory"], "Research output directory"))
         return value
 
     @staticmethod

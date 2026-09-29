@@ -144,7 +144,7 @@
 
 运行时在网络调用前写入 pending intent，取得结果后先原子保存完成回执，再提交状态。如果进程在回执保存后退出，重新读取会恢复操作和来源注册，相同编号重放已保存结果，后续来源使用新的 ID。回执没有完成时仍保留 `pending`，同编号不提交新请求。文件锁可排除仍在本地执行的操作；确认中断后记录 `interruption`，此后显示 `unknown_outcome`。需要重试时用新编号并消耗新预算。`status` 本身不将文件记录当作活进程证据。
 
-默认目录为 `BOOKMARK_RESEARCH_DATA_DIR/research/`，未设置时遵循 XDG 数据目录。每个任务包含：
+任务保存在统一目录 `output.directory`（默认 `BOOKMARK_RESEARCH_DATA_DIR/research/`，未设置时遵循 XDG 数据目录），或在 `output.mode:beside_input` 时放在唯一输入旁边；`research_start` 返回实际 `output.path`、可能的 `fallback_reason` 和 `work_directory`。agent 的中间文件一律放在 `work/`。见 [配置](settings-and-archive.md#研究结果位置与-wiki-后续整理)。每个任务包含：
 
 ```text
 r-<id>/
@@ -157,8 +157,9 @@ r-<id>/
   sources.json           可机读的来源、claims、问题与操作索引
   coverage-<hash>.json    本次交付的逐项覆盖与差集
   external-runs/         宿主／服务返回的完整结果附件
+  work/                  agent 自己的中间文件，不放到别处
 ```
 
-`research_finish` 返回有大小限制的概览和产物路径，完整结论及原句在报告与来源清单中。报告使用常规结论小节和链接，撤回的结论、原因和原引用始终保留。报告中的本地相对路径可连同整个任务目录移动。对外分享前按用户授权选择报告和来源；归档可能含私有研究范围。检索时间与页面发布时间分别记录，不根据抓取成功推断来源实时更新。
+`research_finish` 返回有大小限制的概览、产物路径和 `wiki_follow_up`（按其 `policy` 与 `instruction` 处理），完整结论及原句在报告与来源清单中。报告使用常规结论小节和链接，撤回的结论、原因和原引用始终保留。报告中的本地相对路径可连同整个任务目录移动。对外分享前按用户授权选择报告和来源；归档可能含私有研究范围。检索时间与页面发布时间分别记录，不根据抓取成功推断来源实时更新。
 
 CLI 使用同一实现，见 [CLI 参考](cli.md#深度研究命令)。开发验证用仓库 `tests/test_research.py` 和 `scripts/verify_fixture.py`；测试资料不会自动进入用户书签索引。

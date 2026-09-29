@@ -111,11 +111,48 @@ class WikiTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "revision changed"):
             self.wiki.write("sessions", topic, "Would overwrite a newer change", expected_revision=1)
 
+    def test_catalog_and_log_follow_each_write(self):
+        self.review()
+        self.assertFalse(self.wiki.lint()["issues"])
+        self.wiki.write("sessions", self.page(), "Create topic")
+        self.wiki.write("aurora", self.page(title="Aurora [core]", kind="entity"), "Create entity\nsecond line")
+        self.wiki.write("sessions", self.page(title="Reusable sessions"), "Rename topic", expected_revision=1)
+        index_md = self.wiki.directory / "index.md"
+        catalog = index_md.read_bytes().decode("utf-8")
+        self.assertNotIn("\r", catalog)
+        self.assertEqual(catalog, self.wiki._catalog(self.wiki._index()))
+        topics, entities = catalog.split("## Entities (1)")
+        self.assertIn("## Topics (1)", topics)
+        self.assertIn("[Reusable sessions](revisions/sessions/2-", topics)
+        self.assertIn("`sessions` · r2 · ", topics)
+        self.assertIn("· 1 claims — Aurora supports reusable sessions. 可恢复的知识整理。", topics)
+        self.assertIn("[Aurora \\[core\\]](revisions/aurora/1-", entities)
+        for target in re.findall(r"\]\((revisions/[^)]+)\)", catalog):
+            self.assertTrue((self.wiki.directory / target).is_file(), target)
+        log = (self.wiki.directory / "log.md").read_bytes().decode("utf-8")
+        self.assertTrue(log.startswith("# Wiki log\n"))
+        headings = re.findall(r"^## \[(\d{4}-\d{2}-\d{2})\] write \| (.+)$", log, re.M)
+        self.assertEqual([title for _, title in headings],
+                         ["Reusable research sessions (r1)", "Aurora [core] (r1)", "Reusable sessions (r2)"])
+        self.assertIn("- page_id: `aurora`\n- change_note: Create entity second line\n- research: " + self.rid, log)
+        self.assertEqual(self.wiki.lint()["status"], "ok")
+        self.assertFalse([issue for issue in self.wiki.lint()["issues"] if issue["code"].startswith("catalog")])
+        index_md.unlink()
+        lint = self.wiki.lint()
+        self.assertEqual(lint["status"], "ok")
+        self.assertEqual([(issue["code"], issue["severity"]) for issue in lint["issues"]], [("catalog_missing", "warning")])
+        index_md.write_text("edited", encoding="utf-8")
+        self.assertEqual(self.wiki.lint()["issues"][0]["code"], "catalog_stale")
+        self.wiki.write("aurora", self.page(title="Aurora", kind="entity"), "Refresh", expected_revision=1)
+        self.assertFalse(self.wiki.lint()["issues"])
+        self.assertEqual(len(re.findall(r"^## \[", (self.wiki.directory / "log.md").read_text(encoding="utf-8"), re.M)), 4)
+
     def test_failed_index_commit_does_not_publish_or_destroy_a_revision(self):
         self.review()
         first = self.wiki.write("sessions", self.page(), "Original revision")
         index_before = (self.wiki.directory / "index.json").read_bytes()
         record_before = Path(first["artifacts"]["record_file"]).read_bytes()
+        log_before = (self.wiki.directory / "log.md").read_bytes()
         write = ResearchSessions._write
         def fail_index(path, value):
             if path == self.wiki.directory / "index.json":
@@ -126,6 +163,7 @@ class WikiTests(unittest.TestCase):
                 self.wiki.write("sessions", self.page(), "Failed update", expected_revision=1)
         self.assertEqual((self.wiki.directory / "index.json").read_bytes(), index_before)
         self.assertEqual(Path(first["artifacts"]["record_file"]).read_bytes(), record_before)
+        self.assertEqual((self.wiki.directory / "log.md").read_bytes(), log_before)
         self.assertEqual(self.wiki.get("sessions")["revision"], 1)
         self.assertEqual(self.wiki.write("sessions", self.page(), "Retry locally", expected_revision=1)["revision"], 2)
         self.assertEqual(self.wiki.lint()["status"], "ok")

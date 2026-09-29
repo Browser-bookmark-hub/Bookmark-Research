@@ -38,6 +38,8 @@ python3 <plugin-root>/src/cli.py fetch-web 'https://example.com/page' --timeout 
 
 `fetch_web.pages` contains one selected extract per URL; each attempt retains status and archive paths. Read the relevant text and cite the original URL. Complete provider envelopes remain in the archive; `raw:true` (CLI `--raw`) returns them when needed. Check archive errors and completeness markers; a provider extract is not proof of a complete or live origin page.
 
+Before reading a page again, `search_archive` (CLI `search-archive`) finds literal text already saved in the knowledge archive and every registered research task's evidence; identical bodies are merged and list each occurrence with its retrieval time. Reuse a hit when its retrieval time suits the question; otherwise fetch again. It is not web search.
+
 ## Search, assess, follow up
 
 The current host model owns the first pass. Read known URLs directly; use `search_web` to discover sources, then read the relevant pages. Ordinary comparisons can answer directly. Create persistent research records when the user needs retained progress or a report.
@@ -65,6 +67,8 @@ Read the [deep workflow](references/deep-research.md) when this mode is needed. 
 - Canvas packages: use indexed `source_ids`; whole-package scope is the default. Only an explicit subset uses `scope_mode:subset` and selected inventory IDs or bookmark references.
 - A public question without an original bookmark list may omit both inputs. URLs mentioned only in the brief are not tracked input.
 
+`research_start` returns `output` (`placement`, `path`, `fallback_reason`) and `work_directory`. Tasks go to the central folder, or with `output.mode:beside_input` next to the single bookmark file/folder (`<name>.bookmark-research/`). When that is impossible (URL list, several sources, Git repository, canvas package, no write permission), the task uses the central folder and `fallback_reason` says why; tell the user. Put all of your own intermediate or scratch files only inside `work_directory`, never elsewhere in the data directory or beside the user's files.
+
 Follow every `research_inventory.next_offset`. Keep original `u-...` inventory IDs separate from saved `sN` evidence IDs. Read original text, review it, record quoted claims and each inventory judgment. Batch ready `research_record.entries` (up to 50) with a stable `batch_id`; use returned IDs in dependent batches. Check coverage differences and continue until complete or budget-limited. Failure notes, bulk exclusions, search snippets and external report citations cannot establish full original-source review.
 
 The parent owns synthesis. When delegation is available and permitted, give independent readers/verifiers the scope, questions, output language, relevant instructions and actual MCP/CLI access. Read [host workflows](references/host-workflows.md) for Codex, Claude, Pi or DSH execution details; do not assume child context inheritance. Without delegation, conduct and disclose same-agent review.
@@ -75,6 +79,6 @@ Professional research is optional support for a concrete subproblem or an explic
 
 Answer quick tasks directly. Before finishing a report, review the actual short answer against evidence and counterevidence; condensing supported claims must preserve their conditions and limits. Use `research_finish` for reports and source/coverage artifacts: distinguish accounted inputs, usable text, substantive review and answered questions. Use `completed` only when coverage, supported answers and conflict checks pass; otherwise retain an `incomplete` report and gaps. Resume an incomplete archive with a `resume` record. Saved state is not a background agent.
 
-Create Wiki pages when the user asks to retain conclusions in a Wiki or knowledge base; read [Wiki and evaluation](references/wiki-and-evaluation.md) for publication, lint and actual labeled quality comparisons. Do not infer semantic correctness from quote/hash checks.
+After `research_finish`, follow its `wiki_follow_up`: `suggest` → present `candidates` with the eligible reviewed claims and ask before `wiki_write`; `auto` → write or update pages citing only `eligible_claim_ids`, then say which pages changed; `off` → skip unless the user asks. Also create Wiki pages when the user asks to retain conclusions in a Wiki or knowledge base; read [Wiki and evaluation](references/wiki-and-evaluation.md) for publication, lint and actual labeled quality comparisons. The Wiki's `index.md` (catalog) and `log.md` (timeline) can be read or grepped. Do not infer semantic correctness from quote/hash checks.
 
 Use `get_settings` for configuration questions and `update_settings` for lasting preferences; temporary choices use per-call options. [Settings and archives](references/settings-and-archive.md) describes storage. All archives, indexes and authored outputs stay outside the original package.

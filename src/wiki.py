@@ -3,6 +3,8 @@
 This module checks provenance, never semantic support. A saved extract is not a
 Wiki page: the caller supplies topic/entity organization, prose and a declared
 human or model review. Only active claims backed by accepted sources may enter.
+Each write also regenerates index.md (catalog) and appends to log.md (timeline);
+both are derived views, while index.json stays the source of truth.
 """
 
 import copy
@@ -258,8 +260,64 @@ class WikiStore:
             ResearchSessions._write(self._path(pointer["markdown_file"]), markdown)
             index["pages"][page_id] = pointer
             ResearchSessions._write(self._path("index.json"), index)
+            # Derived, human-readable views; index.json and revisions stay authoritative.
+            ResearchSessions._write(self._path("index.md"), self._catalog(index))
+            ResearchSessions._write(self._path("log.md"), self._log_text() + self._log_entry(page_id, pointer, change_note, references))
         return {"page_id": page_id, **pointer, "status": "written", "directory": str(self.directory),
-                "artifacts": self._artifacts(pointer), "semantic_review": "caller_declared"}
+                "artifacts": self._artifacts(pointer), "semantic_review": "caller_declared",
+                "catalog": {key: str(self._path(key)) for key in ("index.md", "log.md")}}
+
+    @staticmethod
+    def _line(value, limit=None):
+        value = " ".join(str(value).split())
+        return value if limit is None or len(value) <= limit else value[:limit - 1].rstrip() + "…"
+
+    def _catalog(self, index):
+        """Deterministic Markdown catalog of current pages, derived only from index.json and records."""
+        escape = lambda text: re.sub(r"([\\\[\]])", r"\\\1", text)
+        lines = ["# Wiki index", "", "Generated from index.json after each Wiki write. Do not edit; "
+                 "index.json and the revision files are authoritative.", ""]
+        for kind, heading in (("topic", "Topics"), ("entity", "Entities")):
+            rows = sorted(((key, value) for key, value in index["pages"].items() if value["kind"] == kind),
+                          key=lambda row: (row[1]["title"].casefold(), row[0]))
+            lines.extend(["## %s (%s)" % (heading, len(rows)), ""])
+            for page_id, pointer in rows:
+                try:
+                    record = self._revision(pointer)
+                    summary = self._line(record["page"]["sections"][0]["text"], 120)
+                    claims = str(len(record["evidence"]))
+                except (OSError, ValueError, KeyError, TypeError, IndexError):
+                    summary, claims = "Revision unreadable; run wiki_lint.", "?"
+                lines.append("- [%s](%s) `%s` · r%s · %s · %s claims — %s" % (
+                    escape(pointer["title"]), pointer["markdown_file"], page_id, pointer["revision"],
+                    pointer["updated_at"][:10], claims, summary))
+            lines.extend([""] if rows else ["None yet.", ""])
+        return "\n".join(lines).rstrip("\n") + "\n"
+
+    def _log_text(self):
+        path = self._path("log.md")
+        if not path.is_file():
+            return "# Wiki log\n\nAppend-only timeline of Wiki writes.\n"
+        return path.read_bytes().decode("utf-8")
+
+    def _log_entry(self, page_id, pointer, change_note, references):
+        research_ids = ", ".join(sorted({reference[0] for reference in references}))
+        return "\n".join(["", "## [%s] write | %s (r%s)" % (pointer["updated_at"][:10], pointer["title"], pointer["revision"]),
+                          "", "- page_id: `%s`" % page_id, "- change_note: " + self._line(change_note),
+                          "- research: " + research_ids, ""])
+
+    def _catalog_issue(self, index):
+        if not self._path("index.json").exists():
+            return []
+        path = self._path("index.md")
+        try:
+            current = path.read_bytes().decode("utf-8") if path.is_file() else None
+        except (OSError, UnicodeDecodeError):
+            current = None
+        if current == self._catalog(index):
+            return []
+        return [{"page_id": None, "severity": "warning", "code": "catalog_missing" if current is None else "catalog_stale",
+                 "regenerable": True, "message": "index.md is derived from index.json; the next Wiki write regenerates it."}]
 
     def _artifacts(self, pointer):
         return {key: str(self._path(pointer[key])) for key in ("record_file", "markdown_file")}
@@ -312,6 +370,8 @@ class WikiStore:
                     record, previous = older, older["previous"]
             except (OSError, ValueError, KeyError, TypeError) as error:
                 issues.append({"page_id": identifier, "severity": "error", "code": "artifact_error", "message": str(error)[:1000]})
+        if page_id is None:
+            issues.extend(self._catalog_issue(index))
         return {"status": "error" if any(item["severity"] == "error" for item in issues) else "ok",
                 "pages_checked": len(ids), "issues": issues, "semantic_support": "not_scored",
                 "boundary": "Checks current source reviews, active claims, saved quotes, hashes, links and revision history only."}

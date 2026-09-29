@@ -51,11 +51,13 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 
 - `index.sqlite3`：来源登记、书签和画布关系索引。
 - `index.sqlite3.sources/`：原始协议文件和关系清单的版本快照。
-- `knowledge/`：普通网页响应、正文和来源记录。
-- `research/`：完整输入清单、任务、证据、覆盖与报告。
-- `wiki/`：主题／实体页和不可变修订。
+- `knowledge/`：普通网页响应、正文（`pages/` 中相同正文只存一份）和来源记录。
+- `research/`：完整输入清单、任务、证据、覆盖与报告；每个任务的 `work/` 存放 agent 中间文件。设置 `output.mode: beside_input` 时，新任务放在单个书签文件／文件夹旁边的 `<名称>.bookmark-research/`，URL 列表、多个来源、Git 仓库、画布包或没有写权限时退回统一目录并说明原因。改设置只影响新任务。
+- `research-locations.json`：所有任务文件夹的位置登记。
+- `wiki/`：主题／实体页和不可变修订；每次写入更新 `index.md`（目录）并追加 `log.md`（时间线）。
+- `raw-library.sqlite3`：`search_archive` 的全文索引，覆盖 `knowledge/` 与所有研究证据，可重建。
 
-配置默认为 `~/.config/bookmark-research/settings.json`。支持 XDG 和显式路径覆盖，多宿主可共享数据。索引更新不会自动抓网页、运行 LLM 或改写 Wiki；来源变化时提示复核，旧研究与证据保留。
+配置默认为 `~/.config/bookmark-research/settings.json`。`wiki.after_research` 决定研究结束后的 Wiki 整理：`suggest`（默认，先建议再问）、`auto`、`off`。支持 XDG 和显式路径覆盖，多宿主可共享数据。索引更新不会自动抓网页、运行 LLM 或改写 Wiki；来源变化时提示复核，旧研究与证据保留。
 
 `research_record` 支持单条 `entry` 或每批至多 50 条的 `entries`，按顺序校验后一次保存，返回精简编号；稳定的 `batch_id` 可避免重试产生重复记录。依赖新 claim ID 的记录在读取返回值后另批提交。`resume` 和 `external_run` 仍需单条调用，详见 [证据记录](../skills/bookmark-research/references/zh/deep-research.md)。
 
