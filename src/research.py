@@ -876,9 +876,9 @@ class ResearchSessions:
                           "possibly_truncated": page.get("possibly_truncated", False),
                           "published_at": page.get("provider_published_at"), "crawled_at": page.get("provider_crawled_at"),
                           "sha256": page["sha256"],
-                          "body_file": str(Path(page["body_path"]).relative_to(path)) if page["body_path"] else None,
-                          "manifest_file": str(Path(archive["manifest_path"]).relative_to(path)),
-                          "response_file": str(Path(archive["response_path"]).relative_to(path))}
+                          "body_file": Path(page["body_path"]).relative_to(path).as_posix() if page["body_path"] else None,
+                          "manifest_file": Path(archive["manifest_path"]).relative_to(path).as_posix(),
+                          "response_file": Path(archive["response_path"]).relative_to(path).as_posix()}
                 source["review"] = {"verdict": "unreviewed", "text": None}
                 source["inventory_ids"], source["bookmark_refs"] = self._source_links(current, source["url"])
                 current["sources"].append(source)
@@ -999,8 +999,8 @@ class ResearchSessions:
                       "content_kind": kind if kind in ("external_report", "local_document") else "imported_page_text",
                       "completeness": "unknown", "possibly_truncated": True,
                       "published_at": provenance.get("published_at"), "crawled_at": provenance.get("crawled_at"),
-                      "sha256": digest, "body_file": str(body_file.relative_to(path)),
-                      "manifest_file": str(manifest_file.relative_to(path)), "response_file": str(response_file.relative_to(path)),
+                      "sha256": digest, "body_file": body_file.relative_to(path).as_posix(),
+                      "manifest_file": manifest_file.relative_to(path).as_posix(), "response_file": response_file.relative_to(path).as_posix(),
                       "provenance": provenance, "review": {"verdict": "unreviewed", "text": None},
                       "inventory_ids": [] if kind == "external_report" else identifiers,
                       "referenced_inventory_ids": (supplied_ids or []) if kind == "external_report" else [],
