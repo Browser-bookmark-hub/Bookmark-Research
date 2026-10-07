@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from export_bundle import NAME, SOURCE_ROOT, _copy_plan, read_plugin_manifest
+from export_bundle import NAME, SOURCE_ROOT, VERSION_PATTERN, _copy_plan, read_plugin_manifest
 from host_assets import read_asset
 
 
@@ -122,10 +122,15 @@ def _source(value, ref=None):
         # Repository catalogs distribute the published npm package. The source
         # installer deliberately exports this checkout; exported bundles keep
         # a local catalog so native installation of that bundle stays offline.
-        published = {"source": "npm", "package": NAME, "version": manifest["version"],
+        source = plugin.get("source") if plugin else None
+        # Source versions can advance before publication; the catalog keeps its
+        # previous release until the new npm version is available.
+        version = source.get("version") if isinstance(source, dict) else None
+        published = {"source": "npm", "package": NAME, "version": version,
                      "registry": "https://registry.npmjs.org"}
-        if not plugin or plugin.get("source") not in ({"source": "local", "path": "./"}, published):
-            raise ValueError("The marketplace must select its local root or the matching published bookmark-research package")
+        pinned_release = isinstance(version, str) and VERSION_PATTERN.fullmatch(version) and source == published
+        if source != {"source": "local", "path": "./"} and not pinned_release:
+            raise ValueError("The marketplace must select its local root or a pinned bookmark-research npm release")
         return {"sourceType": "local", "source": str(root), "version": manifest["version"]}
     if ref and (ref.startswith("-") or not re.fullmatch(r"[A-Za-z0-9_./-]+", ref)):
         raise ValueError("--ref must be a Git branch, tag, or commit identifier")

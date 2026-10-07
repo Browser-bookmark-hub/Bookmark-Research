@@ -397,17 +397,26 @@ class InstallerTests(unittest.TestCase):
         path = self.source / ".agents/plugins/marketplace.json"
         catalog = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
         self.assertEqual(catalog["plugins"][0]["source"], {
-            "source": "npm", "package": install.NAME, "version": self.version,
+            "source": "npm", "package": install.NAME, "version": catalog["plugins"][0]["source"]["version"],
             "registry": "https://registry.npmjs.org"})
         path.write_text(json.dumps(catalog))
         requested = install._source(self.source)
         self.assertEqual(requested["sourceType"], "local")
-        for field, value in (("package", "unrelated-package"), ("version", "0.0.0"),
+        # Prepare a new source version before publishing it. The native catalog
+        # must remain on an available release until npm publication succeeds.
+        manifest_path = self.source / ".codex-plugin/plugin.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["version"] = "99.0.0-unpublished"
+        manifest_path.write_text(json.dumps(manifest))
+        self.assertEqual(install._source(self.source), {
+            "sourceType": "local", "source": str(self.source), "version": manifest["version"]})
+        for field, value in (("package", "unrelated-package"), ("version", "latest"),
+                             ("version", "^1.0.0"), ("version", None),
                              ("registry", "https://example.invalid")):
             modified = json.loads(json.dumps(catalog))
             modified["plugins"][0]["source"][field] = value
             path.write_text(json.dumps(modified))
-            with self.assertRaisesRegex(ValueError, "matching published"):
+            with self.assertRaisesRegex(ValueError, "pinned bookmark-research"):
                 install._source(self.source)
 
     def test_native_release_update_keeps_the_catalog_package_instead_of_exporting_source(self):
