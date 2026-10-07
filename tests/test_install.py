@@ -582,7 +582,7 @@ class NativeCodexInstallerTests(unittest.TestCase):
     def test_update_migrates_old_source_install_using_native_commands(self):
         for arguments in (["plugin", "marketplace", "add", str(self.source)],
                           ["plugin", "add", install.SELECTOR]):
-            result = subprocess.run(["codex", *arguments, "--json"], env=self.environment,
+            result = subprocess.run([shutil.which("codex"), *arguments, "--json"], env=self.environment,
                                     text=True, capture_output=True, check=True, timeout=30)
         cache = Path(json.loads(result.stdout)["installedPath"])
         self.assertTrue((cache / ".claude/settings.local.json").is_file())
