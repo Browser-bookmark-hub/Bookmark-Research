@@ -1,5 +1,10 @@
 name: test
 on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     strategy:
@@ -30,3 +35,61 @@ jobs:
           bookmark-research --help
           bookmark-research doctor
           bookmark-research status < /dev/null
+  native-codex:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install native client for isolated tests
+        run: npm install -g @openai/codex@0.160.1
+      - run: codex --version
+      - name: Native installation, migration and update
+        run: python -B -m unittest discover -s tests -p test_install.py -v
+  packages:
+    needs: [test, native-codex]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and inspect release candidates
+        run: |
+          python scripts/build_zip.py --output dist/bookmark-research.zip
+          python scripts/build_zip.py --include-tests --output dist/bookmark-research-test-pack.zip
+          npm pack --ignore-scripts --json --pack-destination dist > dist/npm-pack.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          package = json.loads(Path("dist/npm-pack.json").read_text())[0]
+          files = [row["path"] for row in package["files"]]
+          hidden = {p for p in files if any(part.startswith(".") for part in Path(p).parts)}
+          assert hidden == {".codex-plugin/plugin.json", ".agents/plugins/marketplace.json"}, hidden
+          assert not any(set(Path(p).parts) & {"node_modules", "tests", "exports", "dist"} for p in files)
+          PY
+      - name: Checksum release candidates
+        working-directory: dist
+        run: sha256sum *.zip *.tgz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ github.sha }}
+          path: |
+            dist/*.zip
+            dist/*.tgz
+            dist/SHA256SUMS
+          retention-days: 14
+          if-no-files-found: error

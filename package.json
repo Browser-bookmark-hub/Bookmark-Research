@@ -7,6 +7,6 @@
   "keywords": ["bookmark-research", "mcp", "claude-code", "codex", "pi-package", "deepseek-harness"],
   "bin": {"bookmark-research": "bin/bookmark-research.js"},
   "engines": {"node": ">=18"},
-  "files": ["bin", "src", "scripts", "config", "skills", "hosts", "docs", ".codex-plugin", ".agents", "install.sh", "LICENSE", "README.md", "README.zh.md", "!**/__pycache__", "!**/*.pyc"],
+  "files": ["bin", "src", "scripts", "config", "skills", "hosts", "docs", ".codex-plugin/plugin.json", ".agents/plugins/marketplace.json", "install.sh", "LICENSE", "README.md", "README.zh.md", "!**/__pycache__", "!**/*.pyc"],
   "pi": {"skills": ["./skills"]}
 }

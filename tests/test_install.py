@@ -85,12 +85,14 @@ class InstallerTests(unittest.TestCase):
         self.git_marketplace = {"name": install.NAME, "root": str(self.source), "marketplaceSource": {
             "sourceType": "git", "source": "https://github.com/Browser-bookmark-hub/Bookmark-Research.git"}}
         environment = mock.patch.dict(os.environ, {
+            "BOOKMARK_RESEARCH_INSTALL_DIR": str(self.base / "managed"),
             "BOOKMARK_RESEARCH_DATA_DIR": str(self.base / "user data"),
             "BOOKMARK_RESEARCH_CONFIG": str(self.base / "user settings.json"),
             "EXA_API_KEY": "environment-secret-marker", "TAVILY_API_KEY": "environment-secret-marker"})
         environment.start()
         self.addCleanup(environment.stop)
-        # These contracts register the source itself; PinnedInterpreterTests covers Windows pinning.
+        self.bundle = install._local_home() / "bundle"
+        # PinnedInterpreterTests separately covers Windows interpreter selection.
         pin = mock.patch.object(install, "_pin_interpreter", return_value=False)
         pin.start()
         self.addCleanup(pin.stop)
@@ -155,17 +157,18 @@ class InstallerTests(unittest.TestCase):
         result = install.manage("install", cli, source=self.source, dry_run=True)
         self.assertTrue(result["dry_run"])
         self.assertEqual(result["commands"], [
-            [cli.binary, "plugin", "marketplace", "add", str(self.source), "--json"],
+            [cli.binary, "plugin", "marketplace", "add", str(self.bundle), "--json"],
             [cli.binary, "plugin", "add", install.SELECTOR, "--json"]])
         self.assertFalse(result.get("verified"))
         self.assertEqual(len(cli.calls), 1)
         self.assertNotIn("environment-secret-marker", json.dumps(result))
         self.assertFalse((self.base / "user data").exists())
+        self.assertFalse((self.base / "managed").exists())
 
     def test_install_checks_the_cached_runtime_and_registered_version(self):
         cli = ScriptedCli([
             (["plugin", "marketplace", "list"], {"marketplaces": []}),
-            (["plugin", "marketplace", "add", str(self.source)], {"marketplaceName": install.NAME}),
+            (["plugin", "marketplace", "add", str(self.bundle)], {"marketplaceName": install.NAME}),
             (["plugin", "add", install.SELECTOR], {"pluginId": install.SELECTOR, "installedPath": str(self.source)}),
             (["plugin", "list"], {"installed": [self.registration]}),
         ])
@@ -210,12 +213,14 @@ class InstallerTests(unittest.TestCase):
                     if action == "install":
                         steps = [
                             (["plugin", "marketplace", "list"], {"marketplaces": []}),
-                            (["plugin", "marketplace", "add", str(self.source)], {"marketplaceName": install.NAME}),
+                            (["plugin", "marketplace", "add", str(self.bundle)], {"marketplaceName": install.NAME}),
                         ]
                     else:
                         steps = [
                             (["plugin", "marketplace", "list"], {"marketplaces": [self.local_marketplace]}),
                             (["plugin", "list"], {"installed": [self.registration]}),
+                            (["plugin", "marketplace", "remove", install.NAME], {}),
+                            (["plugin", "marketplace", "add", str(self.bundle)], {"marketplaceName": install.NAME}),
                         ]
                     steps.extend([
                         (["plugin", "add", install.SELECTOR], {"pluginId": install.SELECTOR, "installedPath": str(cached)}),
@@ -316,11 +321,45 @@ class InstallerTests(unittest.TestCase):
     def test_native_add_failure_does_not_attempt_plugin_add(self):
         cli = ScriptedCli([
             (["plugin", "marketplace", "list"], {"marketplaces": []}),
-            (["plugin", "marketplace", "add", str(self.source)], RuntimeError("native install failed")),
+            (["plugin", "marketplace", "add", str(self.bundle)], RuntimeError("native install failed")),
         ])
         with self.assertRaisesRegex(RuntimeError, "native install failed"):
             install.manage("install", cli, source=self.source)
         self.assertEqual(len(cli.calls), 2)
+
+    def test_migration_refuses_other_plugins_before_writing_a_bundle(self):
+        path = self.source / ".agents/plugins/marketplace.json"
+        catalog = json.loads(path.read_text())
+        catalog["plugins"].append({"name": "another-plugin"})
+        path.write_text(json.dumps(catalog))
+        cli = ScriptedCli([(["plugin", "marketplace", "list"], {"marketplaces": [self.local_marketplace]})])
+        with self.assertRaisesRegex(ValueError, "containing other plugins"):
+            install.manage("install", cli, source=self.source)
+        self.assertFalse(self.bundle.exists())
+        self.assertEqual(cli.steps, [])
+
+    def test_failed_migration_restores_original_marketplace_through_codex(self):
+        cli = ScriptedCli([
+            (["plugin", "marketplace", "list"], {"marketplaces": [self.local_marketplace]}),
+            (["plugin", "marketplace", "remove", install.NAME], {}),
+            (["plugin", "marketplace", "add", str(self.bundle)], RuntimeError("native add failed")),
+            (["plugin", "marketplace", "add", str(self.source)], {"marketplaceName": install.NAME}),
+        ])
+        with self.assertRaisesRegex(RuntimeError, "native add failed"):
+            install.manage("install", cli, source=self.source)
+        self.assertEqual(cli.steps, [])
+
+    def test_verification_rejects_unexpected_personal_files_in_native_cache(self):
+        (self.source / ".claude").mkdir()
+        (self.source / ".claude/settings.local.json").write_text('{"synthetic":true}')
+        cli = ScriptedCli([
+            (["plugin", "marketplace", "list"], {"marketplaces": []}),
+            (["plugin", "marketplace", "add", str(self.bundle)], {"marketplaceName": install.NAME}),
+            (["plugin", "add", install.SELECTOR], {"pluginId": install.SELECTOR, "installedPath": str(self.source)}),
+            (["plugin", "list"], {"installed": [self.registration]}),
+        ])
+        with self.assertRaisesRegex(RuntimeError, "settings.local.json"):
+            install.manage("install", cli, source=self.source)
 
     def test_git_update_errors_stop_before_reinstallation(self):
         cli = ScriptedCli([
@@ -463,6 +502,7 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.data = self.base / "user data"
         self.settings = self.base / "user settings.json"
         self.environment = dict(os.environ, CODEX_HOME=str(self.profile),
+                                BOOKMARK_RESEARCH_INSTALL_DIR=str(self.base / "managed"),
                                 BOOKMARK_RESEARCH_DATA_DIR=str(self.data), BOOKMARK_RESEARCH_CONFIG=str(self.settings),
                                 EXA_API_KEY="environment-secret-marker", TAVILY_API_KEY="environment-secret-marker",
                                 PYTHONDONTWRITEBYTECODE="1")
@@ -470,6 +510,12 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.environment.pop("PYTHONHOME", None)
         self.outside = self.base / "outside"
         self.outside.mkdir()
+        self.private_files = (".claude/settings.local.json", ".codex/config.toml", ".pi/settings.json",
+                              ".agent/local.txt", ".git/probe", "exports/old/private.txt", "dist/old.zip")
+        for relative in self.private_files:
+            path = self.source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("synthetic private file; exclude from installation\n")
 
     def run_installer(self, *args, success=True):
         setup_flags = ["--non-interactive", "--skip-checks"] if args[0] == "install" else []
@@ -493,6 +539,10 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.assertEqual(first["getting_started"]["settings_command"][2], str(Path(first["installed_path"]) / "src/cli.py"))
         self.assertFalse(self.data.exists())
         self.assertFalse(self.settings.exists())
+        self.assertEqual(first["origin"]["source"], str(self.source))
+        for relative in self.private_files:
+            self.assertFalse((Path(first["installed_path"]) / relative).exists(), relative)
+            self.assertTrue((self.source / relative).is_file(), relative)
         repeated = self.run_installer("install", "--source", str(self.source))
         self.assertEqual(first["installed_path"], repeated["installed_path"])
         self.data.mkdir()
@@ -528,6 +578,26 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.assertEqual((self.data / "index.sqlite3").read_bytes(), b"existing-user-index")
         self.assertEqual(self.settings.read_text(), '{"archive":{"enabled":false}}')
         self.assertTrue(self.run_installer("verify")["enabled"])
+
+    def test_update_migrates_old_source_install_using_native_commands(self):
+        for arguments in (["plugin", "marketplace", "add", str(self.source)],
+                          ["plugin", "add", install.SELECTOR]):
+            result = subprocess.run(["codex", *arguments, "--json"], env=self.environment,
+                                    text=True, capture_output=True, check=True, timeout=30)
+        cache = Path(json.loads(result.stdout)["installedPath"])
+        self.assertTrue((cache / ".claude/settings.local.json").is_file())
+        before = {str(p.relative_to(self.source)): p.read_bytes() for p in self.source.rglob("*") if p.is_file()}
+        planned = self.run_installer("update", "--dry-run")
+        self.assertEqual(planned["commands"][0][1:5], ["plugin", "marketplace", "remove", install.NAME])
+        self.assertFalse((self.base / "managed").exists())
+        migrated = self.run_installer("update")
+        self.assertTrue(migrated["verified"])
+        self.assertEqual(migrated["commands"], planned["commands"])
+        for relative in self.private_files:
+            self.assertFalse((Path(migrated["installed_path"]) / relative).exists(), relative)
+        self.assertEqual(before, {str(p.relative_to(self.source)): p.read_bytes()
+                                  for p in self.source.rglob("*") if p.is_file()})
+        self.assertTrue(self.run_installer("update")["verified"])
 
     def test_dry_run_and_absent_install_do_not_claim_success(self):
         result = self.run_installer("install", "--source", str(self.source), "--dry-run")

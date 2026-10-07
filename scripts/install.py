@@ -2,6 +2,7 @@
 """Install, update, or verify Bookmark Research with a selected client's native CLI."""
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -312,27 +313,50 @@ def _pinned_home():
     return Path(root).expanduser().resolve() / "codex-pinned"
 
 
-def _pinned_source(origin, timeout, python=None):
-    """Export a Codex marketplace whose MCP command is the detected interpreter."""
+def _local_home():
+    profile = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex").expanduser().resolve()
+    return _pinned_home().parent / ("codex-local-" + hashlib.sha256(str(profile).encode()).hexdigest()[:16])
+
+
+def _export_source(origin, timeout, python, base, dry_run=False):
+    """Prepare a clean, persistent marketplace; Codex owns registration and caching."""
     from export_bundle import export_bundle
-    from host_install import _checkout
-    base = _pinned_home()
+    from host_install import _checkout, _write_json
+    bundle = base / "bundle"
+    if origin["sourceType"] == "local":
+        root = Path(origin["source"]).resolve()
+        if base == root or root in base.parents or base in root.parents:
+            raise ValueError("The managed installation directory must be separate from the source checkout")
+    if dry_run:
+        return {"sourceType": "local", "source": str(bundle)}
     base.mkdir(parents=True, exist_ok=True)
-    bundle, stage = base / "bundle", base / "stage"
-    shutil.rmtree(stage, ignore_errors=True)
-    with _checkout(origin, timeout) as (root, _):
-        export_bundle("codex", stage, root, python or sys.executable)
-    shutil.rmtree(bundle, ignore_errors=True)
-    stage.rename(bundle)
-    (base / "origin.json").write_text(json.dumps(origin, ensure_ascii=False), encoding="utf-8")
+    if bundle.is_symlink():
+        raise ValueError("Managed bundle must not be a symlink: " + str(bundle))
+    with tempfile.TemporaryDirectory(prefix=".bookmark-stage-", dir=base) as temporary:
+        stage, previous = Path(temporary) / "bundle", Path(temporary) / "previous"
+        with _checkout(origin, timeout) as (root, _):
+            export_bundle("codex", stage, root, python)
+        _runtime_check(stage, timeout)
+        if bundle.exists():
+            bundle.rename(previous)
+        try:
+            stage.rename(bundle)
+            _write_json(base / "origin.json", origin)
+        except BaseException:
+            if bundle.exists():
+                shutil.rmtree(bundle)
+            if previous.exists():
+                previous.rename(bundle)
+            raise
     return _source(str(bundle))
 
 
-def _pinned_origin(requested):
-    base = _pinned_home()
-    if requested["sourceType"] != "local" or Path(requested["source"]) != base / "bundle":
-        return None
-    return json.loads((base / "origin.json").read_text(encoding="utf-8"))
+def _export_origin(requested):
+    if requested["sourceType"] == "local":
+        for base in (_pinned_home(), _local_home()):
+            if Path(requested["source"]) == base / "bundle":
+                return json.loads((base / "origin.json").read_text(encoding="utf-8"))
+    return None
 
 
 def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=None, language="auto"):
@@ -340,49 +364,73 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
     if action == "verify":
         return verify(cli, installed_path)
     current = _marketplace(cli)
+    registered = _configured_source(current) if current else None
+    origin = _export_origin(registered) if registered else None
     if action == "install":
         requested = _source(source if source is not None else SOURCE_ROOT, ref)
-        if _pin_interpreter() and not dry_run:
-            requested = _pinned_source({key: requested[key] for key in ("sourceType", "source", "ref") if key in requested}, cli.timeout)
+        requested = _export_origin(requested) or requested
         if current:
-            _check_source(current, requested)
+            _check_source({"marketplaceSource": origin or registered}, requested)
             if ref:
                 # Native list JSON omits the registered ref. Equal commit IDs
                 # cannot distinguish a moving branch from an immutable tag.
                 raise ValueError("An existing Git marketplace retains its registered ref. Reinstall without --ref, or explicitly change the source in Codex first")
+    else:
+        if not current or not _installed(cli):
+            raise ValueError("No existing bookmark-research installation; run install first")
+        requested = origin or registered
+    commands, migration = [], False
+    managed = requested["sourceType"] == "local" or origin is not None or _pin_interpreter()
+    if managed:
+        if requested["sourceType"] == "local":
+            requested = _source(requested["source"])
+        origin = {key: requested[key] for key in ("sourceType", "source", "ref") if key in requested}
+        base = (Path(registered["source"]).parent if registered and _export_origin(registered)
+                else _pinned_home() if _pin_interpreter() else _local_home())
+        migration = bool(registered and registered != {"sourceType": "local", "source": str(base / "bundle")})
+        if migration:
+            # Only migrate this plugin's single-entry local catalog, never other plugins or Git refs.
+            if registered["sourceType"] != "local":
+                raise ValueError("Resolve the existing Git marketplace in Codex before switching to a local export")
+            catalog = json.loads((Path(registered["source"]) / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
+            if len(catalog.get("plugins", [])) != 1 or catalog["plugins"][0].get("name") != NAME:
+                raise ValueError("Cannot migrate a marketplace containing other plugins; resolve its source in Codex first")
+            commands.append(["plugin", "marketplace", "remove", NAME])
+        requested = _export_source(origin, cli.timeout, sys.executable if _pin_interpreter() else "python3",
+                                   base=base, dry_run=dry_run)
+        if action == "install" or migration:
+            commands.append(["plugin", "marketplace", "add", requested["source"]])
+    elif action == "install":
         commands = [["plugin", "marketplace", "add", requested["source"]]]
         if ref:
             commands[0].extend(["--ref", ref])
     else:
-        if not current or not _installed(cli):
-            raise ValueError("No existing bookmark-research installation; run install first")
-        requested = _configured_source(current)
-        origin = _pinned_origin(requested)
-        if origin and not dry_run:
-            # Refresh from the original source, then reinstall the pinned copy.
-            requested = _pinned_source(origin, cli.timeout)
-            commands = []
-        elif requested["sourceType"] == "git":
-            commands = [["plugin", "marketplace", "upgrade", NAME]]
-        else:
-            # Validate the retained local source before touching the installed cache.
-            requested = _source(requested["source"])
-            commands = []
+        commands = [["plugin", "marketplace", "upgrade", NAME]]
     commands.append(["plugin", "add", SELECTOR])
     plan = {"action": action, "source": requested, "dry_run": dry_run, "language": language,
             "commands": [[cli.binary, *command, "--json"] for command in commands]}
+    if managed:
+        plan["origin"] = origin
     if dry_run:
         return plan
     added = None
     for command in commands:
-        result = cli.run(command)
+        try:
+            result = cli.run(command)
+        except (RuntimeError, subprocess.TimeoutExpired) as error:
+            if migration and command[:3] == ["plugin", "marketplace", "add"]:
+                try:
+                    cli.run(["plugin", "marketplace", "add", registered["source"]])
+                except (RuntimeError, subprocess.TimeoutExpired) as restore_error:
+                    raise RuntimeError(str(error) + "\nCould not restore the original marketplace: " + str(restore_error)) from error
+            raise
         if command[:3] == ["plugin", "marketplace", "add"]:
             if result.get("marketplaceName") != NAME:
                 raise RuntimeError("The selected source registered a different marketplace; bookmark-research was not installed")
         elif command[:3] == ["plugin", "marketplace", "upgrade"]:
             if result.get("errors"):
                 raise RuntimeError("Marketplace upgrade reported errors; the plugin was not reinstalled")
-        else:
+        elif command[:2] == ["plugin", "add"]:
             added = result
     if not added or not isinstance(added.get("installedPath"), str) or added.get("pluginId") != SELECTOR:
         raise RuntimeError("Codex did not confirm the expected installed plugin path")
@@ -398,6 +446,11 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
         for relative in CODEX_HOST_FILES:
             if read_asset(source_root, relative) != read_asset(cached_root, relative):
                 raise RuntimeError("Installed cache differs from the selected source: " + relative)
+        expected = {p.relative_to(source_root) for p in source_root.rglob("*") if p.is_file()}
+        actual = {p.relative_to(cached_root) for p in cached_root.rglob("*") if p.is_file()}
+        if actual != expected:
+            raise RuntimeError("Installed cache file list differs from the clean export: "
+                               + ", ".join(sorted(str(p) for p in actual ^ expected)))
     result = {**plan, **verified, "next_step": _message(language,
         "Start a new Codex thread to load the updated Skill and MCP tools.", "在 Codex 新建对话以加载更新后的 Skill 和 MCP 工具。")}
     if action == "install":

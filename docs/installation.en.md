@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 The terminal wizard detects available CLIs and lets you choose one or more hosts: arrow keys move, Space toggles, Enter confirms, and detected hosts are preselected. It then asks each host's scope/project/profile and shows a summary to confirm before installing. It works with piped installation by reading `/dev/tty`; without a capable terminal, or with `BOOKMARK_RESEARCH_PLAIN=1`, it uses plain numbered prompts. If no supported CLI is found, the bootstrap stops before downloading. `--interactive` requires a terminal; `--non-interactive` never prompts. Without a terminal or an explicit host, the legacy default is Codex. Agents should pass `--host`.
 
-The first installation follows `main` and uses the selected host's native registration commands. It does not use GitHub Release assets. Codex retains its own Git source/cache; other hosts receive complete persistent exports and installation receipts under `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/` (override with `--install-dir`). Temporary downloads can then be removed. Start a new host session to load the Skill and tools.
+The first installation follows `main` and uses the selected host's native registration commands. It does not use GitHub Release assets. Codex manages remote Git sources and its cache; local installation first exports an allowlisted plugin for Codex to install. Persistent host exports live under `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/` (override with `BOOKMARK_RESEARCH_INSTALL_DIR`; other hosts also accept `--install-dir`). Temporary downloads can then be removed. Start a new host session to load the Skill and tools.
 
 From a checkout, choose a host directly:
 
@@ -90,6 +90,10 @@ python3 scripts/install.py verify --host codex --lang en
 
 Commands also work from another directory using an absolute script path. Quote paths containing spaces. The installer locates its source from its own file location.
 
+Local checkouts, npm packages and extracted ZIPs are exported before Codex registration. Personal `.claude/`, `.codex/`, `.pi/`, `.agent/`, `.git/` and old build artifacts are excluded; plugin declarations and runtime content remain. The original source is recorded beside the persistent export, and `update` exports it again. Installation compares the native cache file list with the clean export. Keep both the original source and the persistent export for future updates.
+
+An older installation registered directly from a local source migrates through native `marketplace remove/add` and `plugin add` commands only when its catalog contains this plugin alone. The original source stays the same; user configuration is never edited by the installer. `--dry-run` previews the migration. Conflicting sources and catalogs containing other plugins are preserved for resolution in Codex.
+
 | Command | Behavior |
 | --- | --- |
 | `install` | Installs or reinstalls the script's local source. |
@@ -101,10 +105,11 @@ Commands also work from another directory using an absolute script path. Quote p
 
 The Python installer accepts the same host/setup flags. `verify --installed-path PATH` is Codex-only. Verification uses an isolated store, does not import bookmarks, and does not test provider authentication. Stdout stays JSON; prompts use the terminal and diagnostics use stderr. The setup stage persists only selected preferences; unreadable settings are reported and preserved.
 
-The native commands for this repository's explicit marketplace are:
+For manual native installation, first export to a new persistent directory. Native installation may copy the entire source directory, so pass the clean export:
 
 ```sh
-codex plugin marketplace add .
+python3 scripts/export_bundle.py --format codex --output /absolute/path/to/clean/bookmark-research
+codex plugin marketplace add /absolute/path/to/clean/bookmark-research
 codex plugin add bookmark-research@bookmark-research
 codex plugin list --json
 ```

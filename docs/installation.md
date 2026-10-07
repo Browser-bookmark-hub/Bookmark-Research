@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 终端向导检测可用 CLI，可多选 Codex、Claude Code、Pi、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选；随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。未找到任何受支持的 CLI 时，引导脚本在下载前停止。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
 
-首次安装跟随 `main`，通过所选宿主的原生命令登记与验证。Codex 保留自己的 Git 源码／缓存；其他宿主的完整导出和安装记录持久保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`，可用 `--install-dir` 改位置。随后清理临时下载目录，安装后新建宿主会话。
+首次安装跟随 `main`，通过所选宿主的原生命令登记与验证。Codex 的远程 Git 安装由宿主管理源码和缓存；本地安装先按白名单导出插件，再交给 Codex。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
 
 在 checkout 中也可直接选择目标：
 
@@ -119,6 +119,8 @@ python3 scripts/install.py verify
 
 安装器会调用 Codex 原生 `plugin marketplace add`、`plugin add` 和 JSON 查询接口；Codex 管理其配置和安装缓存。当前 `main` 的安装器在成功后显示当前配置、首次提问模板和配置查询命令；已有配置会照实显示，读取失败时明确提示修正。stdout 保持 JSON，面向用户的引导写到 stderr，管道执行时也会显示。v0.2.0 固定快照保留当时的安装输出。
 
+本地源码、npm 包和解压目录均先导出干净插件目录，排除个人 `.claude/`、`.codex/`、`.pi/`、`.agent/`、`.git/` 和旧产物；仅保留插件所需声明和内容。导出旁记录原来源，`update` 从原来源重新导出；安装后对比宿主缓存的文件清单。不要删除原源码和持久导出目录，后续更新仍会使用它们。
+
 安装完成后新建 Codex thread，以载入新 Skill 和 MCP 工具。Python 必须能以 `python3` 被 Codex 的 MCP 子进程找到。需要支持这些子命令和 `--json` 的 Codex CLI；本仓库验证环境为 0.153.4。
 
 安装入口从自身文件位置查找源码，因此也可以在其他工作目录运行。含空格或中文的路径使用引号：
@@ -139,7 +141,7 @@ python3 "/absolute/path/Bookmark Research/scripts/install.py" install
 
 每个动作可指定 `--codex /absolute/path/to/codex` 和 `--timeout 60`。输出为 JSON；验证或前置步骤失败时返回非零退出码。`verify --installed-path PATH` 可明确指定 `codex plugin add --json` 返回的 `installedPath`，用于 Codex 缓存布局发生变化的情况。
 
-安装器不会把已有同名 marketplace 自动切换到另一个 Git 仓库或本地目录。遇到来源冲突，先用 `codex plugin marketplace list --json` 和 `codex plugin list --json` 核对要保留的来源，再在 Codex 中处理来源选择。这样不会因更新本插件而连带移除 marketplace 中的其他插件。
+安装器不会把已有同名 marketplace 切换到另一个原始来源。旧版直接登记源码目录的安装，仅在市场中只有本插件时，通过 Codex 原生 `marketplace remove/add` 迁移到同一来源的干净导出，再执行 `plugin add`；不手写用户配置。`--dry-run` 可预览这些命令。含其他插件或来源冲突时保留现状，先用 `codex plugin marketplace list --json` 和 `codex plugin list --json` 核对来源，再在 Codex 中处理。
 
 `--ref` 用于首次注册 Git marketplace。已有 Git 来源再次安装时省略 `--ref`，保持其原注册版本；如要换 tag 或分支，先在 Codex 中处理来源变更。当前原生 JSON 不返回已注册 ref，安装器不会把“同一个仓库”推断成“同一个固定版本”。
 
@@ -147,10 +149,11 @@ python3 "/absolute/path/Bookmark Research/scripts/install.py" install
 
 ## 使用 Codex 原生命令
 
-如果不使用本仓库的安装入口，在本地 marketplace 根目录运行：
+如果不使用本仓库的安装入口，先导出到新的持久目录，再交给 Codex；原生命令可能复制整个源目录，不能直接把开发工作区当作干净发行物：
 
 ```sh
-codex plugin marketplace add .
+python3 scripts/export_bundle.py --format codex --output /absolute/path/to/clean/bookmark-research
+codex plugin marketplace add /absolute/path/to/clean/bookmark-research
 codex plugin add bookmark-research@bookmark-research
 codex plugin list --json
 ```
