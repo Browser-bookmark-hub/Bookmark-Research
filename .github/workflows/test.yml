@@ -43,6 +43,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       PYTHONUTF8: "1"
+      BOOKMARK_RESEARCH_TEST_PUBLISHED_NPM: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,9 +56,9 @@ jobs:
         run: npm install -g @openai/codex@0.160.1
       - run: codex --version
       - name: Native installation, migration and update
-        run: |
-          python -B -m unittest discover -s tests -p test_install.py -v
-          python -B -m unittest discover -s tests -p test_bootstrap.py -v
+        run: python -B -m unittest discover -s tests -p test_install.py -v
+      - name: Bootstrap installation
+        run: python -B -m unittest discover -s tests -p test_bootstrap.py -v
   packages:
     needs: [test, native-codex]
     runs-on: ubuntu-latest

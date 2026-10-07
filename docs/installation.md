@@ -149,9 +149,20 @@ python3 "/absolute/path/Bookmark Research/scripts/install.py" install
 
 ## 使用 Codex 原生命令
 
-旧版 Git marketplace 由 Codex 保留原登记和 ref。安装器先执行原生 `marketplace upgrade`，从宿主实际获取的 checkout 导出干净目录，再通过本次命令的 `-c` 参数将目录交给原生 `plugin add`；参数不会改写 Git 登记，也不需要猜测原生列表未返回的 ref。后续更新继续使用本安装器；手动从原始仓库执行原生安装，仍可能重新复制多余文件。Git checkout 和 GitHub 自动生成的源码压缩包可以含开发文件，过滤对象是插件安装缓存及发行包。
+旧版 Git marketplace 由 Codex 保留原登记和 ref。安装器先执行原生 `marketplace upgrade`，从宿主实际获取的 checkout 导出干净目录，再通过本次命令的 `-c` 参数将目录交给原生 `plugin add`；参数不会改写 Git 登记，也不需要猜测原生列表未返回的 ref。这条回退路径适用于仍指向仓库根目录的历史 catalog。当前发行 catalog 指向 npm 包，原生更新保留该发布来源。Git checkout 和 GitHub 自动生成的源码压缩包可以含开发文件，它们不是插件缓存。
 
-如果不使用本仓库的安装入口，先导出到新的持久目录，再交给 Codex；原生命令可能复制整个源目录，不能直接把开发工作区当作干净发行物：
+当前仓库的 marketplace 固定指向已发布的 `bookmark-research@0.5.0-beta.3` npm 包。Codex 下载该包，不执行生命周期脚本，再自行登记和缓存。直接添加 GitHub 仓库会安装发布版及其已发布 Skill，不会安装 `main` 尚未发布的源码改动：
+
+```sh
+codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref main
+codex plugin add bookmark-research@bookmark-research
+```
+
+后续先执行 `codex plugin marketplace upgrade bookmark-research`，再执行 `codex plugin add bookmark-research@bookmark-research`。只有发布新 npm 版本并更新 catalog 后，包版本才变化；固定 Git catalog 会保留其中选定的 npm 版本。`bookmark-research update codex` 也会保留原生发布来源。宿主 PATH 需有 npm 和可用的 `python3`（含 SQLite FTS5）；Windows 没有可用 `python3` 时，使用上方安装器固定检测到的解释器。
+
+要安装当前 checkout，使用 `python3 scripts/install.py install --source /absolute/path/to/checkout`；要安装指定 Git 源码，使用 `install --source owner/repo --ref BRANCH_OR_TAG`。两者都会对所选源码做干净导出。已登记同名 marketplace 时，继续使用原来源，或先在 Codex 中明确选择要使用的来源。
+
+如果希望通过原生命令手动安装当前源码，先导出到新的持久目录，再交给 Codex。导出目录的 marketplace 指向自身的干净根目录，不会改为下载 npm 发布版：
 
 ```sh
 python3 scripts/export_bundle.py --format codex --output /absolute/path/to/clean/bookmark-research
@@ -160,7 +171,7 @@ codex plugin add bookmark-research@bookmark-research
 codex plugin list --json
 ```
 
-固定安装 v0.2.0 时，使用 `codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref v0.2.0`，再执行 `codex plugin add bookmark-research@bookmark-research`。`--ref main` 跟随开发分支，其他固定版本使用实际已存在的标签或 commit。已有同名来源先按上文核对其注册状态。
+历史 tag 的 catalog 保留历史行为，可能仍指向整个源码目录；需要该版本源码且保持安装干净时，使用本安装器的 `install --source owner/repo --ref TAG`，或先导出再原生安装。
 
 原生命令依据 [OpenAI plugin packaging documentation](https://developers.openai.com/plugins/build/plugins) 和 [Codex CLI reference](https://developers.openai.com/codex/cli/reference#codex-plugin)。默认个人 marketplace `~/.agents/plugins/marketplace.json` 是 Codex 的隐式发现机制；上面的 `marketplace add` 用于本仓库自己的显式 marketplace，二者不要混淆。
 

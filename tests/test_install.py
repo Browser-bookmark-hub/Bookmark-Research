@@ -393,6 +393,68 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(self.bundle.exists())
         self.assertFalse(result.get("verified"))
 
+    def test_source_checkout_accepts_its_published_catalog_without_switching_to_npm(self):
+        path = self.source / ".agents/plugins/marketplace.json"
+        catalog = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
+        self.assertEqual(catalog["plugins"][0]["source"], {
+            "source": "npm", "package": install.NAME, "version": self.version,
+            "registry": "https://registry.npmjs.org"})
+        path.write_text(json.dumps(catalog))
+        requested = install._source(self.source)
+        self.assertEqual(requested["sourceType"], "local")
+        for field, value in (("package", "unrelated-package"), ("version", "0.0.0"),
+                             ("registry", "https://example.invalid")):
+            modified = json.loads(json.dumps(catalog))
+            modified["plugins"][0]["source"][field] = value
+            path.write_text(json.dumps(modified))
+            with self.assertRaisesRegex(ValueError, "matching published"):
+                install._source(self.source)
+
+    def test_native_release_update_keeps_the_catalog_package_instead_of_exporting_source(self):
+        catalog = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
+        (self.source / ".agents/plugins/marketplace.json").write_text(json.dumps(catalog))
+        for marketplace in (self.local_marketplace, self.git_marketplace):
+            commands = []
+            if marketplace is self.git_marketplace:
+                commands.append((["plugin", "marketplace", "upgrade", install.NAME], {}))
+            cli = ScriptedCli([
+                (["plugin", "marketplace", "list"], {"marketplaces": [marketplace]}),
+                (["plugin", "list"], {"installed": [self.registration]}),
+                *commands,
+                (["plugin", "add", install.SELECTOR], {"pluginId": install.SELECTOR, "installedPath": str(self.source)}),
+                (["plugin", "list"], {"installed": [self.registration]}),
+            ])
+            with self.subTest(source=marketplace["marketplaceSource"]), \
+                    mock.patch.object(install, "_export_source", side_effect=AssertionError("must use native npm source")):
+                result = install.manage("update", cli)
+            self.assertTrue(result["verified"])
+            self.assertEqual(cli.steps, [])
+            self.assertFalse(self.bundle.exists())
+
+    def test_git_upgrade_can_replace_a_legacy_root_catalog_with_a_release_catalog(self):
+        catalog = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
+        path = self.source / ".agents/plugins/marketplace.json"
+
+        class UpgradingCli(ScriptedCli):
+            def run(self, arguments):
+                result = super().run(arguments)
+                if arguments[:3] == ["plugin", "marketplace", "upgrade"]:
+                    path.write_text(json.dumps(catalog))
+                return result
+
+        cli = UpgradingCli([
+            (["plugin", "marketplace", "list"], {"marketplaces": [self.git_marketplace]}),
+            (["plugin", "list"], {"installed": [self.registration]}),
+            (["plugin", "marketplace", "upgrade", install.NAME], {}),
+            (["plugin", "add", install.SELECTOR], {"pluginId": install.SELECTOR, "installedPath": str(self.source)}),
+            (["plugin", "list"], {"installed": [self.registration]}),
+        ])
+        with mock.patch.object(install, "_export_source", side_effect=AssertionError("release needs no source export")):
+            result = install.manage("update", cli)
+        self.assertEqual(result["commands"][-1], [cli.binary, "plugin", "add", install.SELECTOR, "--json"])
+        self.assertTrue(result["verified"])
+        self.assertEqual(cli.steps, [])
+
     def test_verify_refuses_disabled_or_mismatched_installs(self):
         cli = ScriptedCli([(["plugin", "list"], {"installed": [{**self.registration, "enabled": False}]})])
         with self.assertRaisesRegex(ValueError, "not installed and enabled"):
@@ -616,6 +678,54 @@ class NativeCodexInstallerTests(unittest.TestCase):
             for relative in self.private_files:
                 self.assertFalse((Path(updated["installed_path"]) / relative).exists(), relative)
             self.assertTrue(self.run_installer("update")["verified"])
+
+    @unittest.skipUnless(os.environ.get("BOOKMARK_RESEARCH_TEST_PUBLISHED_NPM") == "1"
+                         and shutil.which("npm") and shutil.which("git"),
+                         "Published npm source test is opt-in and requires npm and Git")
+    def test_native_git_catalog_installs_published_package_and_stays_clean_on_update(self):
+        self.prepare_git()
+        self.git("add", "-f", ".claude/settings.local.json")
+        self.git("commit", "--quiet", "--allow-empty", "-m", "Track synthetic development file")
+        self.environment["npm_config_cache"] = str(self.base / "npm-cache")
+
+        def native(*args):
+            completed = subprocess.run([shutil.which("codex"), "plugin", *args, "--json"],
+                                       env=self.environment, text=True, capture_output=True, timeout=90)
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            return json.loads(completed.stdout)
+
+        native("marketplace", "add", self.repository, "--ref", "main")
+        old = native("add", install.SELECTOR)
+        self.assertTrue(Path(old["installedPath"], ".claude/settings.local.json").exists())
+        # Move the Git catalog to the production npm source. The development
+        # file remains tracked, so a root-directory copy would fail this test.
+        catalog = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
+        (self.source / ".agents/plugins/marketplace.json").write_text(json.dumps(catalog))
+        self.git("add", ".agents/plugins/marketplace.json")
+        self.git("commit", "--quiet", "-m", "Select published package")
+        native("marketplace", "upgrade", install.NAME)
+        expected_version = catalog["plugins"][0]["source"]["version"]
+        for fresh_profile in (False, True):
+            if fresh_profile:
+                profile = self.base / "fresh native release profile"
+                profile.mkdir()
+                self.environment["CODEX_HOME"] = str(profile)
+                native("marketplace", "add", self.repository, "--ref", "main")
+            for _ in range(2):
+                installed = native("add", install.SELECTOR)
+                self.assertEqual(installed["version"], expected_version)
+                cache = Path(installed["installedPath"])
+                files = {p.relative_to(cache).as_posix() for p in cache.rglob("*") if p.is_file()}
+                hidden = {p for p in files if any(part.startswith(".") for part in Path(p).parts)}
+                self.assertEqual(hidden, {".agents/plugins/marketplace.json", ".codex-plugin/plugin.json"})
+                self.assertFalse(any(set(Path(p).parts) & {"tests", "exports", "dist", "node_modules"} for p in files))
+                native("marketplace", "upgrade", install.NAME)
+        # The published package's Python runtime works independently of the
+        # catalog checkout. Interpreter pinning is tested by the installer suite.
+        doctor = subprocess.run([sys.executable, "-B", str(cache / "src/cli.py"), "doctor"],
+                                env=self.environment, text=True, capture_output=True, check=True, timeout=30)
+        self.assertTrue(json.loads(doctor.stdout)["fts5"])
+        self.assertFalse(self.data.exists())
 
     def test_repeated_install_update_verify_and_conflict_protect_user_data(self):
         probe = self.source / "src/install_probe.py"

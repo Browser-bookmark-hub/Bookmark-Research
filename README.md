@@ -39,6 +39,8 @@ For a permanent `bookmark-research` command: `npm install -g bookmark-research`.
 | Pi | `npx bookmark-research install pi --non-interactive` | `pi install` |
 | DSH | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
 
+**Native Codex release installation:** the GitHub marketplace selects a pinned npm release, so native installs do not copy the repository checkout. See [native installation](docs/installation.en.md#native-codex-installation-of-the-published-release). Use the source installer for unpublished checkout changes.
+
 **Windows:** the installer writes the detected Python path into each client's MCP config, because Windows often has no working `python3`. Install Codex with `bookmark-research install codex` rather than adding the repository to Codex directly. `bookmark-research status` shows the interpreter in use.
 
 Several at once: `npx bookmark-research install claude dsh --profile web --non-interactive`. Project scope: `--scope project --project /path/to/project` (Claude Code, Pi). All options: [installation guide](docs/installation.en.md).

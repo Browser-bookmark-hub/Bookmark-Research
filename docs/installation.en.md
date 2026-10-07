@@ -94,7 +94,7 @@ Local checkouts, npm packages, extracted ZIPs and new Git sources are exported b
 
 An older installation registered directly from a local source migrates through native `marketplace remove/add` and `plugin add` commands only when its catalog contains this plugin alone. The original source stays the same; user configuration is never edited by the installer. `--dry-run` previews the migration. Conflicting sources and catalogs containing other plugins are preserved for resolution in Codex.
 
-For an older Git marketplace, Codex retains its registration and ref. The installer runs native `marketplace upgrade`, exports that fetched checkout, and passes the clean path through per-command `-c` overrides to native `plugin add`. Those overrides do not rewrite the Git registration. This also preserves pins whose ref is absent from native listing JSON. Use this installer for subsequent updates; a manual native add from the raw repository can copy its extra files again. A Git checkout or GitHub source archive can contain development files; the installed plugin cache and release bundles are the filtered artifacts.
+For an older Git marketplace, Codex retains its registration and ref. The installer runs native `marketplace upgrade`, exports that fetched checkout, and passes the clean path through per-command `-c` overrides to native `plugin add`. Those overrides do not rewrite the Git registration. This also preserves pins whose ref is absent from native listing JSON. This fallback applies to historical catalogs that point at their repository root. The current release catalog selects an npm package; native updates retain that package source. A Git checkout or GitHub source archive can contain development files; it is not the plugin cache.
 
 | Command | Behavior |
 | --- | --- |
@@ -107,7 +107,20 @@ For an older Git marketplace, Codex retains its registration and ref. The instal
 
 The Python installer accepts the same host/setup flags. `verify --installed-path PATH` is Codex-only. Verification uses an isolated store, does not import bookmarks, and does not test provider authentication. Stdout stays JSON; prompts use the terminal and diagnostics use stderr. The setup stage persists only selected preferences; unreadable settings are reported and preserved.
 
-For manual native installation, first export to a new persistent directory. Native installation may copy the entire source directory, so pass the clean export:
+### Native Codex installation of the published release
+
+The repository marketplace points to the explicitly pinned `bookmark-research@0.5.0-beta.3` npm package. Codex downloads that package without lifecycle scripts, then owns registration and caching. Adding the repository installs the published release, including its released Skill; it does not install unpublished source changes from `main`.
+
+```sh
+codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref main
+codex plugin add bookmark-research@bookmark-research
+```
+
+For subsequent native updates, run `codex plugin marketplace upgrade bookmark-research`, then `codex plugin add bookmark-research@bookmark-research`. The pinned package changes only when the catalog is updated after that version is published; a frozen Git catalog retains its selected npm version. `bookmark-research update codex` also preserves a native release source. npm and a working `python3` with SQLite FTS5 must be on the host's PATH. On Windows without a working `python3`, use the installer described above to pin the detected interpreter.
+
+To install the current checkout, use `python3 scripts/install.py install --source /absolute/path/to/checkout`. To install current source from Git, use `install --source owner/repo --ref BRANCH_OR_TAG`. Both prepare clean exports of the selected source. If this marketplace is already registered, keep its existing source or explicitly choose the intended source in Codex first.
+
+To install current source manually with native commands, first export to a new persistent directory. Exported bundles have a local marketplace pointing at their own clean root, so this path does not fetch the published npm release:
 
 ```sh
 python3 scripts/export_bundle.py --format codex --output /absolute/path/to/clean/bookmark-research

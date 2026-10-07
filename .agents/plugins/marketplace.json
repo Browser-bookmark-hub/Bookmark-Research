@@ -7,8 +7,10 @@
     {
       "name": "bookmark-research",
       "source": {
-        "source": "local",
-        "path": "./"
+        "source": "npm",
+        "package": "bookmark-research",
+        "version": "0.5.0-beta.3",
+        "registry": "https://registry.npmjs.org"
       },
       "policy": {
         "installation": "AVAILABLE",

@@ -119,8 +119,13 @@ def _source(value, ref=None):
         if not isinstance(marketplace, dict) or marketplace.get("name") != NAME:
             raise ValueError("The local marketplace must be named bookmark-research")
         plugin = next((entry for entry in marketplace.get("plugins", []) if entry.get("name") == NAME), None)
-        if not plugin or plugin.get("source") != {"source": "local", "path": "./"}:
-            raise ValueError("The local marketplace must point bookmark-research at its root (./)")
+        # Repository catalogs distribute the published npm package. The source
+        # installer deliberately exports this checkout; exported bundles keep
+        # a local catalog so native installation of that bundle stays offline.
+        published = {"source": "npm", "package": NAME, "version": manifest["version"],
+                     "registry": "https://registry.npmjs.org"}
+        if not plugin or plugin.get("source") not in ({"source": "local", "path": "./"}, published):
+            raise ValueError("The marketplace must select its local root or the matching published bookmark-research package")
         return {"sourceType": "local", "source": str(root), "version": manifest["version"]}
     if ref and (ref.startswith("-") or not re.fullmatch(r"[A-Za-z0-9_./-]+", ref)):
         raise ValueError("--ref must be a Git branch, tag, or commit identifier")
@@ -359,6 +364,16 @@ def _export_origin(requested):
     return None
 
 
+def _published_source(root):
+    """Recognize this repository's release catalog without reading host settings."""
+    catalog = json.loads((Path(root) / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
+    plugin = next((row for row in catalog.get("plugins", []) if row.get("name") == NAME), {})
+    source = plugin.get("source", {})
+    if isinstance(source, dict) and source.get("source") == "npm":
+        return source
+    return None
+
+
 def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=None, language="auto"):
     language = resolve_language(language)
     if action == "verify":
@@ -383,7 +398,16 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
         requested = origin or registered
     commands, migration = [], False
     legacy_git = registered is not None and registered["sourceType"] == "git"
-    if legacy_git:
+    native_release = current and not origin and action == "update" and _published_source(current["root"])
+    if native_release:
+        # Preserve native npm installations as releases; update must not replace
+        # a published package with unpublished code from the catalog repository.
+        origin = registered
+        base = _local_home()
+        if legacy_git:
+            commands.append(["plugin", "marketplace", "upgrade", NAME])
+        commands.append(["plugin", "add", SELECTOR])
+    elif legacy_git:
         # Codex list omits the registered ref. Let the host keep and fetch it;
         # override only this plugin-add invocation with our filtered export.
         origin = registered
@@ -433,9 +457,21 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
         elif command[:3] == ["plugin", "marketplace", "upgrade"]:
             if result.get("errors"):
                 raise RuntimeError("Marketplace upgrade reported errors; the plugin was not reinstalled")
-            # Export the exact checkout fetched by Codex, including a pinned tag.
-            requested = _export_source({"sourceType": "local", "source": current["root"]},
-                                       cli.timeout, sys.executable if _pin_interpreter() else "python3", base)
+            if _published_source(current["root"]):
+                # A legacy root catalog can become a release catalog on upgrade.
+                # Its npm entry already selects the filtered distribution.
+                requested = registered
+                commands[-1] = ["plugin", "add", SELECTOR]
+            else:
+                # Older pinned catalogs still need a filtered copy of their root.
+                native_release = None
+                requested = _export_source({"sourceType": "local", "source": current["root"]},
+                                           cli.timeout, sys.executable if _pin_interpreter() else "python3", base)
+                commands[-1] = ["plugin", "add", SELECTOR,
+                                "-c", "marketplaces.bookmark-research.source_type=\"local\"",
+                                "-c", "marketplaces.bookmark-research.source=" + json.dumps(requested["source"])]
+            plan["source"] = requested
+            plan["commands"] = [[cli.binary, *args, "--json"] for args in commands]
         elif command[:2] == ["plugin", "add"]:
             added = result
     if not added or not isinstance(added.get("installedPath"), str) or added.get("pluginId") != SELECTOR:
@@ -443,7 +479,7 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
     verified = verify(cli, added["installedPath"])
     if requested.get("version") and verified["version"] != requested["version"]:
         raise RuntimeError("Installed plugin version differs from the selected local source")
-    if requested["sourceType"] == "local":
+    if requested["sourceType"] == "local" and not native_release:
         source_root = Path(requested["source"])
         cached_root = Path(verified["installed_path"])
         for relative in [Path(".codex-plugin/plugin.json"), *_copy_plan(source_root, include_codex_metadata=True)]:

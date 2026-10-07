@@ -39,6 +39,8 @@ npx bookmark-research install
 | Pi | `npx bookmark-research install pi --non-interactive` | `pi install` |
 | DSH | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
 
+**Codex 原生发布版安装：** GitHub marketplace 选择固定的 npm 发布版，原生安装不会复制整个仓库。见[原生安装](docs/installation.md#使用-codex-原生命令)。未发布的 checkout 改动使用源码安装器。
+
 **Windows：** Windows 上常常没有能用的 `python3`，所以安装器会把检测到的 Python 路径写进各宿主的 MCP 配置。Codex 请用 `bookmark-research install codex` 安装，不要直接把仓库加进 Codex。`bookmark-research status` 可以查看实际使用的 Python。
 
 一次装多个：`npx bookmark-research install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code、Pi）。全部参数见[安装说明](docs/installation.md)。
