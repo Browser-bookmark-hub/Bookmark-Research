@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 The terminal wizard detects available CLIs and lets you choose one or more hosts: arrow keys move, Space toggles, Enter confirms, and detected hosts are preselected. It then asks each host's scope/project/profile and shows a summary to confirm before installing. It works with piped installation by reading `/dev/tty`; without a capable terminal, or with `BOOKMARK_RESEARCH_PLAIN=1`, it uses plain numbered prompts. If no supported CLI is found, the bootstrap stops before downloading. `--interactive` requires a terminal; `--non-interactive` never prompts. Without a terminal or an explicit host, the legacy default is Codex. Agents should pass `--host`.
 
-The first installation follows `main` and uses the selected host's native registration commands. It does not use GitHub Release assets. Codex manages remote Git sources and its cache; local installation first exports an allowlisted plugin for Codex to install. Persistent host exports live under `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/` (override with `BOOKMARK_RESEARCH_INSTALL_DIR`; other hosts also accept `--install-dir`). Temporary downloads can then be removed. Start a new host session to load the Skill and tools.
+The first installation follows `main` and uses the selected host's native registration commands. It does not use GitHub Release assets. Codex installs an allowlisted export through its native registration and cache; Git origins retain their repository and selected ref for updates. Persistent host exports live under `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/` (override with `BOOKMARK_RESEARCH_INSTALL_DIR`; other hosts also accept `--install-dir`). Temporary downloads can then be removed. Start a new host session to load the Skill and tools.
 
 From a checkout, choose a host directly:
 
@@ -90,15 +90,17 @@ python3 scripts/install.py verify --host codex --lang en
 
 Commands also work from another directory using an absolute script path. Quote paths containing spaces. The installer locates its source from its own file location.
 
-Local checkouts, npm packages and extracted ZIPs are exported before Codex registration. Personal `.claude/`, `.codex/`, `.pi/`, `.agent/`, `.git/` and old build artifacts are excluded; plugin declarations and runtime content remain. The original source is recorded beside the persistent export, and `update` exports it again. Installation compares the native cache file list with the clean export. Keep both the original source and the persistent export for future updates.
+Local checkouts, npm packages, extracted ZIPs and new Git sources are exported before Codex registration. Personal `.claude/`, `.codex/`, `.pi/`, `.agent/`, `.git/` and old build artifacts are excluded; plugin declarations and runtime content remain. The original source is recorded beside the persistent export, and `update` exports it again. Installation compares the native cache file list with the clean export. Keep local sources and the persistent export for future updates. Git origins record the repository and selected ref: branches advance on update; tags and commits remain selected. Reinstalling without `--ref` retains the saved ref; an explicit different ref is rejected.
 
 An older installation registered directly from a local source migrates through native `marketplace remove/add` and `plugin add` commands only when its catalog contains this plugin alone. The original source stays the same; user configuration is never edited by the installer. `--dry-run` previews the migration. Conflicting sources and catalogs containing other plugins are preserved for resolution in Codex.
+
+For an older Git marketplace, Codex retains its registration and ref. The installer runs native `marketplace upgrade`, exports that fetched checkout, and passes the clean path through per-command `-c` overrides to native `plugin add`. Those overrides do not rewrite the Git registration. This also preserves pins whose ref is absent from native listing JSON. Use this installer for subsequent updates; a manual native add from the raw repository can copy its extra files again. A Git checkout or GitHub source archive can contain development files; the installed plugin cache and release bundles are the filtered artifacts.
 
 | Command | Behavior |
 | --- | --- |
 | `install` | Installs or reinstalls the script's local source. |
 | `install --source PATH` | Selects another valid local marketplace root. |
-| `install --source owner/repo --ref TAG` | Registers the chosen Git ref on the first installation. |
+| `install --source owner/repo --ref TAG` | Exports the chosen Git ref and registers the clean bundle. |
 | `install --dry-run` | Prints the planned commands after checking registration. |
 | `update` | Refreshes the registered Git source/ref, or reinstalls current local files. |
 | `verify` | Checks enabled registration, cache version, FTS5 and MCP initialization/tool discovery. |

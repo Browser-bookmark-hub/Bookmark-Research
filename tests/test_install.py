@@ -379,14 +379,18 @@ class InstallerTests(unittest.TestCase):
         result = install.manage("update", cli, dry_run=True)
         self.assertEqual(result["commands"], [
             [cli.binary, "plugin", "marketplace", "upgrade", install.NAME, "--json"],
-            [cli.binary, "plugin", "add", install.SELECTOR, "--json"]])
-        self.assertEqual(result["source"], self.git_marketplace["marketplaceSource"])
+            [cli.binary, "plugin", "add", install.SELECTOR,
+             "-c", 'marketplaces.bookmark-research.source_type="local"',
+             "-c", "marketplaces.bookmark-research.source=" + json.dumps(str(self.bundle)), "--json"]])
+        self.assertEqual(result["origin"], self.git_marketplace["marketplaceSource"])
 
-    def test_first_git_install_passes_an_explicit_ref_to_codex(self):
+    def test_first_git_install_records_ref_and_registers_clean_export(self):
         cli = ScriptedCli([(["plugin", "marketplace", "list"], {"marketplaces": []})])
         result = install.manage("install", cli, source="Browser-bookmark-hub/Bookmark-Research", ref="v0.2.0", dry_run=True)
         self.assertEqual(result["commands"][0], [cli.binary, "plugin", "marketplace", "add",
-            "https://github.com/Browser-bookmark-hub/Bookmark-Research.git", "--ref", "v0.2.0", "--json"])
+            str(self.bundle), "--json"])
+        self.assertEqual(result["origin"]["ref"], "v0.2.0")
+        self.assertFalse(self.bundle.exists())
         self.assertFalse(result.get("verified"))
 
     def test_verify_refuses_disabled_or_mismatched_installs(self):
@@ -447,7 +451,7 @@ class PinnedInterpreterTests(unittest.TestCase):
 
     def test_install_registers_a_pinned_copy_and_update_refreshes_it(self):
         home = self.base / "managed"
-        bundle = home / "codex-pinned" / "bundle"
+        bundle = install._local_home() / "bundle"
         with mock.patch.dict(os.environ, {"BOOKMARK_RESEARCH_INSTALL_DIR": str(home)}), \
                 mock.patch.object(install, "_pin_interpreter", return_value=True):
             cli = ScriptedCli([
@@ -463,7 +467,7 @@ class PinnedInterpreterTests(unittest.TestCase):
             self.assertEqual(server["command"], sys.executable)
             self.assertLessEqual({"SystemRoot", "windir"}, set(server["env_vars"]))
             self.assertEqual(export_bundle.read_plugin_manifest(self.source)["mcpServers"][install.NAME]["command"], "python3")
-            self.assertEqual(json.loads((home / "codex-pinned/origin.json").read_text(encoding="utf-8")),
+            self.assertEqual(json.loads((bundle.parent / "origin.json").read_text(encoding="utf-8")),
                              {"sourceType": "local", "source": str(self.source)})
             (self.source / "src/pinned_marker.py").write_text("marker = 1\n", encoding="utf-8")
             marketplace = {"name": install.NAME, "root": str(bundle),
@@ -525,6 +529,93 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.assertNotIn("environment-secret-marker", result.stdout + result.stderr)
         self.last_stderr = result.stderr
         return json.loads(result.stdout if success else result.stderr)
+
+    def prepare_git(self):
+        self.repository = "https://example.invalid/bookmark-research.git"
+        self.environment.update(GIT_CONFIG_GLOBAL=str(self.base / "gitconfig"),
+                                GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0")
+        self.environment.pop("GIT_CONFIG_COUNT", None)
+        for args in (("init", "--quiet", "--initial-branch=main"),
+                     ("config", "user.name", "Installer Test"),
+                     ("config", "user.email", "installer@example.invalid")):
+            self.git(*args)
+        (self.source / "src/git_probe.py").write_text("value = 'before'\n")
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Initial source")
+        self.git("tag", "fixed")
+        self.git("config", "--file", self.environment["GIT_CONFIG_GLOBAL"],
+                 "url." + self.source.as_uri() + ".insteadOf", self.repository)
+        return self.git("rev-parse", "HEAD")
+
+    def git(self, *args):
+        return subprocess.run([shutil.which("git"), "-C", str(self.source), *args],
+                              env=self.environment, text=True, capture_output=True,
+                              check=True, timeout=20).stdout.strip()
+
+    @unittest.skipUnless(shutil.which("git"), "Git unavailable")
+    def test_git_exports_preserve_branch_tag_commit_and_repeated_install(self):
+        commit = self.prepare_git()
+        installs = []
+        for i, ref in enumerate((None, "main", "fixed", commit)):
+            profile = self.base / ("git-profile-" + str(i))
+            profile.mkdir()
+            self.environment["CODEX_HOME"] = str(profile)
+            args = ["--ref", ref] if ref else []
+            first = self.run_installer("install", "--source", self.repository, *args)
+            self.assertEqual(first["source"]["sourceType"], "local")
+            self.assertEqual(first["origin"]["ref"], ref)
+            for relative in self.private_files:
+                self.assertFalse((Path(first["installed_path"]) / relative).exists(), relative)
+            repeated = self.run_installer("install", "--source", self.repository, *args)
+            self.assertEqual(first["installed_path"], repeated["installed_path"])
+            retained = self.run_installer("install", "--source", self.repository)
+            self.assertEqual(retained["origin"]["ref"], ref)
+            conflict = self.run_installer("install", "--source", self.repository,
+                                          "--ref", "other-branch", success=False)
+            self.assertIn("retains its registered ref", conflict["error"])
+            installs.append((profile, ref, first))
+        (self.source / "src/git_probe.py").write_text("value = 'after'\n")
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Advance branch")
+        for profile, ref, first in installs:
+            self.environment["CODEX_HOME"] = str(profile)
+            updated = self.run_installer("update")
+            expected = "after" if ref in (None, "main") else "before"
+            self.assertEqual(Path(updated["installed_path"], "src/git_probe.py").read_text(),
+                             "value = '" + expected + "'\n")
+        # A failed fetch must leave the last working bundle and cache usable.
+        moved = self.source.with_name("offline-source")
+        self.source.rename(moved)
+        try:
+            self.assertIn("Could not prepare", self.run_installer("update", success=False)["error"])
+            self.assertTrue(self.run_installer("verify")["verified"])
+            self.assertEqual(Path(first["source"]["source"], "src/git_probe.py").read_text(), "value = 'before'\n")
+        finally:
+            moved.rename(self.source)
+
+    @unittest.skipUnless(shutil.which("git"), "Git unavailable")
+    def test_legacy_git_ref_stays_host_owned_while_cache_is_cleaned(self):
+        self.prepare_git()
+        for ref in ("main", "fixed"):
+            profile = self.base / ("legacy-" + ref)
+            profile.mkdir()
+            self.environment["CODEX_HOME"] = str(profile)
+            for args in (("marketplace", "add", self.repository, "--ref", ref),
+                         ("add", install.SELECTOR)):
+                subprocess.run([shutil.which("codex"), "plugin", *args, "--json"],
+                               env=self.environment, capture_output=True, check=True, timeout=30)
+            configuration = (profile / "config.toml").read_bytes()
+            (self.source / "src/git_probe.py").write_text("value = '" + ref + "'\n")
+            self.git("add", ".")
+            self.git("commit", "--quiet", "-m", "Advance " + ref)
+            updated = self.run_installer("update")
+            self.assertEqual((profile / "config.toml").read_bytes(), configuration)
+            expected = "main" if ref == "main" else "before"
+            self.assertEqual(Path(updated["installed_path"], "src/git_probe.py").read_text(),
+                             "value = '" + expected + "'\n")
+            for relative in self.private_files:
+                self.assertFalse((Path(updated["installed_path"]) / relative).exists(), relative)
+            self.assertTrue(self.run_installer("update")["verified"])
 
     def test_repeated_install_update_verify_and_conflict_protect_user_data(self):
         probe = self.source / "src/install_probe.py"

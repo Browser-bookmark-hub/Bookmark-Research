@@ -67,6 +67,7 @@ else:
         self.environment = dict(os.environ, GIT_CONFIG_GLOBAL=str(self.base / "gitconfig"),
                                 GIT_CONFIG_NOSYSTEM="1", GIT_TERMINAL_PROMPT="0",
                                 CODEX_HOME=str(self.profile), TMPDIR=str(self.downloads),
+                                BOOKMARK_RESEARCH_INSTALL_DIR=str(self.base / "managed"),
                                 BOOKMARK_RESEARCH_DATA_DIR=str(self.data),
                                 BOOKMARK_RESEARCH_CONFIG=str(self.settings),
                                 BOOTSTRAP_TEST_CALLS=str(self.calls), PYTHONDONTWRITEBYTECODE="1", LC_ALL="C")
@@ -100,8 +101,8 @@ else:
     def test_piped_dry_run_uses_remote_source_and_preserves_argument_boundaries(self):
         result = json.loads(self.run_bootstrap("--dry-run").stdout)
         self.assertTrue(result["dry_run"])
-        self.assertEqual(result["source"], {"sourceType": "git", "source": REPOSITORY, "ref": None})
-        self.assertEqual(result["commands"][0], [str(self.cli), "plugin", "marketplace", "add", REPOSITORY, "--json"])
+        self.assertEqual(result["origin"], {"sourceType": "git", "source": REPOSITORY, "ref": None})
+        self.assertEqual(result["commands"][0], [str(self.cli), "plugin", "marketplace", "add", result["source"]["source"], "--json"])
         self.assertFalse((self.profile / "config.toml").exists())
         self.assertEqual(len(self.calls.read_text().splitlines()), 2)
 
@@ -138,8 +139,8 @@ print(json.dumps({"historical_installer": True, "ref": args.ref}))
         for ref in ("v0.2.0", self.git("rev-parse", "HEAD")):
             with self.subTest(ref=ref):
                 plan = json.loads(self.run_bootstrap("install", "--ref", ref, "--dry-run").stdout)
-                self.assertEqual(plan["source"]["ref"], ref)
-                self.assertEqual(plan["commands"][0][-3:], ["--ref", ref, "--json"])
+                self.assertEqual(plan["origin"]["ref"], ref)
+                self.assertEqual(plan["source"]["sourceType"], "local")
 
     def test_fetch_failure_stops_before_native_mutations_and_cleans_up(self):
         failed = self.run_bootstrap("--ref", "missing-tag", success=False)
@@ -235,7 +236,7 @@ print(json.dumps({"historical_installer": True, "ref": args.ref}))
         installed = self.run_bootstrap("--skip-checks")
         first = json.loads(installed.stdout)
         self.assertTrue(first["verified"])
-        self.assertEqual(first["source"]["sourceType"], "git")
+        self.assertEqual(first["origin"]["sourceType"], "git")
         self.assertIn(first["getting_started"]["first_prompt"], installed.stderr)
         self.assertFalse(first["getting_started"]["configuration"]["settings"]["archive"]["enabled"])
         checked = subprocess.run(first["getting_started"]["settings_command"], cwd=self.outside,
@@ -245,7 +246,7 @@ print(json.dumps({"historical_installer": True, "ref": args.ref}))
         self.assertEqual(first["installed_path"], repeated["installed_path"])
         self.assertTrue(json.loads(self.run_bootstrap("verify").stdout)["verified"])
         configuration = (self.profile / "config.toml").read_text()
-        self.assertIn(REPOSITORY, configuration)
+        self.assertIn(first["source"]["source"], configuration)
         self.assertNotIn(str(self.downloads), configuration)
 
         pinned_profile = self.base / "pinned profile"

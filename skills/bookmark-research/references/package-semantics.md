@@ -27,7 +27,23 @@ One source represents one logical canvas. Each supplied directory may contain at
 
 File-node `file` and copy `inheritFrom` values are vault-relative paths. They may include package/vault prefixes or start directly at `永久栏目/` or `临时栏目/`. Resolve against the package file map. Do not select an arbitrary match for duplicate names, broken links or ambiguous references. External attachments are not section bookmark data.
 
+Temporary items must be classified by `type`: a folder can have `url:""`, and a bookmark can have `children:[]`. Field presence alone does not identify its kind.
+
 ## Interpreting relationships
+
+### Retrieve layout, then expand content
+
+For a small indexed canvas, start with `get_context({source_id})`: this includes the whole stored layout, even text cards without edges. Then select the requested section/group/item. Scoped context deliberately selects nodes; missing text in that selection does not prove that the canvas contains no nearby note. Match file nodes to section IDs through the returned file mapping, not by assuming node IDs and section IDs are interchangeable.
+
+For a large canvas, read `.canvas` locally with Python's standard-library `json` parser. Keep the full parsed object in the local process; send only relevant records to the model:
+
+1. Extract a compact map of IDs, types, file references, `x/y/width/height`, group labels, short text previews and edges. If even that is large, report total counts and group/region summaries first. Retain the complete map locally; a preview is not complete traversal.
+2. Locate the requested card by its ID or resolved file. Select containing groups, relevant group members, connected nodes and geometrically nearby text/cards. Preserve edges crossing the selection boundary and their endpoint records. A remote connected card can matter more than a close unconnected card.
+3. Read full text and section descriptions for the selected context, then the requested bookmark trees. Preserve IDs and report selected/omitted node counts and any truncated text. Expand when a label, edge or question points outside the selection; whole-canvas analysis must traverse all relevant regions.
+
+The bounds are `[x, y, x+width, y+height]`; x increases rightward and y downward. Group membership requires full containment. For nearest-neighbor questions, use rectangle gaps (zero for overlapping rectangles) and retain direction, rather than sorting JSON array order or using centers alone. An unconnected nearby note remains an unassigned contextual clue unless its text or another stored relation establishes its subject. Copy cards use their own rectangles and links.
+
+`get_context` has section/group/item scopes, not region, nearest-neighbor or pagination parameters. Use local extraction when its scopes cannot express the task. A section JSON by itself provides card content but no surrounding layout. A `.canvas` without its referenced section files provides layout but incomplete bookmark content. Neither case requires inventing missing relationships or changing the package.
 
 - Chain labels such as `A-1 → A-1-1` suggest derivation. A child chain may retain most content or only a subset. A/B families describe creation clues; they do not prove ongoing synchronization with permanent trees or a persistent relationship. Check descriptions, titles, URLs and actual items.
 - Groups have no explicit `children` list. Nesting comes from full containment using `x/y/width/height`. Groups contain canvas nodes; bookmarks inherit group context through sections and need not have individual canvas nodes.

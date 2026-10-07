@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 终端向导检测可用 CLI，可多选 Codex、Claude Code、Pi、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选；随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。未找到任何受支持的 CLI 时，引导脚本在下载前停止。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
 
-首次安装跟随 `main`，通过所选宿主的原生命令登记与验证。Codex 的远程 Git 安装由宿主管理源码和缓存；本地安装先按白名单导出插件，再交给 Codex。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
+首次安装跟随 `main`，通过所选宿主的原生命令登记与验证。Codex 安装先按白名单导出插件，再由宿主登记和缓存；Git 来源同时保留仓库和所选 ref，供后续更新。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
 
 在 checkout 中也可直接选择目标：
 
@@ -119,7 +119,7 @@ python3 scripts/install.py verify
 
 安装器会调用 Codex 原生 `plugin marketplace add`、`plugin add` 和 JSON 查询接口；Codex 管理其配置和安装缓存。当前 `main` 的安装器在成功后显示当前配置、首次提问模板和配置查询命令；已有配置会照实显示，读取失败时明确提示修正。stdout 保持 JSON，面向用户的引导写到 stderr，管道执行时也会显示。v0.2.0 固定快照保留当时的安装输出。
 
-本地源码、npm 包和解压目录均先导出干净插件目录，排除个人 `.claude/`、`.codex/`、`.pi/`、`.agent/`、`.git/` 和旧产物；仅保留插件所需声明和内容。导出旁记录原来源，`update` 从原来源重新导出；安装后对比宿主缓存的文件清单。不要删除原源码和持久导出目录，后续更新仍会使用它们。
+本地源码、npm 包、解压目录和新 Git 来源均先导出干净插件目录，排除个人 `.claude/`、`.codex/`、`.pi/`、`.agent/`、`.git/` 和旧产物；仅保留插件所需声明和内容。导出旁记录原来源，`update` 从原来源重新导出；安装后对比宿主缓存的文件清单。本地来源需保留原源码和持久导出目录。Git 来源记录仓库和 ref：分支更新跟随分支，tag／commit 保持固定；重复安装省略 `--ref` 时沿用记录，显式指定不同 ref 时拒绝切换。
 
 安装完成后新建 Codex thread，以载入新 Skill 和 MCP 工具。Python 必须能以 `python3` 被 Codex 的 MCP 子进程找到。需要支持这些子命令和 `--json` 的 Codex CLI；本仓库验证环境为 0.153.4。
 
@@ -133,7 +133,7 @@ python3 "/absolute/path/Bookmark Research/scripts/install.py" install
 | --- | --- |
 | `install` | 安装当前脚本所属目录；可重复执行 |
 | `install --source /absolute/path/to/source` | 安装另一个有效的本地 marketplace 根目录 |
-| `install --source owner/repo --ref TAG_OR_COMMIT` | 让 Codex 安装指定 Git 来源；占位符需替换为实际已存在的版本 |
+| `install --source owner/repo --ref TAG_OR_COMMIT` | 导出指定 Git ref，再由 Codex 安装干净目录；占位符需替换为实际版本 |
 | `install --dry-run` | 读取现有注册状态，打印计划，不运行安装命令 |
 | `update` | 更新当前已安装来源；Git 源先执行 `marketplace upgrade`，本地源重新安装其当前文件 |
 | `update --dry-run` | 查看现有来源的更新计划 |
@@ -148,6 +148,8 @@ python3 "/absolute/path/Bookmark Research/scripts/install.py" install
 `verify` 启动安装缓存中的 Python 运行时，并按插件的原生配置执行 stdio MCP 初始化与 `tools/list`。它不调用网页服务、不导入书签、不创建索引；服务账号是否有效、模型能否调用工具，需要在实际会话中另行验证。
 
 ## 使用 Codex 原生命令
+
+旧版 Git marketplace 由 Codex 保留原登记和 ref。安装器先执行原生 `marketplace upgrade`，从宿主实际获取的 checkout 导出干净目录，再通过本次命令的 `-c` 参数将目录交给原生 `plugin add`；参数不会改写 Git 登记，也不需要猜测原生列表未返回的 ref。后续更新继续使用本安装器；手动从原始仓库执行原生安装，仍可能重新复制多余文件。Git checkout 和 GitHub 自动生成的源码压缩包可以含开发文件，过滤对象是插件安装缓存及发行包。
 
 如果不使用本仓库的安装入口，先导出到新的持久目录，再交给 Codex；原生命令可能复制整个源目录，不能直接把开发工作区当作干净发行物：
 

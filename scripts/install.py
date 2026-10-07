@@ -371,27 +371,37 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
         requested = _export_origin(requested) or requested
         if current:
             _check_source({"marketplaceSource": origin or registered}, requested)
-            if ref:
+            if ref and (origin is None or ref != origin.get("ref")):
                 # Native list JSON omits the registered ref. Equal commit IDs
                 # cannot distinguish a moving branch from an immutable tag.
                 raise ValueError("An existing Git marketplace retains its registered ref. Reinstall without --ref, or explicitly change the source in Codex first")
+            if origin:
+                requested = origin
     else:
         if not current or not _installed(cli):
             raise ValueError("No existing bookmark-research installation; run install first")
         requested = origin or registered
     commands, migration = [], False
-    managed = requested["sourceType"] == "local" or origin is not None or _pin_interpreter()
-    if managed:
+    legacy_git = registered is not None and registered["sourceType"] == "git"
+    if legacy_git:
+        # Codex list omits the registered ref. Let the host keep and fetch it;
+        # override only this plugin-add invocation with our filtered export.
+        origin = registered
+        base = _local_home()
+        commands.append(["plugin", "marketplace", "upgrade", NAME])
+        requested = {"sourceType": "local", "source": str(base / "bundle")}
+        commands.append(["plugin", "add", SELECTOR,
+                         "-c", "marketplaces.bookmark-research.source_type=\"local\"",
+                         "-c", "marketplaces.bookmark-research.source=" + json.dumps(requested["source"])])
+    else:
         if requested["sourceType"] == "local":
             requested = _source(requested["source"])
         origin = {key: requested[key] for key in ("sourceType", "source", "ref") if key in requested}
         base = (Path(registered["source"]).parent if registered and _export_origin(registered)
-                else _pinned_home() if _pin_interpreter() else _local_home())
+                else _local_home())
         migration = bool(registered and registered != {"sourceType": "local", "source": str(base / "bundle")})
         if migration:
-            # Only migrate this plugin's single-entry local catalog, never other plugins or Git refs.
-            if registered["sourceType"] != "local":
-                raise ValueError("Resolve the existing Git marketplace in Codex before switching to a local export")
+            # Only migrate this plugin's single-entry local catalog.
             catalog = json.loads((Path(registered["source"]) / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
             if len(catalog.get("plugins", [])) != 1 or catalog["plugins"][0].get("name") != NAME:
                 raise ValueError("Cannot migrate a marketplace containing other plugins; resolve its source in Codex first")
@@ -400,17 +410,10 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
                                    base=base, dry_run=dry_run)
         if action == "install" or migration:
             commands.append(["plugin", "marketplace", "add", requested["source"]])
-    elif action == "install":
-        commands = [["plugin", "marketplace", "add", requested["source"]]]
-        if ref:
-            commands[0].extend(["--ref", ref])
-    else:
-        commands = [["plugin", "marketplace", "upgrade", NAME]]
-    commands.append(["plugin", "add", SELECTOR])
+        commands.append(["plugin", "add", SELECTOR])
     plan = {"action": action, "source": requested, "dry_run": dry_run, "language": language,
             "commands": [[cli.binary, *command, "--json"] for command in commands]}
-    if managed:
-        plan["origin"] = origin
+    plan["origin"] = origin
     if dry_run:
         return plan
     added = None
@@ -430,6 +433,9 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
         elif command[:3] == ["plugin", "marketplace", "upgrade"]:
             if result.get("errors"):
                 raise RuntimeError("Marketplace upgrade reported errors; the plugin was not reinstalled")
+            # Export the exact checkout fetched by Codex, including a pinned tag.
+            requested = _export_source({"sourceType": "local", "source": current["root"]},
+                                       cli.timeout, sys.executable if _pin_interpreter() else "python3", base)
         elif command[:2] == ["plugin", "add"]:
             added = result
     if not added or not isinstance(added.get("installedPath"), str) or added.get("pluginId") != SELECTOR:

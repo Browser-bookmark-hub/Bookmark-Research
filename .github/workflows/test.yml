@@ -55,7 +55,9 @@ jobs:
         run: npm install -g @openai/codex@0.160.1
       - run: codex --version
       - name: Native installation, migration and update
-        run: python -B -m unittest discover -s tests -p test_install.py -v
+        run: |
+          python -B -m unittest discover -s tests -p test_install.py -v
+          python -B -m unittest discover -s tests -p test_bootstrap.py -v
   packages:
     needs: [test, native-codex]
     runs-on: ubuntu-latest
