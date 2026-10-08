@@ -79,7 +79,7 @@ Optional service failures appear under `setup.needs_attention` and do not block 
 
 ## Source development and historical ZIPs
 
-GitHub [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) retain historical artifacts. New release candidates are npm `.tgz` packages. ZIP/export helpers remain available for local development and tests; they are not a second release channel. Preserve required plugin manifests when extracting a historical package.
+GitHub [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) retain version notes and npm links; installation and test attachments have been withdrawn. Release packages come from npm. ZIP/export helpers remain available for local development and tests; preserve required plugin manifests when extracting a historical package.
 
 From a checkout or ZIP containing the installer:
 
@@ -110,7 +110,7 @@ The Python installer accepts the same host/setup flags. `verify --installed-path
 
 ### Native Codex installation of the published release
 
-The repository marketplace points to the explicitly pinned `bookmark-research@0.5.0-beta.3` npm package. Codex downloads that package without lifecycle scripts, then owns registration and caching. Adding the repository installs the published release, including its released Skill; it does not install unpublished source changes from `main`.
+The repository marketplace points to the published npm version recorded in its `source.version` field. Codex downloads that package without lifecycle scripts, then owns registration and caching. Adding the repository installs the published release, including its released Skill; it does not install unpublished source changes from `main`.
 
 ```sh
 codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref main

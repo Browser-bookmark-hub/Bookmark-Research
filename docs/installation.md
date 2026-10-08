@@ -96,7 +96,7 @@ Agent 可使用 `install --host pi --non-interactive --preferences FILE --skip-c
 
 ## 源码开发与历史 ZIP
 
-GitHub [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) 中的旧附件保留历史用途。新发布以 npm 为准，不再另发插件 ZIP 或测试包。仓库的 ZIP／导出脚本仍可用于本地验证。
+GitHub [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) 保留版本说明和 npm 链接，安装包与测试包附件已撤下。发布包统一从 npm 获取；仓库的 ZIP／导出脚本仍可用于本地验证。
 
 ```sh
 git clone https://github.com/Browser-bookmark-hub/Bookmark-Research.git
@@ -150,7 +150,7 @@ python3 "/absolute/path/Bookmark Research/scripts/install.py" install
 
 旧版 Git marketplace 由 Codex 保留原登记和 ref。安装器先执行原生 `marketplace upgrade`，从宿主实际获取的 checkout 导出干净目录，再通过本次命令的 `-c` 参数将目录交给原生 `plugin add`；参数不会改写 Git 登记，也不需要猜测原生列表未返回的 ref。这条回退路径适用于仍指向仓库根目录的历史 catalog。当前发行 catalog 指向 npm 包，原生更新保留该发布来源。Git checkout 和 GitHub 自动生成的源码压缩包可以含开发文件，它们不是插件缓存。
 
-当前仓库的 marketplace 固定指向已发布的 `bookmark-research@0.5.0-beta.3` npm 包。Codex 下载该包，不执行生命周期脚本，再自行登记和缓存。直接添加 GitHub 仓库会安装发布版及其已发布 Skill，不会安装 `main` 尚未发布的源码改动：
+当前仓库的 marketplace 固定指向其 `source.version` 字段记录的已发布 npm 版本。Codex 下载该包，不执行生命周期脚本，再自行登记和缓存。直接添加 GitHub 仓库会安装发布版及其已发布 Skill，不会安装 `main` 尚未发布的源码改动：
 
 ```sh
 codex plugin marketplace add Browser-bookmark-hub/Bookmark-Research --ref main
