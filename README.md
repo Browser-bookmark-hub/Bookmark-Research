@@ -6,7 +6,7 @@ Research your bookmarks with verified web sources. Give it a list of bookmark UR
 
 Works in **Codex, Claude Code, Pi and DSH (DeepSeek Harness)**.
 
-[Installation guide](docs/installation.en.md) · [User guide](docs/user-guide.en.md) · [Details](docs/details.en.md) · [npm](https://www.npmjs.com/package/bookmark-research) · [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases)
+[Installation guide](docs/installation.en.md) · [User guide](docs/user-guide.en.md) · [Details](docs/details.en.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
 > [!NOTE]
 > **0.5.0 is a beta.** Report problems on [GitHub Issues](https://github.com/Browser-bookmark-hub/Bookmark-Research/issues).
@@ -15,7 +15,7 @@ Works in **Codex, Claude Code, Pi and DSH (DeepSeek Harness)**.
 
 - Python 3.9+ with SQLite FTS5 (check with `bookmark-research doctor`)
 - The CLI of at least one client: Codex, Claude Code, Pi or DSH (DSH also needs `pnpm`)
-- Node 18+ for the `bookmark-research` command; optional on macOS/Linux
+- Node 18+ and npm for release installation (including the GitHub convenience script)
 - No API key is needed to install or to query bookmarks locally
 
 ## Install
@@ -23,27 +23,27 @@ Works in **Codex, Claude Code, Pi and DSH (DeepSeek Harness)**.
 **Interactive** (macOS, Linux, Windows):
 
 ```sh
-npx bookmark-research install
+npx bookmark-research@latest install
 ```
 
 Pick clients with the arrow keys and Space, confirm the summary, then choose search services and enter API keys. Start a new client session afterwards.
 
-For a permanent `bookmark-research` command: `npm install -g bookmark-research`. Without Node (macOS/Linux/WSL): `curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash`.
+For a permanent `bookmark-research` command: `npm install -g bookmark-research`. The GitHub convenience script uses the same npm release (macOS/Linux/WSL): `curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash`.
 
 **One client, no prompts:**
 
 | Client | Command | Registers with |
 | --- | --- | --- |
-| Codex | `npx bookmark-research install codex --non-interactive` | `codex plugin add` |
-| Claude Code | `npx bookmark-research install claude --scope user --non-interactive` | `claude plugin install` |
-| Pi | `npx bookmark-research install pi --non-interactive` | `pi install` |
-| DSH | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
+| Codex | `npx bookmark-research@latest install codex --non-interactive` | `codex plugin add` |
+| Claude Code | `npx bookmark-research@latest install claude --scope user --non-interactive` | `claude plugin install` |
+| Pi | `npx bookmark-research@latest install pi --non-interactive` | `pi install` |
+| DSH | `npx bookmark-research@latest install dsh --profile web --non-interactive` | `dsh plugin add` |
 
-**Native Codex release installation:** the GitHub marketplace selects a pinned npm release, so native installs do not copy the repository checkout. See [native installation](docs/installation.en.md#native-codex-installation-of-the-published-release). Use the source installer for unpublished checkout changes.
+**One release source for all four hosts:** npm contains the shared runtime, Skill and host adapters. The installer downloads the release, prepares the selected host format, then invokes the host’s native commands. Updates retain an npm selector rather than an npx cache path. GitHub hosts source and installation catalogs; unpublished source uses the Python installer. See [distribution policy and official references](docs/distribution.md).
 
 **Windows:** the installer writes the detected Python path into each client's MCP config, because Windows often has no working `python3`. Install Codex with `bookmark-research install codex` rather than adding the repository to Codex directly. `bookmark-research status` shows the interpreter in use.
 
-Several at once: `npx bookmark-research install claude dsh --profile web --non-interactive`. Project scope: `--scope project --project /path/to/project` (Claude Code, Pi). All options: [installation guide](docs/installation.en.md).
+Several at once: `npx bookmark-research@latest install claude dsh --profile web --non-interactive`. Project scope: `--scope project --project /path/to/project` (Claude Code, Pi). All options: [installation guide](docs/installation.en.md).
 
 **Ask your agent to install it.** Paste this into Codex, Claude Code, Pi or DSH:
 
@@ -51,12 +51,12 @@ Several at once: `npx bookmark-research install claude dsh --profile web --non-i
 Install the Bookmark Research plugin into the client you are running in.
 
 1. Identify your own client: codex, claude, pi or dsh.
-2. Run: npx bookmark-research install <client> --non-interactive
+2. Run: npx bookmark-research@latest install <client> --non-interactive
    - Claude Code or Pi: add --scope user (or --scope project --project <dir>).
    - DSH: add --profile <profile>; ask me for the profile name.
 3. The command prints JSON. Confirm "verified": true and report any "error".
 4. Do not ask me for API keys in chat. Tell me to run `bookmark-research setup`
-   (or `npx bookmark-research setup`) in my terminal to enter them.
+   (or `npx bookmark-research@latest setup`) in my terminal to enter them.
 5. Tell me to start a new session so the Skill and MCP tools load.
 ```
 
@@ -72,7 +72,7 @@ No reinstall is needed. Settings and keys apply to every installed client; start
 | Script preferences | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | Update or verify all clients | `bookmark-research update` · `bookmark-research verify` |
 
-Use `npx bookmark-research …` if the command is not installed globally.
+Use `npx bookmark-research@latest …` if the command is not installed globally.
 
 **API keys are optional.** Enter them in `bookmark-research setup` (hidden input, checked immediately, saved in a private local file) or set environment variables, which take precedence. Keys are never accepted in chat, command arguments or JSON files.
 
@@ -129,7 +129,7 @@ Tool descriptions: [details](docs/details.en.md#mcp-tools).
 
 ## More
 
-- [Installation guide](docs/installation.en.md): all install options, updates, ZIP downloads
+- [Installation guide](docs/installation.en.md): all install options, npm updates and source development
 - [User guide](docs/user-guide.en.md): first use, the three research modes, languages
 - [Details](docs/details.en.md): data model, research modes, settings, export formats, development checks
 - [Architecture](docs/bookmark-research-architecture.md) (Chinese)

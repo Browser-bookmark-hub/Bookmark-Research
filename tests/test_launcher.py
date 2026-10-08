@@ -90,7 +90,15 @@ class LauncherTests(unittest.TestCase):
         with mock.patch.object(install, "main", return_value=0) as main:
             self.assertEqual(launcher.main(["--lang", "en", "install", "claude,dsh", "pi", "--profile", "web"]), 0)
         main.assert_called_once_with(["install", "--lang", "en", "--host", "claude", "--host", "dsh",
-                                      "--host", "pi", "--profile", "web"])
+                                      "--host", "pi", "--profile", "web", "--source", "npm:bookmark-research"])
+
+    def test_explicit_development_or_pinned_source_is_preserved(self):
+        import install
+        for source in ("/work/source", "npm:bookmark-research@0.5.0-beta.3"):
+            with self.subTest(source=source), mock.patch.object(install, "main", return_value=0) as main:
+                launcher.main(["install", "codex", "--source", source])
+                self.assertEqual(main.call_args.args[0].count("--source"), 1)
+                self.assertEqual(main.call_args.args[0][-1], source)
 
     def test_update_without_hosts_covers_each_installed_target(self):
         import install

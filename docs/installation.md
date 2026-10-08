@@ -4,25 +4,25 @@
 
 执行 Skill 和方法参考以英文维护，配完整中文阅读版及双语宿主提示说明，见[指令索引](instructions.md)。安装导出会携带这些文件。
 
-Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python 与要使用的客户端；运行 `python3 src/cli.py doctor` 可以离线检查 Python 和 FTS5。当前 checkout 的四宿主工作流及验证范围见 [宿主兼容说明](harness-compatibility.md)。下文 v0.2.0 Release 链接是历史发布产物，不包含新增宿主脚本；使用这些工作流时从当前源码导出。
+Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python 与要使用的客户端；运行 `python3 src/cli.py doctor` 可以离线检查 Python 和 FTS5。当前 checkout 的四宿主工作流及验证范围见 [宿主兼容说明](harness-compatibility.md)。正式发布统一使用 npm；源码与历史 ZIP 的本地验证仍可使用导出器。
 
 ## `bookmark-research` 命令（推荐）
 
-`npm install -g bookmark-research` 之后在终端输入 `bookmark-research`，即可打开主菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态。也可以直接带子命令：`install [宿主…]`、`update`、`verify`、`setup`、`status`、`config show|set`、`doctor`。npm 包只是入口，内部调用包内的 Python 安装器和运行时，因此仍需 Python 3.9+；Windows 原生、macOS、Linux 都可以用。想用最新 `main` 可运行 `npx github:Browser-bookmark-hub/Bookmark-Research`。不带参数且不在终端中运行时（agent／CI），它只输出状态 JSON，不弹菜单。
+`npm install -g bookmark-research` 之后在终端输入 `bookmark-research`，即可打开主菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态。也可以直接带子命令：`install [宿主…]`、`update`、`verify`、`setup`、`status`、`config show|set`、`doctor`。npm 是四个宿主共用的唯一正式发布包，包含 Python 安装器、运行时、Skill 和适配文件，因此仍需 Python 3.9+；Windows 原生、macOS、Linux 都可以用。发布版使用 `npx bookmark-research@latest install HOST`；未发布源码使用 Python 源码安装器。不带参数且不在终端中运行时（agent／CI），它只输出状态 JSON，不弹菜单。
 
 ## 一条命令引导安装
 
-已安装 Bash、Git、Python 3.9+（含 SQLite FTS5）和要使用的宿主 CLI 后，可以在任意工作目录执行；其他宿主不需要安装 Codex：
+已安装 Bash、Node.js/npm、Python 3.9+（含 SQLite FTS5）和要使用的宿主 CLI 后，可以在任意工作目录执行；其他宿主不需要安装 Codex：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
 ```
 
-终端向导检测可用 CLI，可多选 Codex、Claude Code、Pi、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选；随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。未找到任何受支持的 CLI 时，引导脚本在下载前停止。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
+终端向导检测可用 CLI，可多选 Codex、Claude Code、Pi、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选；随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。npm 安装器会在原生登记前检查所选宿主。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
 
-首次安装跟随 `main`，通过所选宿主的原生命令登记与验证。Codex 安装先按白名单导出插件，再由宿主登记和缓存；Git 来源同时保留仓库和所选 ref，供后续更新。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
+首次安装选择 `npm:bookmark-research`（`latest`）。四个宿主都从该发布包导出所需格式，再由原生命令登记与验证。安装记录保存 npm 包名和版本选择，不保存临时下载或 npx 缓存路径；更新会重新取得同一选择器指向的发布包。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
 
-在 checkout 中也可直接选择目标：
+即使在 checkout 中运行以下脚本，默认也安装 npm 发布版：
 
 ```sh
 bash install.sh install --host codex
@@ -43,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 python3 scripts/install.py install --lang zh
 ```
 
-`--lang en` 选择英文，`--lang auto` 恢复自动判断。Shell 用 `BOOKMARK_RESEARCH_INSTALL_LANG` 向 Python 安装器传递选择；Python 的显式 `--lang` 优先。该选项只影响安装引导，不保存研究语言设置；Git、Codex 和运行时的技术诊断保留原文。固定到旧 tag 时使用该版本的安装器，旧版本可能仍显示当时的引导语言。
+`--lang en` 选择英文，`--lang auto` 恢复自动判断。Shell 原样转发 `--lang`；`BOOKMARK_RESEARCH_INSTALL_LANG` 仍可覆盖默认 locale。该选项只影响安装引导，不保存研究语言设置；Git、Codex 和运行时的技术诊断保留原文。
 
 更新、检查和预览使用同一入口：
 
@@ -55,17 +55,17 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 `--dry-run` 仍会下载安装器、读取登记和准备临时导出，但不安装、不保存偏好或修改宿主登记。`--help` 只显示帮助；curl 自身仍需下载入口。`--timeout 60` 限制每条原生命令，范围 1–300 秒，不限制人类输入；服务检查另有超时设置。使用本地 `scripts/install.py verify --host HOST` 可省去 bootstrap 下载。
 
-需要固定版本时，在**首次登记来源**时选择 tag 或 commit：
+需要固定发布版时，在首次安装中指定 npm 版本：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- install --ref v0.2.0
+npx bookmark-research@latest install claude --source npm:bookmark-research@0.5.0-beta.3
 ```
 
-`--ref` 同时选择 Git 中的安装器和待安装插件，所选版本须包含 `scripts/install.py`（从 v0.2.0 开始）。再次安装时省略 `--ref`；已登记的分支、tag 或 commit 会保留。`update` 也保持该 ref，固定 tag 不会自动升级到其他版本。默认跟随 `main` 适合接收开发更新，固定 tag/commit 适合复现。
+再次安装和更新保留该选择器。默认 `latest` 随 npm 发布更新；显式版本保持固定。`--ref` 只用于显式 Git 开发来源，不再通过 bootstrap 选择发布版。已有 Git／本地安装保留原来源；如需转为 npm，先通过宿主命令处理旧登记，避免静默切换开发环境。
 
 Codex 分支管理 `bookmark-research@bookmark-research`。已通过 `personal` 等来源安装时沿用原更新流程。其他宿主也会检查来源冲突并保留原有设置。Claude 用内容派生的原生版本刷新缓存，同一发布版本下的源码变化也能生效；Pi 使用持久本地包；DSH 向指定 profile 安装可搬移 bundle。更新失败保留原包并记录待验证状态，之后可重试安装／更新。
 
-**Git tag、GitHub Release 和安装脚本是三个独立部分。** Git tag 标记源码版本；Release 提供说明、ZIP 和校验文件；`install.sh` 负责取得源码并安装。上述命令直接使用 Git，不访问 Release API 或 ZIP 资产，只有仓库也能安装和更新。
+**npm 是正式发布来源。** GitHub 提供源码、版本说明与安装清单；`install.sh` 调用 npm 入口。CI 只生成 npm `.tgz` 发布候选及校验文件。ZIP 与各宿主导出器用于本地开发、测试和历史兼容。见[发布约定与官方依据](distribution.md)。
 
 ## 向导与就绪检查
 
@@ -94,19 +94,17 @@ Agent 可使用 `install --host pi --non-interactive --preferences FILE --skip-c
 
 可选服务故障显示在 `setup.needs_attention`，不阻塞本地查询或其他服务。原生安装或配置失败返回非零，JSON 分别报告安装与 setup 状态。未主动请求新版向导时，缺少 setup 的历史版本仍可正常安装。
 
-## 取得代码或 ZIP
+## 源码开发与历史 ZIP
 
-以下下载示例固定到已发布的 [v0.2.0 Release](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/tag/v0.2.0)：[插件 ZIP](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-0.2.0.zip) 和用于离线验证的 [测试包](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases/download/v0.2.0/bookmark-research-test-pack-0.2.0.zip)。其他已发布版本以 [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) 为准；本地 0.4.0 构建及验证见 [验证记录](validation-0.4.0.md)。两个包均包含 `MANIFEST.sha256`，Release 另提供 ZIP 的 `SHA256SUMS`。解压时保留 `.codex-plugin/` 和 `.agents/` 等隐藏目录，并把目录放在一个稳定位置。
-
-仓库地址：<https://github.com/Browser-bookmark-hub/Bookmark-Research>。复现该历史快照使用 `v0.2.0` 标签；`main` 跟随开发更新。ZIP 是可选的分发形式，也可以直接克隆源码：
+GitHub [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) 中的旧附件保留历史用途。新发布以 npm 为准，不再另发插件 ZIP 或测试包。仓库的 ZIP／导出脚本仍可用于本地验证。
 
 ```sh
-git clone --branch v0.2.0 https://github.com/Browser-bookmark-hub/Bookmark-Research.git
+git clone https://github.com/Browser-bookmark-hub/Bookmark-Research.git
 cd Bookmark-Research
-python3 src/cli.py doctor
+python3 scripts/install.py install --source . --host codex
 ```
 
-请在包含 `scripts/install.py` 的 0.2.0 或后续版本 checkout、ZIP 中使用下方安装入口。旧提交仍可使用原生 Codex 命令或各自版本的导出器。
+该 Python 入口显式安装当前源码。历史解压目录须包含安装器及必要插件清单。
 
 ## Codex CLI 安装
 
@@ -135,7 +133,8 @@ python3 "/absolute/path/Bookmark Research/scripts/install.py" install
 | `install --source /absolute/path/to/source` | 安装另一个有效的本地 marketplace 根目录 |
 | `install --source owner/repo --ref TAG_OR_COMMIT` | 导出指定 Git ref，再由 Codex 安装干净目录；占位符需替换为实际版本 |
 | `install --dry-run` | 读取现有注册状态，打印计划，不运行安装命令 |
-| `update` | 更新当前已安装来源；Git 源先执行 `marketplace upgrade`，本地源重新安装其当前文件 |
+| `install --source npm:bookmark-research[@VERSION]` | 为所选宿主安装同一个 npm 发布包 |
+| `update` | 重新下载已登记 npm 选择器，或更新原 Git／本地开发来源 |
 | `update --dry-run` | 查看现有来源的更新计划 |
 | `verify` | 检查已启用注册、安装缓存版本、FTS5、MCP 初始化和工具发现 |
 

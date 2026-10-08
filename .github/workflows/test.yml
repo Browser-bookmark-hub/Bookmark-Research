@@ -59,6 +59,8 @@ jobs:
         run: python -B -m unittest discover -s tests -p test_install.py -v
       - name: Bootstrap installation
         run: python -B -m unittest discover -s tests -p test_bootstrap.py -v
+      - name: Shared npm release for all host formats
+        run: python -B -m unittest discover -s tests -p test_npm_source.py -v
   packages:
     needs: [test, native-codex]
     runs-on: ubuntu-latest
@@ -70,10 +72,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Build and inspect release candidates
+      - name: Build and inspect the npm release candidate
         run: |
-          python scripts/build_zip.py --output dist/bookmark-research.zip
-          python scripts/build_zip.py --include-tests --output dist/bookmark-research-test-pack.zip
+          mkdir -p dist
           npm pack --ignore-scripts --json --pack-destination dist > dist/npm-pack.json
           python - <<'PY'
           import json
@@ -86,12 +87,11 @@ jobs:
           PY
       - name: Checksum release candidates
         working-directory: dist
-        run: sha256sum *.zip *.tgz > SHA256SUMS
+        run: sha256sum *.tgz > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: packages-${{ github.sha }}
           path: |
-            dist/*.zip
             dist/*.tgz
             dist/SHA256SUMS
           retention-days: 14

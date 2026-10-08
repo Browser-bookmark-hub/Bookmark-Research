@@ -419,6 +419,19 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "pinned bookmark-research"):
                 install._source(self.source)
 
+    def test_managed_npm_origin_is_persistent_and_retains_its_pin(self):
+        from test_npm_source import Registry
+        registry = Registry(self.source)
+        origin = install._source("npm:bookmark-research@" + self.version)
+        with registry.active():
+            requested = install._export_source(origin, 20, "python3", install._local_home())
+            self.assertEqual(install._export_origin(requested), origin)
+            install._check_source({"marketplaceSource": origin}, origin)
+            with self.assertRaisesRegex(ValueError, "different source"):
+                install._check_source({"marketplaceSource": origin}, install._source("npm:bookmark-research"))
+        self.assertTrue((self.bundle / "src/cli.py").exists())
+        self.assertFalse(Path(registry.calls[0][-1]).exists())
+
     def test_native_release_update_keeps_the_catalog_package_instead_of_exporting_source(self):
         catalog = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
         (self.source / ".agents/plugins/marketplace.json").write_text(json.dumps(catalog))
@@ -735,6 +748,29 @@ class NativeCodexInstallerTests(unittest.TestCase):
                                 env=self.environment, text=True, capture_output=True, check=True, timeout=30)
         self.assertTrue(json.loads(doctor.stdout)["fts5"])
         self.assertFalse(self.data.exists())
+
+    def test_native_codex_updates_managed_npm_origin_after_download_cleanup(self):
+        from test_npm_source import Registry
+        registry = Registry(self.source)
+        cli = install.CodexCli(shutil.which("codex"), 30)
+        with mock.patch.dict(os.environ, self.environment, clear=True), registry.active():
+            first = install.manage("install", cli, source="npm:bookmark-research")
+            self.assertEqual(first["origin"], {
+                "sourceType": "npm", "source": "bookmark-research", "ref": "latest"})
+            self.assertTrue(install.manage("install", cli, source="npm:bookmark-research")["verified"])
+            path = self.source / ".codex-plugin/plugin.json"
+            manifest = json.loads(path.read_text())
+            manifest["version"] = "99.0.0"
+            path.write_text(json.dumps(manifest))
+            updated = install.manage("update", cli)
+            self.assertEqual(updated["version"], "99.0.0")
+            self.assertTrue(install.manage("verify", cli)["verified"])
+            registry.error = True
+            with self.assertRaisesRegex(RuntimeError, "registry unavailable"):
+                install.manage("update", cli)
+            self.assertTrue(install.manage("verify", cli)["verified"])
+        for call in registry.calls:
+            self.assertFalse(Path(call[-1]).exists())
 
     def test_repeated_install_update_verify_and_conflict_protect_user_data(self):
         probe = self.source / "src/install_probe.py"

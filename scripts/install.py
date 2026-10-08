@@ -102,6 +102,10 @@ def _repository(value):
 
 
 def _source(value, ref=None):
+    from npm_source import source as npm_source
+    release = npm_source(value, ref)
+    if release:
+        return release
     value = str(value)
     if not value or any(ord(char) < 32 for char in value):
         raise ValueError("Source must be a nonempty path or Git repository")
@@ -141,7 +145,7 @@ def _configured_source(marketplace):
     source = marketplace.get("marketplaceSource")
     if source is None:
         return {"sourceType": "local", "source": str(Path(marketplace["root"]).resolve())}
-    if not isinstance(source, dict) or source.get("sourceType") not in ("local", "git"):
+    if not isinstance(source, dict) or source.get("sourceType") not in ("local", "git", "npm"):
         raise RuntimeError("Unsupported Codex marketplace source metadata")
     return source
 
@@ -152,6 +156,8 @@ def _check_source(marketplace, requested):
         equal = Path(current["source"]).resolve() == Path(requested["source"]).resolve()
     elif current["sourceType"] == requested["sourceType"] == "git":
         equal = _repository(current["source"]) == requested["source"]
+    elif current["sourceType"] == requested["sourceType"] == "npm":
+        equal = current == requested
     else:
         equal = False
     if not equal:
@@ -648,7 +654,7 @@ def main(argv=None):
             command.add_argument("--preferences", help=message("Preferences JSON file (no credentials)", "偏好 JSON 文件（不含密钥）"))
             command.add_argument("--skip-checks", action="store_true", help=message("Skip network readiness checks", "跳过联网就绪检查"))
             command.add_argument("--test-retrieval", action="store_true", help=message("Test sample search/read; uses retrieval quota", "实际搜索与阅读自检；使用检索额度"))
-            command.add_argument("--source", help=message("Local marketplace root or Git repository; defaults to this source tree", "本地 marketplace 根目录或 Git 仓库；默认当前源码目录"))
+            command.add_argument("--source", help=message("npm:bookmark-research[@VERSION], local source, or Git repository; Python entry defaults to this source tree", "npm:bookmark-research[@VERSION]、本地源码或 Git 仓库；Python 入口默认当前源码目录"))
             command.add_argument("--ref", help=message("Optional Git tag, branch, or commit; local sources must be checked out separately", "可选 Git tag、分支或提交；本地来源需自行 checkout"))
         if action == "verify":
             command.add_argument("--installed-path", help=message("Override the native cache path returned by codex plugin add --json", "指定 codex plugin add --json 返回的安装缓存路径"))

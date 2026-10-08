@@ -58,6 +58,10 @@ def _check_files(root, expected, exact=False):
 def _source(value, ref=None):
     # Keep Git URL normalization identical to the existing Codex installer.
     from install import _repository
+    from npm_source import source as npm_source
+    release = npm_source(value, ref)
+    if release:
+        return release
     value = str(value)
     if not value or any(ord(char) < 32 for char in value):
         raise ValueError("Source must be a nonempty path or Git repository")
@@ -75,6 +79,11 @@ def _source(value, ref=None):
 
 @contextmanager
 def _checkout(source, timeout):
+    if source["sourceType"] == "npm":
+        from npm_source import checkout
+        with checkout(source, timeout) as selected:
+            yield selected
+        return
     if source["sourceType"] == "local":
         yield Path(source["source"]), None
         return
@@ -138,7 +147,7 @@ def _load_receipt(path, target):
     for relative, digest in files.items():
         if Path(relative).is_absolute() or ".." in Path(relative).parts or not re.fullmatch(r"[a-f0-9]{64}", str(digest)):
             raise ValueError("Invalid package checksum in installation receipt")
-    if receipt.get("source", {}).get("sourceType") not in ("git", "local"):
+    if receipt.get("source", {}).get("sourceType") not in ("git", "local", "npm"):
         raise ValueError("Invalid source in installation receipt")
     return receipt
 

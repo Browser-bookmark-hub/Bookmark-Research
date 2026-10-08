@@ -6,23 +6,23 @@ Install the same plugin for English or Chinese use. See the [user guide](user-gu
 
 ## The `bookmark-research` command (recommended)
 
-After `npm install -g bookmark-research`, type `bookmark-research` to open a menu for preferences and API keys, service checks, installing into another client, updates and status. Subcommands work directly: `install [HOST...]`, `update`, `verify`, `setup`, `status`, `config show|set`, `doctor`. The npm package is only an entry point that runs the bundled Python installer and runtime, so Python 3.9+ is still required; it works on native Windows, macOS and Linux. Run the latest `main` with `npx github:Browser-bookmark-hub/Bookmark-Research`. Without arguments and without a terminal (agents/CI) it prints status JSON instead of opening the menu.
+After `npm install -g bookmark-research`, type `bookmark-research` to open a menu for preferences and API keys, service checks, installing into another client, updates and status. Subcommands work directly: `install [HOST...]`, `update`, `verify`, `setup`, `status`, `config show|set`, `doctor`. npm is the single release package for all four hosts and includes the Python installer, runtime, Skill and adapters, so Python 3.9+ is still required; it works on native Windows, macOS and Linux. Use `npx bookmark-research@latest install HOST` for a release, and the Python source installer for unpublished development changes. Without arguments and without a terminal (agents/CI) it prints status JSON instead of opening the menu.
 
 <a id="one-command-codex-installation"></a>
 
 ## One-command installation
 
-Requirements: Bash, Git, Python 3.9+ with SQLite FTS5, and the selected host CLI (Codex, Claude Code, Pi or DSH). Other hosts do not need Codex installed.
+Requirements: Bash, Node.js/npm, Python 3.9+ with SQLite FTS5, and the selected host CLI (Codex, Claude Code, Pi or DSH). Other hosts do not need Codex installed.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
 ```
 
-The terminal wizard detects available CLIs and lets you choose one or more hosts: arrow keys move, Space toggles, Enter confirms, and detected hosts are preselected. It then asks each host's scope/project/profile and shows a summary to confirm before installing. It works with piped installation by reading `/dev/tty`; without a capable terminal, or with `BOOKMARK_RESEARCH_PLAIN=1`, it uses plain numbered prompts. If no supported CLI is found, the bootstrap stops before downloading. `--interactive` requires a terminal; `--non-interactive` never prompts. Without a terminal or an explicit host, the legacy default is Codex. Agents should pass `--host`.
+The terminal wizard detects available CLIs and lets you choose one or more hosts: arrow keys move, Space toggles, Enter confirms, and detected hosts are preselected. It then asks each host's scope/project/profile and shows a summary to confirm before installing. It works with piped installation by reading `/dev/tty`; without a capable terminal, or with `BOOKMARK_RESEARCH_PLAIN=1`, it uses plain numbered prompts. The npm installer checks the selected host before native registration. `--interactive` requires a terminal; `--non-interactive` never prompts. Without a terminal or an explicit host, the legacy default is Codex. Agents should pass `--host`.
 
-The first installation follows `main` and uses the selected host's native registration commands. It does not use GitHub Release assets. Codex installs an allowlisted export through its native registration and cache; Git origins retain their repository and selected ref for updates. Persistent host exports live under `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/` (override with `BOOKMARK_RESEARCH_INSTALL_DIR`; other hosts also accept `--install-dir`). Temporary downloads can then be removed. Start a new host session to load the Skill and tools.
+The first installation selects `npm:bookmark-research` (`latest`). All four hosts receive a clean export from that release through their native registration commands. The recorded source is the npm package and selector, not the temporary download or npx cache. `update` downloads that selector again; it does not need the original cache. GitHub serves this convenience script and source catalogs, not a separate release ZIP. Persistent host exports live under `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/` (override with `BOOKMARK_RESEARCH_INSTALL_DIR`; other hosts also accept `--install-dir`). Temporary downloads can then be removed. Start a new host session to load the Skill and tools.
 
-From a checkout, choose a host directly:
+Choose a release host directly, even when running the bootstrap from a checkout:
 
 ```sh
 bash install.sh install --host codex
@@ -42,11 +42,11 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash -s -- verify --host codex --lang en
 ```
 
-`--lang en` selects English help/onboarding; `--lang zh` selects Chinese. The default `auto` checks `LC_ALL`, then `LC_MESSAGES`, then `LANG`. Chinese locales select Chinese; other or missing locales select English. The bootstrap forwards its selection through `BOOKMARK_RESEARCH_INSTALL_LANG`; an explicit Python `--lang` overrides that hint. Technical errors returned by Git, Codex and the runtime retain their original text. Installation language does not persist a research-language preference.
+`--lang en` selects English help/onboarding; `--lang zh` selects Chinese. The default `auto` checks `LC_ALL`, then `LC_MESSAGES`, then `LANG`. Chinese locales select Chinese; other or missing locales select English. The bootstrap forwards `--lang` unchanged to the npm installer; `BOOKMARK_RESEARCH_INSTALL_LANG` remains an optional locale override. Technical errors returned by Git, Codex and the runtime retain their original text. Installation language does not persist a research-language preference.
 
 `--dry-run` reads registration and downloads/prepares a temporary export but does not install, save preferences or modify host registration. `--help` performs no download. `--timeout 60` limits each native command to 1–300 seconds; human input has no timeout. A service readiness timeout is configured separately.
 
-To select a previously published snapshot on a **first installation**, use `install --ref v0.2.0`. Repeat installations and updates retain the registered ref; an update does not advance a fixed tag. A historical tag uses its own installer and features, so older versions may retain their original onboarding language. The current bootstrap does not send unsupported language flags to historical installers.
+For a pinned release on first installation, use `npx bookmark-research@latest install HOST --source npm:bookmark-research@0.5.0-beta.3`. The same selector is retained on reinstall/update. Without a pin, `latest` advances with npm publication. `--ref` belongs to explicit Git development sources only; it no longer chooses a release through the bootstrap. Existing Git/local installations retain their original source; they are not silently migrated to npm. To adopt npm, resolve the old registration using the host’s own commands first.
 
 The Codex branch manages `bookmark-research@bookmark-research`. If already installed through `personal` or another marketplace, keep using that source's update flow. Other hosts also reject conflicting sources and preserve existing settings. Claude receives a content-derived native version so changed local/main code refreshes its cache even when the release version is unchanged. Pi retains the persistent local package. DSH installs a relocatable native bundle in the selected profile.
 
@@ -77,9 +77,9 @@ Search/read adapters are included. Optional Exa Agent, Parallel Task and Tavily 
 
 Optional service failures appear under `setup.needs_attention` and do not block local work or other providers. Native install or setup failures return nonzero, with installation and setup status reported separately. Historical versions without setup can still install without requesting that newer feature.
 
-## Local checkout or ZIP
+## Source development and historical ZIPs
 
-Published ZIPs and test packs appear on [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases). Local 0.4.0 validation is recorded separately in [validation](validation-0.4.0.md). Preserve hidden `.codex-plugin/` and `.agents/` directories when extracting.
+GitHub [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases) retain historical artifacts. New release candidates are npm `.tgz` packages. ZIP/export helpers remain available for local development and tests; they are not a second release channel. Preserve required plugin manifests when extracting a historical package.
 
 From a checkout or ZIP containing the installer:
 
@@ -102,7 +102,8 @@ For an older Git marketplace, Codex retains its registration and ref. The instal
 | `install --source PATH` | Selects another valid local marketplace root. |
 | `install --source owner/repo --ref TAG` | Exports the chosen Git ref and registers the clean bundle. |
 | `install --dry-run` | Prints the planned commands after checking registration. |
-| `update` | Refreshes the registered Git source/ref, or reinstalls current local files. |
+| `install --source npm:bookmark-research[@VERSION]` | Installs the shared npm release for the selected host. |
+| `update` | Re-fetches the recorded npm selector, refreshes the Git source/ref, or reinstalls local files. |
 | `verify` | Checks enabled registration, cache version, FTS5 and MCP initialization/tool discovery. |
 
 The Python installer accepts the same host/setup flags. `verify --installed-path PATH` is Codex-only. Verification uses an isolated store, does not import bookmarks, and does not test provider authentication. Stdout stays JSON; prompts use the terminal and diagnostics use stderr. The setup stage persists only selected preferences; unreadable settings are reported and preserved.
@@ -180,7 +181,7 @@ python3 scripts/install.py install --host dsh --profile web
 python3 scripts/install.py verify --host dsh --profile web
 ```
 
-The installer exports a relocatable `dsh.bundle` and calls `dsh plugin --profile web add PATH`. `dsh plugin` delegates to pnpm, so install it first (`npm install -g pnpm` or `corepack enable pnpm`); without it the installer stops before creating a profile and the wizard shows DSH as unavailable. The bundle registers the shared Skill and resolves Python/MCP paths from the installed module. The selected profile must provide the Skill registry and official MCP client. For manual distribution, export with `--format dsh` and install the stable export using that native command. The legacy `cordis.patch.yml` still contains absolute paths and requires separate Skill discovery. Workflow execution separately requires the host service/engine; `hosts/dsh/workflow-call.py --research-id RID --run-key KEY` prepares a call without launching it.
+The installer exports a relocatable `dsh.bundle` and calls `dsh plugin --profile web add PATH`. `dsh plugin` delegates to pnpm, so install it first (`npm install -g pnpm` or `corepack enable pnpm`); without it the installer stops before creating a profile and the wizard shows DSH as unavailable. The bundle registers the shared Skill and resolves Python/MCP paths from the installed module. The selected profile must provide the Skill registry and official MCP client. For local development, export with `--format dsh` and install the stable export using that native command. The legacy `cordis.patch.yml` still contains absolute paths and requires separate Skill discovery. Workflow execution separately requires the host service/engine; `hosts/dsh/workflow-call.py --research-id RID --run-key KEY` prepares a call without launching it.
 
 ### Agent Plugins 1.0.0
 

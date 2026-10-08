@@ -6,7 +6,7 @@
 
 支持 **Codex、Claude Code、Pi、DSH（DeepSeek Harness）**。
 
-[安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research) · [Releases](https://github.com/Browser-bookmark-hub/Bookmark-Research/releases)
+[安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
 > [!NOTE]
 > **0.5.0 是测试版。** 遇到问题请到 [GitHub Issues](https://github.com/Browser-bookmark-hub/Bookmark-Research/issues) 反馈。
@@ -15,7 +15,7 @@
 
 - Python 3.9+，含 SQLite FTS5（可用 `bookmark-research doctor` 检查）
 - 至少一个宿主的 CLI：Codex、Claude Code、Pi 或 DSH（DSH 另需 `pnpm`）
-- `bookmark-research` 命令需要 Node 18+；macOS/Linux 上可不用
+- 发布版安装需要 Node 18+ 和 npm（GitHub 便捷脚本也需要）
 - 安装和本地查书签都不需要 API Key
 
 ## 安装
@@ -23,27 +23,27 @@
 **交互安装**（macOS、Linux、Windows）：
 
 ```sh
-npx bookmark-research install
+npx bookmark-research@latest install
 ```
 
 用方向键和空格选择宿主，确认汇总后安装，再选择搜索服务、输入 API Key。装好后新建一个宿主会话。
 
-想一直能用 `bookmark-research` 命令：`npm install -g bookmark-research`。不用 Node（macOS/Linux/WSL）：`curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash`。
+想一直能用 `bookmark-research` 命令：`npm install -g bookmark-research`。GitHub 便捷脚本也使用同一 npm 发布版（macOS/Linux/WSL）：`curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash`。
 
 **指定宿主、不弹提示：**
 
 | 宿主 | 命令 | 实际登记方式 |
 | --- | --- | --- |
-| Codex | `npx bookmark-research install codex --non-interactive` | `codex plugin add` |
-| Claude Code | `npx bookmark-research install claude --scope user --non-interactive` | `claude plugin install` |
-| Pi | `npx bookmark-research install pi --non-interactive` | `pi install` |
-| DSH | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
+| Codex | `npx bookmark-research@latest install codex --non-interactive` | `codex plugin add` |
+| Claude Code | `npx bookmark-research@latest install claude --scope user --non-interactive` | `claude plugin install` |
+| Pi | `npx bookmark-research@latest install pi --non-interactive` | `pi install` |
+| DSH | `npx bookmark-research@latest install dsh --profile web --non-interactive` | `dsh plugin add` |
 
-**Codex 原生发布版安装：** GitHub marketplace 选择固定的 npm 发布版，原生安装不会复制整个仓库。见[原生安装](docs/installation.md#使用-codex-原生命令)。未发布的 checkout 改动使用源码安装器。
+**四个宿主统一发布来源：** npm 包包含共享运行时、Skill 和宿主适配。安装器下载发布包，生成所选宿主格式，再调用宿主原生命令；更新记录 npm 来源，不依赖 npx 临时缓存。GitHub 提供源码和安装清单，未发布源码用 Python 安装器。见[发布约定与官方依据](docs/distribution.md)。
 
 **Windows：** Windows 上常常没有能用的 `python3`，所以安装器会把检测到的 Python 路径写进各宿主的 MCP 配置。Codex 请用 `bookmark-research install codex` 安装，不要直接把仓库加进 Codex。`bookmark-research status` 可以查看实际使用的 Python。
 
-一次装多个：`npx bookmark-research install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code、Pi）。全部参数见[安装说明](docs/installation.md)。
+一次装多个：`npx bookmark-research@latest install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code、Pi）。全部参数见[安装说明](docs/installation.md)。
 
 **让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code、Pi 或 DSH：
 
@@ -51,12 +51,12 @@ npx bookmark-research install
 请把 Bookmark Research 插件安装到你当前运行的这个宿主里。
 
 1. 先确认你自己是哪个宿主：codex、claude、pi 或 dsh。
-2. 运行：npx bookmark-research install <宿主> --non-interactive
+2. 运行：npx bookmark-research@latest install <宿主> --non-interactive
    - Claude Code 或 Pi：加 --scope user（或 --scope project --project <目录>）。
    - DSH：加 --profile <名称>；profile 名称请先问我。
 3. 命令会输出 JSON。确认 "verified": true，有 "error" 就告诉我。
 4. 不要在对话里向我要 API Key。请让我在终端运行 `bookmark-research setup`
-   （或 `npx bookmark-research setup`）自己输入。
+   （或 `npx bookmark-research@latest setup`）自己输入。
 5. 提醒我新建一个会话，让 Skill 和 MCP 工具生效。
 ```
 
@@ -72,7 +72,7 @@ npx bookmark-research install
 | 用脚本改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
 
-没有全局安装时，在前面加 `npx`，例如 `npx bookmark-research setup`。
+没有全局安装时，在前面加 `npx`，例如 `npx bookmark-research@latest setup`。
 
 **API Key 都是可选的。** 在 `bookmark-research setup` 里输入（隐藏显示，输完当场检查，保存在仅当前用户可读的本地文件），或者设置环境变量（优先于已保存的 Key）。Key 不接受对话、命令参数或 JSON 文件。
 
@@ -127,7 +127,7 @@ setup 还会问研究报告和证据放在哪里：统一目录（默认 `<数�
 
 ## 更多
 
-- [安装说明](docs/installation.md)：全部安装方式、更新、ZIP 下载
+- [安装说明](docs/installation.md)：全部安装方式、npm 更新与源码开发
 - [使用指南](docs/user-guide.md)：首次使用、三种研究方式、语言
 - [详细说明](docs/details.md)：使用方式、数据包与保存位置、宿主与验证范围、开发
 - [结构与触发流程](docs/bookmark-research-architecture.md)

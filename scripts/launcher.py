@@ -103,6 +103,9 @@ def _split(arguments):
 def _install_action(action, arguments, language):
     import install
     hosts, rest = _split(arguments)
+    if action == "install" and not any(arg == "--source" or arg.startswith("--source=") for arg in rest):
+        from npm_source import DEFAULT_SOURCE
+        rest = [*rest, "--source", DEFAULT_SOURCE]
     if not hosts and action != "install" and "--host" not in rest:
         targets = installed_targets()
         if not targets:

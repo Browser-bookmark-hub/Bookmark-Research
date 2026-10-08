@@ -171,6 +171,34 @@ class HostInstallerTests(unittest.TestCase):
         self.assertNotEqual(first["version"], updated["version"])
         self.assertEqual(first["release_version"], updated["release_version"])
 
+    def test_all_exported_hosts_update_from_npm_after_temporary_download_is_removed(self):
+        from test_npm_source import Registry
+        registry = Registry(self.source)
+        with registry.active():
+            for index, host in enumerate(("claude", "pi", "dsh")):
+                with self.subTest(host=host):
+                    first = self.manage(host, source="npm:bookmark-research")
+                    self.assertEqual(first["source"], {
+                        "sourceType": "npm", "source": "bookmark-research", "ref": "latest"})
+                    self.assertTrue(self.manage(host, "verify")["verified"])
+                    marker = self.source / "src/npm_update_marker.py"
+                    marker.write_text("value = " + repr(host) + "\n")
+                    manifest_path = self.source / ".codex-plugin/plugin.json"
+                    manifest = json.loads(manifest_path.read_text())
+                    manifest["version"] = "99.0." + str(index)
+                    manifest_path.write_text(json.dumps(manifest))
+                    updated = self.manage(host, "update")
+                    self.assertEqual(updated["release_version"], manifest["version"])
+                    self.assertEqual(Path(updated["installed_path"], "src/npm_update_marker.py").read_text(), marker.read_text())
+                    self.assertTrue(self.manage(host, source="npm:bookmark-research")["verified"])
+                    registry.error = True
+                    with self.assertRaisesRegex(RuntimeError, "registry unavailable"):
+                        self.manage(host, "update")
+                    registry.error = False
+                    self.assertTrue(self.manage(host, "verify")["verified"])
+        for call in registry.calls:
+            self.assertFalse(Path(call[call.index("--pack-destination") + 1]).exists())
+
     def test_dry_run_does_not_register_or_create_persistent_state(self):
         for host in ("claude", "pi", "dsh"):
             plan = self.manage(host, dry_run=True)
