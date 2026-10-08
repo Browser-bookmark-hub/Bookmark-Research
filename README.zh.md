@@ -11,6 +11,8 @@
 > [!NOTE]
 > **0.5.0 是测试版。** 遇到问题请到 [GitHub Issues](https://github.com/Browser-bookmark-hub/Bookmark-Research/issues) 反馈。
 
+**发布版统一从 [npm](https://www.npmjs.com/package/bookmark-research) 安装。** GitHub Releases 保留版本说明和 npm 链接，安装包／测试包附件已撤下。GitHub 自动生成的 **Source code** 压缩包是源码快照，不是安装包。
+
 ## 环境要求
 
 - Python 3.9+，含 SQLite FTS5（可用 `bookmark-research doctor` 检查）
@@ -20,7 +22,15 @@
 
 ## 安装
 
-**交互安装**（macOS、Linux、Windows）：
+**当前测试版（`0.5.0-beta.4`）**，支持 macOS、Linux、Windows 交互安装：
+
+```sh
+npx bookmark-research@0.5.0-beta.4 install --source npm:bookmark-research@0.5.0-beta.4
+```
+
+这条命令同时固定安装器和插件内容。下面的 `@latest` 示例使用默认渠道，目前仍为 `0.5.0-beta.3`；`@beta` 当前指向 `0.5.0-beta.4`。只改 npx 的版本选择，不会改变安装器默认下载的内容来源。
+
+**默认渠道的交互安装：**
 
 ```sh
 npx bookmark-research@latest install
@@ -101,6 +111,14 @@ setup 还会问研究报告和证据放在哪里：统一目录（默认 `<数�
 | `index.sqlite3`、`index.sqlite3.sources/` | 书签检索索引，以及导入数据包的托管快照 |
 | `raw-library.sqlite3` | `search_archive` 使用的全文索引，可重建 |
 | `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/` | `settings.json` 和 `credentials.json`（仅当前用户可读） |
+
+## Agent 循环与子代理
+
+宿主模型负责规划、搜索／阅读、评估证据，再追查未解决的问题。Skill 指导这个循环，MCP 保存输入范围、证据、预算和进度；保存研究任务不会启动后台代理。
+
+对于分组报告，插件提供“阅读代理 → 新的验证代理 → 覆盖检查 → 补查 → 报告”的流程。Codex 使用原生子代理和附带的委派指南；Claude Code、DSH 使用已加载的宿主工作流接口；Pi 需要加载相应的子代理／工作流扩展。并发、取消和代理生命周期由宿主管理。每个子代理都需要拿到相关指令，并访问同一个研究存储。
+
+工作流适配已有模拟接口测试，但安装成功不代表所有宿主都已跑通完整的多代理任务。所需条件见[宿主工作流](skills/bookmark-research/references/zh/host-workflows.md)，实际验证范围见[验证记录](docs/validation-0.4.0.md#host-and-provider-boundaries)。
 
 ## 插件包含什么
 

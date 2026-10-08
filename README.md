@@ -11,6 +11,8 @@ Works in **Codex, Claude Code, Pi and DSH (DeepSeek Harness)**.
 > [!NOTE]
 > **0.5.0 is a beta.** Report problems on [GitHub Issues](https://github.com/Browser-bookmark-hub/Bookmark-Research/issues).
 
+**Install releases from [npm](https://www.npmjs.com/package/bookmark-research).** GitHub Releases retain version notes and npm links; downloadable installation/test packages have been withdrawn. GitHub's automatic **Source code** archives are source checkouts, not installation packages.
+
 ## Requirements
 
 - Python 3.9+ with SQLite FTS5 (check with `bookmark-research doctor`)
@@ -20,7 +22,15 @@ Works in **Codex, Claude Code, Pi and DSH (DeepSeek Harness)**.
 
 ## Install
 
-**Interactive** (macOS, Linux, Windows):
+**Current beta (`0.5.0-beta.4`)**, interactive on macOS, Linux and Windows:
+
+```sh
+npx bookmark-research@0.5.0-beta.4 install --source npm:bookmark-research@0.5.0-beta.4
+```
+
+This pins both the installer and the content. The `@latest` examples below follow the default channel, which remains `0.5.0-beta.3`; `@beta` currently points to `0.5.0-beta.4`. Changing only the npx selector does not change the installer's default content source.
+
+**Default-channel interactive installation:**
 
 ```sh
 npx bookmark-research@latest install
@@ -101,6 +111,14 @@ Nothing is written into your bookmark files or the plugin. The data directory is
 | `index.sqlite3`, `index.sqlite3.sources/` | Bookmark search index and managed snapshots of imported packages |
 | `raw-library.sqlite3` | Rebuildable full-text index for `search_archive` |
 | `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/` | `settings.json` and `credentials.json` (private, owner-only) |
+
+## Agent loops and delegation
+
+The host model plans the research, searches or reads pages, evaluates the evidence and follows unresolved questions. The Skill guides this loop; MCP stores inputs, evidence, budgets and progress. Saving a research task does not start a background agent.
+
+For a grouped report, the plugin supplies a reader → fresh verifier → coverage check → follow-up → report workflow. Codex uses its native subagent tools and the bundled delegation guide; Claude Code and DSH use available host workflow hooks, while Pi requires a loaded subagent/workflow extension. The host owns concurrency, cancellation and agent lifetime. All children must receive the relevant instructions and access the same research store.
+
+The workflow adapters have simulated contract tests, but a successful install does not prove that every host can execute the complete multi-agent workflow. See [host workflows](skills/bookmark-research/references/host-workflows.md) for requirements and [the validation matrix](docs/validation-0.4.0.md#host-and-provider-boundaries) for observed limits.
 
 ## What's inside
 

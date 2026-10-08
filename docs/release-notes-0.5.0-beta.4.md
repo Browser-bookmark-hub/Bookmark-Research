@@ -36,4 +36,4 @@ The implementation passed the existing 495-test local suite (one opt-in test ski
 
 Web reading was also exercised: one URL failed through all configured fallback readers; another returned a partial excerpt that could be retrieved from the local archive. This release does not guarantee webpage availability, complete extraction, interpretation of unstated user intent or large-canvas performance. End-to-end Skill triggering across every host and every MCP operation is not established by these tests.
 
-The release artifact is the tested npm tarball, also attached here with its checksum. GitHub's automatically generated source archives are source checkouts, not the installation package. Historical ZIP attachments remain available on earlier releases.
+Install the tested release from [npm](https://www.npmjs.com/package/bookmark-research/v/0.5.0-beta.4). GitHub keeps these version notes and installation catalogs; uploaded installation/test packages and their checksum attachments have been withdrawn from all Releases. GitHub's automatically generated source archives are source checkouts, not installation packages.
