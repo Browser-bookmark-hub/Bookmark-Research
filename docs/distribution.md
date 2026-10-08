@@ -19,6 +19,8 @@
 
 发布顺序：修改源码版本并完成 CI，发布已经验证的 npm 包，确认 registry 可取得该版本，再更新 GitHub marketplace 的固定版本。未发布源码不能通过 npm 入口安装；需要先用源码入口测试。
 
+测试版使用 npm 的 `beta` 标签，并在 GitHub 标记为预发布；不会自动移动 npm 的 `latest` 标签。安装测试版时同时固定安装器与内容来源，例如 `npx bookmark-research@0.5.0-beta.4 install --source npm:bookmark-research@0.5.0-beta.4`。仅将 npx 改为 `@beta` 不会改变默认内容来源 `latest`；已固定的旧版安装也不会自动换成测试版。
+
 ## 官方资料与项目实例
 
 2026-10-08 通过网页搜索并读取以下页面。它们支持多种发行方式，**没有“所有插件都只用 npm”的行业要求**；这里选择 npm 是为了减少本项目的发行分支。
