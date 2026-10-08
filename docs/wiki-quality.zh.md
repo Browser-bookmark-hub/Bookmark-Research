@@ -50,11 +50,13 @@ wiki.write("reusable-sessions", revised_page, "解释新增限制", expected_rev
 | `get(page_id, revision=None)` | 正文、证据快照、更新记录与当前 provenance 核验 |
 | `list(offset=0, limit=20)` | 当前页元数据的分页 |
 | `lint(page_id=None)` | 来源审阅、有效 claim、引文、哈希、链接和历史问题 |
-| `search(query, offset=0, limit=10)` | 匹配当前 Wiki 正文，排除已失效的页 |
+| `search(query, offset=0, limit=10)` | 匹配 Wiki 正文、修订日期及核验状态；排除已失效页，保留 `needs_review` 警告 |
 
 Lint 检测后续来源拒绝、结论撤回、来源／claim 变化和缺失／改动的产物。历史正文保留并标记过时，明确返回 `semantic_support:"not_scored"`。
 
 检索匹配标题、章节标题和整理后的正文，采用忽略大小写的字面词匹配（包含中文子串）及简单出现次数排序。仅保存 provider 摘录不会使它成为可检索的 Wiki 知识。没有 embedding 检索或语义重排，也不会未经实际问答评测就选择它们。
+
+新记录使用相对于研究任务的证据路径。`get` 将已验证引用解析到当前研究位置，兼容旧绝对路径记录，不改写不可变修订；身份、结论、引文与产物哈希仍须一致。迁移时同时保留 Wiki 和引用的研究 state／inventory／证据，保持相对布局以维持 Markdown 链接，并配置目标机器的本地研究路径。仅有 Wiki Markdown 不构成完整可迁移的知识库。
 
 ## 质量评测输入
 

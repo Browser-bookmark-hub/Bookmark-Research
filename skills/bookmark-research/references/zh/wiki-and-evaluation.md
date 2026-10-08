@@ -35,9 +35,11 @@ kind 为 topic 或 entity。每节必须有有效 claim；每页至多 24 个不
 
 先写被引用的实体／主题页，再用 `links:[{page_id,relation}]` 建立关系。更新先 `wiki_get` 读当前 revision，将它作为 `expected_revision` 写入；冲突时重新读取合并，不覆盖他人更新。历史修订和当时引用目标版本保持不变。
 
-`wiki_get` 返回正文、结论与来源映射、书签实例和 inventory ID。`wiki_lint` 检查哈希、撤回／拒绝、源材料变化、链接与版本问题；`semantic_support:"not_scored"` 表示它不是语义裁判。旧证据失效的页保留历史，但 `wiki_search` 不把它作为当前可靠知识返回。
+`wiki_get` 返回正文、结论与来源映射、书签实例和 inventory ID。`wiki_search` 返回修订日期及相同的 `validation` 状态：书签输入变化产生 `needs_review`，仍可检索并带警告；证据失效或被撤回的页面被排除。`wiki_lint` 检查哈希、撤回／拒绝、输入变化、链接和版本；`semantic_support:"not_scored"` 表示它不是语义裁判，任何状态都不证明网页目前仍然有效。
 
 `wiki_list` 和 `wiki_search` 分页返回；搜索对象是整理后的标题、章节和正文，采用字面词匹配，可查询中文。保存一份网页正文不会自动写 Wiki；当前不提供 embedding、向量检索、重排或监控。Wiki 默认数据目录 `wiki/`，可通过 `settings.wiki.directory` 改路径，不能放回原包。
+
+新修订记录使用相对于研究任务的证据路径；`wiki_get` 将已验证的证据解析到当前任务位置，旧绝对路径记录也可读取，不改写历史。迁移／同步时同时保留 Wiki 索引、修订及其引用的研究 state、inventory 和证据，并保留相对布局以维持 Markdown 链接。在目标机器配置本地数据／研究路径；仅复制 Wiki Markdown 不足以保留可验证的知识库。Git 同步交给宿主，存放位置避开画布管理目录。
 
 每次写入会重新生成 `index.md`（按 kind 列出当前页面：链接、标题、一行摘要、版本、日期、结论数），并向 `log.md` 追加 `## [日期] write | 标题 (rN)` 及 page ID、修改说明和研究 ID。可阅读或 grep 它们了解全貌；`index.json` 与版本文件仍是准确数据，`index.md` 过期或缺失时 `wiki_lint` 给出 `catalog_stale`／`catalog_missing` 警告，下次写入即重新生成。
 

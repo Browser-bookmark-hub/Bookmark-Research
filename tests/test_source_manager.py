@@ -451,6 +451,10 @@ class SourceManagerTests(unittest.TestCase):
         self.sources.sync(self.package, "study")
         self.assertTrue(research.status(rid)["source_freshness"]["requires_review"])
         self.assertEqual(wiki.get("alpha")["validation"]["status"], "needs_review")
+        result = wiki.search("Alpha")["results"][0]
+        self.assertEqual(result["validation"]["status"], "needs_review")
+        self.assertTrue(any(issue["code"] == "source_input_changed" for issue in result["validation"]["issues"]))
+        self.assertEqual(result["updated_at"], written["updated_at"])
         self.assertEqual(inventory_path.read_bytes(), frozen)
         for path, raw in artifacts.items():
             self.assertEqual(Path(path).read_bytes(), raw)

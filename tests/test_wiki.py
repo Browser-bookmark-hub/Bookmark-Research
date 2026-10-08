@@ -3,6 +3,7 @@
 import copy
 import json
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -88,6 +89,63 @@ class WikiTests(unittest.TestCase):
                 self.assertTrue((markdown.parent / target).is_file(), target)
         self.assertEqual(self.engine.fetch.call_count, 1)
         self.engine.search.assert_not_called()
+
+    def test_wiki_and_evidence_remain_readable_after_relocation(self):
+        self.review()
+        written = self.wiki.write("sessions", self.page(), "Initial page")
+        original = self.wiki.get("sessions")
+        record = json.loads(Path(written["artifacts"]["record_file"]).read_text())
+        self.assertFalse(Path(record["evidence"][0]["citations"][0]["body_file"]).is_absolute())
+        self.wiki.write("sessions", self.page(title="Revised sessions"), "Revise title", expected_revision=1)
+        snapshots = {path.relative_to(self.wiki.directory): path.read_bytes()
+                     for path in self.wiki.directory.rglob("*") if path.is_file()}
+        moved = self.root / "moved"
+        moved.mkdir()
+        shutil.move(str(self.research.directory), moved / "research")
+        shutil.move(str(self.wiki.directory), moved / "wiki")
+        research = ResearchSessions(moved / "research", settings=self.settings, db_path=moved / "index.sqlite3")
+        wiki = WikiStore(moved / "wiki", settings=self.settings, research_sessions=research)
+        page = wiki.get("sessions", revision=1)
+        self.assertEqual(page["page"], original["page"])
+        self.assertEqual(page["validation"]["status"], "current")
+        citation = page["evidence"][0]["citations"][0]
+        for key in ("body_file", "manifest_file", "response_file"):
+            self.assertTrue(Path(citation[key]).is_file())
+            self.assertIn(research.directory, Path(citation[key]).parents)
+        self.assertIn(citation["quote"], Path(citation["body_file"]).read_text())
+        search = wiki.search("reusable")
+        self.assertEqual(search["total"], 1)
+        self.assertEqual(search["results"][0]["validation"]["status"], "current")
+        self.assertEqual(wiki.lint()["status"], "ok")
+        self.assertEqual({path.relative_to(wiki.directory): path.read_bytes()
+                          for path in wiki.directory.rglob("*") if path.is_file()}, snapshots)
+        Path(citation["body_file"]).write_text("Changed evidence after moving.")
+        self.assertEqual(wiki.get("sessions")["validation"]["status"], "stale")
+        self.assertEqual(wiki.search("reusable")["total"], 0)
+
+    def test_legacy_absolute_evidence_paths_are_resolved_without_rewriting_history(self):
+        self.review()
+        evidence = self.wiki._evidence
+        def legacy_evidence(research_id, claim_id, cache):
+            value = evidence(research_id, claim_id, cache)
+            for citation in value["citations"]:
+                for key in ("body_file", "manifest_file", "response_file"):
+                    citation[key] = str((self.research._path(research_id) / citation[key]).resolve())
+            return value
+        # Publish a real revision using the old absolute-path representation.
+        with patch.object(self.wiki, "_evidence", side_effect=legacy_evidence):
+            written = self.wiki.write("sessions", self.page(), "Legacy page")
+        snapshot = Path(written["artifacts"]["record_file"]).read_bytes()
+        path, _ = self.research._load(self.rid)
+        moved = self.root / "elsewhere" / self.rid
+        moved.parent.mkdir()
+        shutil.move(str(path), moved)
+        research = ResearchSessions(moved.parent, settings=self.settings, db_path=self.root / "new-index.sqlite3")
+        wiki = WikiStore(self.wiki.directory, settings=self.settings, research_sessions=research)
+        page = wiki.get("sessions")
+        self.assertEqual(page["validation"]["status"], "current")
+        self.assertIn(str(moved.resolve()), page["evidence"][0]["citations"][0]["body_file"])
+        self.assertEqual(Path(written["artifacts"]["record_file"]).read_bytes(), snapshot)
 
     def test_incremental_revisions_and_crosslinks_keep_history_readable(self):
         self.review()

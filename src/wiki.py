@@ -24,6 +24,7 @@ class WikiStore:
     """Publish immutable revisions, then atomically advance the current index."""
 
     MAX_RECORD_BYTES = 900000
+    ARTIFACT_FIELDS = ("body_file", "manifest_file", "response_file")
     REVIEW_RUBRIC = (
         "Check that each section is supported by its cited claims, preserves scope and uncertainty, "
         "identifies the correct entities, and does not conceal contrary evidence. "
@@ -146,8 +147,7 @@ class WikiStore:
                 raise ValueError("Wiki requires an accepted source review: " + source["id"])
             if citation["source_sha256"] != source["sha256"] or citation["quote"] not in self.research._body(path, source):
                 raise ValueError("Wiki citation no longer matches saved evidence")
-            artifacts = {key: self.research._artifact(path, source[key])
-                         for key in ("body_file", "manifest_file", "response_file")}
+            artifacts = {key: self.research._artifact(path, source[key]) for key in self.ARTIFACT_FIELDS}
             artifact_hashes = {key: hashlib.sha256(value.read_bytes()).hexdigest() for key, value in artifacts.items()}
             citations.append({
                 "source_id": source["id"], "inventory_ids": source.get("inventory_ids", []),
@@ -156,28 +156,37 @@ class WikiStore:
                 "provider": source["provider"], "retrieved_at": source["retrieved_at"],
                 "review": copy.deepcopy(source["review"]),
                 "content_kind": source["content_kind"], "provenance": copy.deepcopy(source.get("provenance")),
-                "artifact_sha256": artifact_hashes, **{key: str(value) for key, value in artifacts.items()}
+                "artifact_sha256": artifact_hashes,
+                **{key: value.relative_to(path).as_posix() for key, value in artifacts.items()}
             })
         if not citations:
             raise ValueError("Wiki claims require saved citations")
         return {"research_id": research_id, "claim_id": claim_id, "statement": claim["statement"],
                 "confidence": claim["confidence"], "inference": claim["inference"], "citations": citations}
 
-    def _issues(self, record, index, cache=None):
+    def _issues(self, record, index, cache=None, resolve_paths=False):
         cache = {} if cache is None else cache
         issues = []
         for saved in record["evidence"]:
             try:
                 current = self._evidence(saved["research_id"], saved["claim_id"], cache)
-                # A revised review explanation is allowed; the accepted verdict,
-                # source identity, quote, content hash and claim must still hold.
+                # Locations and review explanations may change. Stable IDs,
+                # accepted verdicts, quotes, content and artifact hashes must hold.
                 def substantive(value):
                     value = copy.deepcopy(value)
                     for citation in value["citations"]:
-                        citation.pop("review", None)
+                        for key in ("review", *self.ARTIFACT_FIELDS):
+                            citation.pop(key, None)
                     return value
                 if substantive(current) != substantive(saved):
                     raise ValueError("Claim or source mapping changed after Wiki publication")
+                if resolve_paths:
+                    # Resolve only verified evidence for this returned view;
+                    # immutable records (including legacy absolute paths) stay intact.
+                    path = cache[saved["research_id"]][0]
+                    for previous, now in zip(saved["citations"], current["citations"]):
+                        for key in self.ARTIFACT_FIELDS:
+                            previous[key] = str(self.research._artifact(path, now[key]))
             except (OSError, ValueError, KeyError, TypeError) as error:
                 issues.append({"severity": "error", "code": "invalid_evidence", "research_id": saved["research_id"],
                                "claim_id": saved["claim_id"], "message": str(error)[:1000]})
@@ -322,6 +331,12 @@ class WikiStore:
     def _artifacts(self, pointer):
         return {key: str(self._path(pointer[key])) for key in ("record_file", "markdown_file")}
 
+    @staticmethod
+    def _validation(issues):
+        return {"status": "stale" if any(item["severity"] == "error" for item in issues) else
+                          "needs_review" if any(item["code"] == "source_input_changed" for item in issues) else "current",
+                "issues": issues, "semantic_review": "caller_declared; not evaluated by lint"}
+
     def get(self, page_id, revision=None):
         page_id = self._slug(page_id)
         if revision is not None:
@@ -333,11 +348,8 @@ class WikiStore:
             if record["page_id"] != page_id:
                 raise ValueError("Wiki revision belongs to a different page")
             if revision is None or record["revision"] == revision:
-                issues = self._issues(record, index)
-                return {**record, "artifacts": self._artifacts(pointer), "validation": {
-                    "status": "stale" if any(item["severity"] == "error" for item in issues) else
-                              "needs_review" if any(item["code"] == "source_input_changed" for item in issues) else "current",
-                    "issues": issues, "semantic_review": "caller_declared; not evaluated by lint"}}
+                issues = self._issues(record, index, resolve_paths=True)
+                return {**record, "artifacts": self._artifacts(pointer), "validation": self._validation(issues)}
             if record["previous"] is not None and record["previous"]["revision"] >= record["revision"]:
                 raise ValueError("Invalid Wiki revision history")
             pointer = record["previous"]
@@ -385,7 +397,8 @@ class WikiStore:
         for page_id, pointer in index["pages"].items():
             try:
                 record = self._revision(pointer)
-                if any(issue["severity"] == "error" for issue in self._issues(record, index, cache)):
+                validation = self._validation(self._issues(record, index, cache))
+                if validation["status"] == "stale":
                     excluded.append(page_id)
                     continue
                 page = record["page"]
@@ -398,6 +411,7 @@ class WikiStore:
                 begin = max(0, min(positions, default=0) - 60)
                 matches.append((rank, {"page_id": page_id, "revision": pointer["revision"], "title": page["title"],
                                       "kind": page["kind"], "snippet": body[begin:begin + 500],
+                                      "updated_at": pointer["updated_at"], "validation": validation,
                                       "artifacts": self._artifacts(pointer)}))
             except (OSError, ValueError, KeyError, TypeError):
                 excluded.append(page_id)
@@ -426,16 +440,18 @@ class WikiStore:
             lines.append("")
         lines.extend(["## Evidence", ""])
         for i, evidence in enumerate(record["evidence"], 1):
+            root = self.research._path(evidence["research_id"])
             lines.extend(["### Evidence %s" % i, "", "%s / %s: %s" %
                           (evidence["research_id"], evidence["claim_id"], evidence["statement"]), ""])
             for citation in evidence["citations"]:
+                artifacts = {key: link(self.research._artifact(root, citation[key])) for key in self.ARTIFACT_FIELDS}
                 lines.extend(["Source %s · %s · Retrieved %s" % (citation["source_id"], citation["url"], citation["retrieved_at"]),
                               "", "Inventory IDs: " + (", ".join(citation["inventory_ids"]) or "Not associated with a frozen inventory"), ""])
                 if (citation["provenance"] or {}).get("kind") == "external_report":
                     lines.extend(["Secondary evidence: an external report. Pages cited by that report have not been read by importing it.", ""])
                 lines.extend("> " + line for line in citation["quote"].splitlines())
                 lines.extend(["", "[Saved text](%s) · [Manifest](%s) · [Response](%s) · SHA-256: `%s`" %
-                              (link(citation["body_file"]), link(citation["manifest_file"]), link(citation["response_file"]),
+                              (artifacts["body_file"], artifacts["manifest_file"], artifacts["response_file"],
                                citation["source_sha256"]), ""])
         lines.extend(["## Update record", "", record["change_note"], ""])
         if record["previous"]:

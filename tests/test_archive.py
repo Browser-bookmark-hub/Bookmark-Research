@@ -161,6 +161,36 @@ class ArchiveTests(unittest.TestCase):
         saved = self.capture(raw, urls)
         self.assertEqual([Path(page["body_path"]).read_text() for page in saved["pages"]], [first_body, second_body])
 
+    def test_fenced_url_examples_remain_page_text_in_archives_and_compact_results(self):
+        urls = ["https://example.test/a", "https://example.test/b"]
+        examples = [
+            "```text\nName: Search MCP\nURL: https://search.example.test/mcp\n```",
+            "~~~markdown\n\n# Example\nURL: https://other.test/example\n\nLiteral body\n~~~",
+            "````markdown\n```\n\n# Nested example\nURL: " + urls[1] + "\n```\n````",
+            "   ```text\n~~~\nURL: not-a-provider-field\n   ````   ",
+        ]
+        for example in examples:
+            with self.subTest(example=example):
+                bodies = ["First article.\n\n" + example + "\n\nEnd of first article.", "Second article."]
+                raw = {"content": [{"type": "text", "text":
+                    "# A\nURL: " + urls[0] + "\n\n" + bodies[0] +
+                    "\n\n# B\nURL: " + urls[1] + "\n\n" + bodies[1]}]}
+                saved = self.capture(raw, urls)
+                self.assertEqual([page["extraction_status"] for page in saved["pages"]], ["extracted"] * 2)
+                self.assertEqual([Path(page["body_path"]).read_text() for page in saved["pages"]], bodies)
+                view = SourceArchive.compact_fetch({"provider": "exa", "urls": urls, "result": raw, "archive": saved})
+                self.assertEqual([page["text"] for page in view["pages"]], bodies)
+                self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
+
+    def test_unclosed_code_fence_keeps_ambiguous_batch_raw(self):
+        urls = ["https://example.test/a", "https://example.test/b"]
+        raw = {"content": [{"type": "text", "text":
+            "# A\nURL: " + urls[0] + "\n\n```markdown\nAn unfinished example.\n\n" +
+            "# B\nURL: " + urls[1] + "\n\nUncertain page boundary."}]}
+        saved = self.capture(raw, urls)
+        self.assertTrue(all(page["body_path"] is None for page in saved["pages"]))
+        self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
+
     def test_exa_indented_multiline_title_is_a_separate_page_boundary(self):
         # Public Exa output can retain line breaks/indentation from a page title.
         # The old single-line header parser assigned B's body to A and lost B.

@@ -1,6 +1,6 @@
 ---
 name: bookmark-research
-description: "Analyze Bookmark Canvas (.canvas, section JSON, directories or ZIPs) as a personal database: find bookmarks, explain card and spatial context, and research linked pages or web topics with citations. Use for local queries, comparisons and scoped research reports; preserves original packages."
+description: "Analyze Bookmark Canvas (.canvas, section JSON, directories or ZIPs) as a personal database: explain bookmarks and spatial context, research linked pages or web topics, and reuse saved research or reviewed Wiki knowledge. Preserves original packages."
 ---
 
 # Bookmark Research
@@ -14,11 +14,14 @@ Use the user's links, package paths or registered sources. Keep original package
 | User request | Start here | Done when |
 | --- | --- | --- |
 | Find/count bookmarks, inspect a card, explain its neighbors or group | Local Canvas workflow below; no web readiness check | The requested items or relationships are explained with IDs, scope and data provenance. |
-| Read a known URL or check a few facts | `quick`: `research_readiness` → `fetch_web` → read returned text | Relevant page evidence answers the question; disclose a failed or incomplete read. |
-| Compare options or investigate an open question | `agentic`: readiness → known-page reads / `search_web` → `fetch_web` → assess → follow gaps | Evidence supports the requested comparison, or remaining gaps are explicit. |
+| Recall earlier findings or personal knowledge missing from this conversation | Saved knowledge workflow below; no web readiness check | Relevant saved conclusions and their evidence are identified, or the retrieval gap is explicit. |
+| Read a known URL or check a few facts | `quick`: readiness → an appropriate existing reader / `fetch_web` → assess returned text | Relevant page evidence answers the question; disclose a failed or incomplete read. |
+| Compare options or investigate an open question | `agentic`: readiness → suitable documentation/search tools → assess → follow gaps | Evidence supports the requested comparison, or remaining gaps are explicit. |
 | Investigate a whole list/package online, retain progress, or deliver a verifiable research report | `deep`: read [deep research](references/deep-research.md), then `research_start` | Evidence, original-input coverage and report checks pass, or an incomplete report retains the gaps. |
 
 Honor explicit depth, then saved `research.depth`; the table guides `auto`. Scope and depth are separate: “explain this card” does not request web research, and “count the whole package” remains local. Context around a card does not authorize researching every neighboring bookmark. A capabilities question does not start an investigation. The current host model conducts research; professional APIs and subagents are optional.
+
+Choose tools for information the question lacks. Reuse evidence already in the conversation when its scope and date still fit. Rewriting supplied text or continuing a supported explanation needs no retrieval. Current public facts can go directly to current sources; comparing an earlier decision with today's facts may need both saved and web evidence.
 
 Read `get_settings` when saved preferences are unknown. Answer in the requested language, then saved `research.response_language`; `auto` follows the task language. Pass that language to saved briefs and delegates. Read references in one language only.
 
@@ -27,6 +30,14 @@ Read `get_settings` when saved preferences are unknown. Answer in the requested 
 Tool names below are operation names. Resolve them to this plugin's actual, fully qualified tools in the host catalog, for example `mcp__bookmark_research__get_context` in Codex; another host may use another prefix. Inspect the exposed schema before calling and use returned IDs in dependent calls. Do not invent parameters or assume a catalog from another version.
 
 If MCP is unavailable or lacks an operation, use the bundled Python CLI. Resolve `<plugin-root>` as `../..` from this Skill's directory and pass its absolute path: `python3 <plugin-root>/src/cli.py --help`. Read the relevant [CLI commands](references/cli.md) only for that fallback. Pi may use this path without an MCP extension.
+
+## Reuse saved knowledge when needed
+
+Use Wiki when the question needs earlier research or personal knowledge absent from the current context. Topic overlap alone does not require a lookup. The host makes this choice during the task; there is no mandatory Wiki-first step or separate background agent.
+
+For a known page ID, use `wiki_get` directly. Otherwise extract distinctive terms, such as `RAG MCP` or a Chinese topic phrase, for `wiki_search`: it matches literal terms, not a full natural-language question. Read relevant hits with `wiki_get`, checking the cited scope, source dates, bookmark references and `validation`. `needs_review` flags changed bookmark input; assess that change before relying on the old conclusion. A miss can be a vocabulary mismatch; reformulate when saved evidence is still needed.
+
+Use `search_archive` for saved original text and `research_status` to locate a previous task. These read persistent local data, independently of host conversation memory. Repeat retrieval only for missing context, a changed scope/input or a freshness requirement. Read [Wiki and evaluation](references/wiki-and-evaluation.md) for provenance, revisions or a requested write.
 
 ## Read Canvas as a personal database
 
@@ -44,9 +55,11 @@ Example: “What is around card X?” → overview → resolve X → scoped cont
 
 Before a new web investigation, call `research_readiness` with the actual host, observed tools and any explicitly restricted providers. Reuse checks within that investigation; configured keys, catalog reachability, retrieval and host OAuth are different statuses. For a connection/auth failure, inspect the affected route. Use CLI `setup` and [settings guidance](references/settings-and-archive.md) when remediation is needed; never request keys in chat.
 
-For known URLs, call `fetch_web({urls:[...]})`. For discovery, call `search_web({targets:[{target:"question",query:"public search terms"}],limit_per_target:5})`, select relevant results, then fetch them. Search snippets are discovery evidence, not a page read. Omit provider options to use saved defaults and fallbacks; an explicit provider choice stays binding. Optional service failures do not block other available routes.
+For API/SDK or repository questions, prefer an appropriate documentation or file-reading tool already available in the host. For known URLs, use an existing reader or `fetch_web({urls:[...]})`; for discovery use `search_web({targets:[{target:"question",query:"public search terms"}],limit_per_target:5})`. A narrow lookup usually needs one suitable route; broaden for evidence gaps or requested comparisons. Use existing per-call provider options or saved defaults, honoring the user's provider selections. Optional service failures do not block other available routes.
 
-Read `fetch_web.pages[].text` or its archived body. Check page identity, relevant passages, date/version and whether the text supports the claim; inspect completeness and archive errors. Reuse `search_archive` hits when their retrieval dates suit the question. If evidence is irrelevant or insufficient, follow up only on the unresolved URL/question with another permitted reader or an original document. Stop when the requested answer is supported or explain the remaining limit. Cite the actual source URL.
+Assess the material actually returned. Titles and search summaries guide discovery; source excerpts or code with an attributable URL may already answer a narrow question. Check identity, relevant passages, date/version and support; an excerpt does not establish a full-page read. Read `fetch_web.pages[].text` or its archived body when needed, and fetch more only for missing context, insufficient evidence or freshness. Stop when the requested answer is supported or explain the remaining limit. Cite the actual source URL.
+
+`fetch_web` archives its responses according to saved settings. Host-native results are not intercepted: when evidence retention is needed, use `research_import_evidence` with the actual text and provenance in the relevant research task. Already saved text can be found with `search_archive`. Archiving and Wiki synthesis are separate; saving evidence does not require compiling every answer into a Wiki page.
 
 Read [research methods](references/research-methods.md) for systematic comparisons or conflicts, [provider access](references/research-workflow.md) for retrieval diagnosis, and [GitHub boundaries](references/github-and-sync.md) for repository/private-access or synchronization tasks.
 

@@ -151,6 +151,24 @@ class SourceArchive:
             rows.extend(cls._text_rows(text))
         return rows
 
+    @staticmethod
+    def _boundary_text(text):
+        """Mask fenced examples without shifting offsets into the original text."""
+        lines, fence = [], None
+        for line in text.splitlines(keepends=True):
+            marker = re.match(r" {0,3}(`{3,}|~{3,})([^\r\n]*)", line)
+            masked = fence is not None
+            if fence is not None:
+                if (marker and marker[1][0] == fence[0] and len(marker[1]) >= fence[1]
+                        and not marker[2].strip()):
+                    fence = None
+            elif marker and (marker[1][0] == "~" or "`" not in marker[2]):
+                fence = (marker[1][0], len(marker[1]))
+                masked = True
+            lines.append(re.sub(r"[^\r\n]", " ", line) if masked else line)
+        # A truncated example could contain what looks like the next page header.
+        return None if fence is not None else "".join(lines)
+
     @classmethod
     def _text_rows(cls, text):
         rows = []
@@ -168,11 +186,14 @@ class SourceArchive:
         # cannot be silently attributed to the preceding requested URL.
         # Titles may retain indented continuation lines from the source HTML.
         # Records must start the block or follow the provider's blank separator.
+        boundary_text = cls._boundary_text(text)
+        if boundary_text is None:
+            return rows
         header = r"(?:\A|\n\n)(?:# |Title: )([^\n]+(?:\n[ \t][^\n]*)*)\nURL: (https?://[^\s]+)\n"
-        matches = list(re.finditer(header, text))
+        matches = list(re.finditer(header, boundary_text))
         # A missed or malformed URL field could hide the next page boundary.
         # Keep the whole block raw instead of assigning that page to its neighbor.
-        fields = [match.start() for match in re.finditer(r"(?m)^[ \t]*URL:", text)]
+        fields = [match.start() for match in re.finditer(r"(?m)^[ \t]*URL:", boundary_text)]
         matched_fields = [match.start(2) - len("URL: ") for match in matches]
         if fields != matched_fields:
             return rows
@@ -185,7 +206,7 @@ class SourceArchive:
         for index, match in enumerate(matches):
             end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             body = text[match.end():end]
-            row = {"url": match.group(2), "title": match.group(1)}
+            row = {"url": match.group(2), "title": text[match.start(1):match.end(1)]}
             metadata = re.match(r"(?:(?:Published|Author): [^\n]*\n)*\n", body)
             if metadata:
                 for line in metadata.group().splitlines():

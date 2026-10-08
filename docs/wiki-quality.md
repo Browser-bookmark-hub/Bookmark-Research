@@ -50,11 +50,13 @@ Cross-links have the form `{"page_id": "existing-page", "relation": "The host's 
 | `get(page_id, revision=None)` | Authored page, evidence snapshot, update record and current provenance validation |
 | `list(offset=0, limit=20)` | Paginated current page metadata |
 | `lint(page_id=None)` | Source review, active-claim, citation, hash, link and history issues |
-| `search(query, offset=0, limit=10)` | Matching current Wiki prose, with stale pages excluded |
+| `search(query, offset=0, limit=10)` | Matching Wiki prose, revision dates and validation; stale pages excluded, `needs_review` warnings retained |
 
 Lint detects later rejection, withdrawal, source/claim changes and altered or missing artifacts. Historical text is preserved and identified as stale. Lint explicitly returns `semantic_support: "not_scored"`.
 
 Search checks titles, section headings and authored section text. It uses case-folded literal terms, including Chinese substrings, and simple occurrence ordering. Saving a provider extract alone does not make that extract searchable as organized Wiki knowledge. This is not embedding retrieval or semantic reranking; neither is selected without actual question-answering evaluation.
+
+New records use research-task-relative evidence paths. `get` resolves verified references at current research locations, including legacy records containing absolute paths, without rewriting immutable revisions. Identity, claim, quote and artifact hashes remain mandatory. Move the Wiki and cited research state/inventory/evidence together; preserve their relative layout for Markdown links and configure local research paths at the destination. Wiki Markdown alone is not a complete portable knowledge base.
 
 ## Quality evaluation input
 
