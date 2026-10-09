@@ -22,13 +22,13 @@
 
 ## 安装
 
-**当前测试版（`0.5.0-beta.5`）**，支持 macOS、Linux、Windows 交互安装：
+**当前测试版（`0.5.0-beta.7`）**，支持 macOS、Linux、Windows 交互安装：
 
 ```sh
-npx bookmark-research@0.5.0-beta.5 install --source npm:bookmark-research@0.5.0-beta.5
+npx bookmark-research@0.5.0-beta.7 install --source npm:bookmark-research@0.5.0-beta.7
 ```
 
-这条命令同时固定安装器和插件内容。下面的 `@latest` 示例使用默认渠道，目前仍为 `0.5.0-beta.3`；`@beta` 当前指向 `0.5.0-beta.5`。只改 npx 的版本选择，不会改变安装器默认下载的内容来源。
+这条命令同时固定安装器和插件内容。下面的 `@latest` 示例使用默认渠道，目前仍为 `0.5.0-beta.3`；`@beta` 当前指向 `0.5.0-beta.7`。只改 npx 的版本选择，不会改变安装器默认下载的内容来源。
 
 **默认渠道的交互安装：**
 
@@ -50,6 +50,8 @@ npx bookmark-research@latest install
 | DSH | `npx bookmark-research@latest install dsh --profile web --non-interactive` | `dsh plugin add` |
 
 **四个宿主统一发布来源：** npm 包包含共享运行时、Skill 和宿主适配。安装器下载发布包，生成所选宿主格式，再调用宿主原生命令；更新记录 npm 来源，不依赖 npx 临时缓存。GitHub 提供源码和安装清单，未发布源码用 Python 安装器。见[发布约定与官方依据](docs/distribution.md)。
+
+**DSH 可直接安装发布包：** 发布包声明 `dsh.bundle.patch`，`dsh plugin --profile <名称> add bookmark-research@<版本>`（或 DSH 插件管理界面）无需先导出即可安装，Python 与 MCP 路径按安装位置解析。DeepSeek Harness 桌面版把 `desktop` profile 保留给自身载体，该 profile 请用桌面版自带 CLI 安装。详见[安装说明](docs/installation.md)。
 
 **Windows：** Windows 上常常没有能用的 `python3`，所以安装器会把检测到的 Python 路径写进各宿主的 MCP 配置。Codex 请用 `bookmark-research install codex` 安装，不要直接把仓库加进 Codex。`bookmark-research status` 可以查看实际使用的 Python。
 
@@ -127,7 +129,7 @@ setup 还会问研究报告和证据放在哪里：统一目录（默认 `<数�
 | 层 | 组成 | 运行方式 | 需要配置 |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) 及 11 份方法参考，每份都有[中文版](skills/bookmark-research/references/zh/skill-guide.md) | 由宿主加载 | 不需要 |
-| 本地 MCP | `bookmark-research`，37 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
+| 本地 MCP | `bookmark-research`，40 个工具（见下表；随能力增长） | 宿主启动的 Python 进程 | 安装器自动完成 |
 | 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取）、[Tavily](https://tavily.com)（备用搜索） | HTTPS，不启动本地进程 | 可选 API Key |
 | 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索） | HTTPS | 可选 `JINA_API_KEY` |
 | 可选的宿主 MCP | Exa Agent、Parallel Task MCP、Tavily Research | 需自行加到宿主里 | `bookmark-research setup` 会给出步骤 |
@@ -136,12 +138,12 @@ setup 还会问研究报告和证据放在哪里：统一目录（默认 `<数�
 
 | 分类 | 工具 |
 | --- | --- |
-| 书签 | `sync_package`、`index_status`、`source_history`、`search_bookmarks`、`get_context` |
+| 书签 | `sync_package`、`index_status`、`source_history`、`source_remove`、`source_merge`、`search_bookmarks`、`get_context` |
 | 网页 | `search_web`、`fetch_web`、`search_archive`、`search_providers` |
 | 研究 | `research_readiness`、`research_start`、`research_status`、`research_search`、`research_fetch`、`research_source`、`research_record`、`research_inventory`、`research_coverage`、`research_import_evidence`、`research_finish`、`research_route` |
 | 专业研究服务（可选） | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach`、`_import` |
 | 设置 | `get_settings`、`update_settings` |
-| Wiki 与评测 | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search`、`wiki_lint`、`evaluate_research` |
+| Wiki 与评测 | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search`、`wiki_lint`、`wiki_acknowledge`、`evaluate_research` |
 
 ## 更多
 

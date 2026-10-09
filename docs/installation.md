@@ -237,14 +237,23 @@ pi_subagent_workflow({action:"run",name:"bookmark-research",args:{research_id:"R
 
 ### DSH / DeepSeek Harness
 
-所选 DSH profile 需提供 Skill registry 和官方 `@deepseek-ai/dsh-mcp-client`。`dsh plugin` 由 pnpm 执行，请先安装（`npm install -g pnpm` 或 `corepack enable pnpm`）；缺少时安装器会在创建 profile 前停止，向导中 DSH 显示为不可选。统一安装器生成可搬移的 `dsh.bundle`，调用原生 `dsh plugin --profile web add PATH`，注册 Skill 并从安装后位置解析 Python／MCP 路径：
+所选 DSH profile 需提供 Skill registry 和官方 `@deepseek-ai/dsh-mcp-client`。发布包自带 `bundle.patch.yml` 并声明 `dsh.bundle.patch`，因此除统一安装器之外，也可以直接从 registry 安装：`dsh plugin --profile <name> add bookmark-research@VERSION`，或在 DSH 插件管理界面按同一个 spec 安装；DSH 会把声明了 `dsh.bundle` 且 patch 存在的包自动加入 `dsh.profile.bundles`。层内不写死本机路径，Python 解释器、工作目录、MCP 参数与环境转发都由入口模块按安装位置解析。
+
+统一安装器生成可搬移的 `dsh.bundle`，调用原生 `dsh plugin --profile web add PATH`，注册 Skill 并从安装后位置解析 Python／MCP 路径：
 
 ```sh
 python3 scripts/install.py install --host dsh --profile web
 python3 scripts/install.py verify --host dsh --profile web
 ```
 
-手动分发时使用 `export_bundle.py --format dsh`，再用上述原生命令安装稳定导出目录。保留的旧 `cordis.patch.yml` 仍含绝对路径，需单独配置 Skill 发现；移动后应重新生成。多组研究另需 workflow service、worker-thread engine 和 `workflow` tool。参见 [官方 MCP client 文档](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md)。
+`dsh plugin` 由 pnpm 执行：通用 CLI 需要 PATH 中的 pnpm（`npm install -g pnpm` 或 `corepack enable pnpm`），缺少时安装器在创建 profile 前停止；DSH 桌面版 CLI 自带 pnpm，无需另装。桌面版把 profile 名 `desktop` 保留给 Electron 载体，其启动器对该名字拒绝 boot／dump，因此用桌面版自带 CLI 安装，验证改为读取持久层而非 `--dump-config`：
+
+```sh
+python3 scripts/install.py install --host dsh --profile desktop \
+  --dsh "<DSH 应用>/Contents/Resources/runtime/cli/bin/dsh"
+```
+
+手动分发时使用 `export_bundle.py --format dsh`，再用上述原生命令安装稳定导出目录；不含该层的旧发布包或旧 Git ref 仍会按模块的旧契约生成等价层。保留的旧 `cordis.patch.yml` 仍含绝对路径，需单独配置 Skill 发现；移动后应重新生成。多组研究另需 workflow service、worker-thread engine 和 `workflow` tool。参见 [官方 MCP client 文档](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md)。
 
 生成可直接传给宿主 `workflow` 工具的完整 JSON：
 

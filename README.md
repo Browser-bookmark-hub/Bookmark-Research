@@ -22,13 +22,13 @@ Works in **Codex, Claude Code, Pi and DSH (DeepSeek Harness)**.
 
 ## Install
 
-**Current beta (`0.5.0-beta.5`)**, interactive on macOS, Linux and Windows:
+**Current beta (`0.5.0-beta.7`)**, interactive on macOS, Linux and Windows:
 
 ```sh
-npx bookmark-research@0.5.0-beta.5 install --source npm:bookmark-research@0.5.0-beta.5
+npx bookmark-research@0.5.0-beta.7 install --source npm:bookmark-research@0.5.0-beta.7
 ```
 
-This pins both the installer and the content. The `@latest` examples below follow the default channel, which remains `0.5.0-beta.3`; `@beta` currently points to `0.5.0-beta.5`. Changing only the npx selector does not change the installer's default content source.
+This pins both the installer and the content. The `@latest` examples below follow the default channel, which remains `0.5.0-beta.3`; `@beta` currently points to `0.5.0-beta.7`. Changing only the npx selector does not change the installer's default content source.
 
 **Default-channel interactive installation:**
 
@@ -50,6 +50,8 @@ For a permanent `bookmark-research` command: `npm install -g bookmark-research`.
 | DSH | `npx bookmark-research@latest install dsh --profile web --non-interactive` | `dsh plugin add` |
 
 **One release source for all four hosts:** npm contains the shared runtime, Skill and host adapters. The installer downloads the release, prepares the selected host format, then invokes the host’s native commands. Updates retain an npm selector rather than an npx cache path. GitHub hosts source and installation catalogs; unpublished source uses the Python installer. See [distribution policy and official references](docs/distribution.md).
+
+**DSH installs the release directly:** the published package declares `dsh.bundle.patch`, so `dsh plugin --profile <name> add bookmark-research@<version>` — or the DSH plugin manager — installs it with no export first, resolving Python and MCP paths from the installed package. DeepSeek Harness Desktop reserves the `desktop` profile for its own carrier, so install that one with the app's CLI. See the [installation guide](docs/installation.en.md).
 
 **Windows:** the installer writes the detected Python path into each client's MCP config, because Windows often has no working `python3`. Install Codex with `bookmark-research install codex` rather than adding the repository to Codex directly. `bookmark-research status` shows the interpreter in use.
 
@@ -127,7 +129,7 @@ A bundle of one Skill, one local MCP server, and the remote MCPs and services th
 | Layer | Component | Runs as | Setup |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) and 11 method references, each with a [Chinese copy](skills/bookmark-research/references/zh/skill-guide.md) | Loaded by the client | None |
-| Local MCP | `bookmark-research`, 37 tools (below) | Python process started by the client | Installed for you |
+| Local MCP | `bookmark-research`, 40 tools (below; the list grows with capabilities) | Python process started by the client | Installed for you |
 | Remote MCPs, called by the local MCP | [Exa](https://exa.ai) (search, page reading), [Parallel](https://parallel.ai) (search, fallback reading), [Tavily](https://tavily.com) (search fallback) | HTTPS, no local process | Optional API keys |
 | HTTP service, called by the local MCP | [Jina Reader](https://jina.ai/reader) (fallback reading; search with a key) | HTTPS | Optional `JINA_API_KEY` |
 | Optional client MCPs | Exa Agent, Parallel Task MCP, Tavily Research | Added to your client by you | `bookmark-research setup` shows the steps |
@@ -136,12 +138,12 @@ Local MCP tools:
 
 | Group | Tools |
 | --- | --- |
-| Bookmarks | `sync_package`, `index_status`, `source_history`, `search_bookmarks`, `get_context` |
+| Bookmarks | `sync_package`, `index_status`, `source_history`, `source_remove`, `source_merge`, `search_bookmarks`, `get_context` |
 | Web | `search_web`, `fetch_web`, `search_archive`, `search_providers` |
 | Research | `research_readiness`, `research_start`, `research_status`, `research_search`, `research_fetch`, `research_source`, `research_record`, `research_inventory`, `research_coverage`, `research_import_evidence`, `research_finish`, `research_route` |
 | Research services (optional) | `research_services`, `research_service_prepare`, `_start`, `_status`, `_result`, `_cancel`, `_attach`, `_import` |
 | Settings | `get_settings`, `update_settings` |
-| Wiki and evaluation | `wiki_write`, `wiki_get`, `wiki_list`, `wiki_search`, `wiki_lint`, `evaluate_research` |
+| Wiki and evaluation | `wiki_write`, `wiki_get`, `wiki_list`, `wiki_search`, `wiki_lint`, `wiki_acknowledge`, `evaluate_research` |
 
 Tool descriptions: [details](docs/details.en.md#mcp-tools).
 

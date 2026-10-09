@@ -3,6 +3,7 @@
 import json
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,7 @@ class ExportBundleTests(unittest.TestCase):
         shutil.copytree(ROOT / ".codex-plugin", self.source / ".codex-plugin")
         shutil.copytree(ROOT / "hosts", self.source / "hosts")
         shutil.copy2(ROOT / "LICENSE", self.source / "LICENSE")
+        shutil.copy2(ROOT / export_bundle.BUNDLE_PATCH, self.source / export_bundle.BUNDLE_PATCH)
         self.outside = self.base / "outside"
         self.outside.mkdir()
         self.data = self.base / "shared-data"
@@ -125,6 +127,43 @@ class ExportBundleTests(unittest.TestCase):
                     self.assertNotIn("${", patch)
                     self.assertNotIn("--db", patch)
                     self.assertIn("absolute local paths", (output / "README.md").read_text(encoding="utf-8"))
+
+    def test_dsh_release_layer_is_copied_and_registry_installable(self):
+        output = self.base / "dsh release"
+        result = export_bundle.export_bundle("dsh", output, self.source)
+        self.assertEqual(result["adapter"]["bundle_patch"], "committed")
+        root_manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        manifest = self.read_json(output, "package.json")
+        self.assertEqual(manifest["dsh"], root_manifest["dsh"])
+        self.assertEqual(manifest["main"], root_manifest["main"])
+        self.assertEqual((output / export_bundle.BUNDLE_PATCH).read_bytes(),
+                         (ROOT / export_bundle.BUNDLE_PATCH).read_bytes())
+        # The entry module is ESM through a subdirectory scope, because the package
+        # root still ships a CommonJS bin and the pi field.
+        self.assertEqual(self.read_json(output, "hosts/dsh/package.json"), {"type": "module"})
+        self.assertNotIn("type", root_manifest)
+        patch = (output / export_bundle.BUNDLE_PATCH).read_text(encoding="utf-8")
+        self.assertNotIn(str(self.base), patch)
+        for reference in ("python.command", "mcpArgs", "root", "env"):
+            self.assertIn("!!js ctx.bookmarkResearchPaths." + reference, patch)
+        # Forwarded variables stay in step with the manifest every host reads.
+        native = json.loads((ROOT / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
+        module = (output / "hosts/dsh/plugin.js").read_text(encoding="utf-8")
+        forwarded = re.search(r"const FORWARDED_ENV = \[(.*?)\];", module, re.DOTALL)[1]
+        self.assertEqual([line.strip().strip('",') for line in forwarded.strip().splitlines()],
+                         native["mcpServers"]["bookmark-research"]["env_vars"])
+
+    def test_dsh_source_without_the_release_layer_still_exports(self):
+        # A published release or Git ref that predates the committed layer keeps
+        # installing: its module provides only root and cli.
+        (self.source / export_bundle.BUNDLE_PATCH).unlink()
+        output = self.base / "dsh older source"
+        result = export_bundle.export_bundle("dsh", output, self.source)
+        self.assertEqual(result["adapter"]["bundle_patch"], "generated")
+        patch = (output / export_bundle.BUNDLE_PATCH).read_text(encoding="utf-8")
+        self.assertIn("ctx.bookmarkResearchPaths.cli", patch)
+        self.assertIn("'serve'", patch)
+        self.assertIn("name: '@deepseek-ai/dsh-mcp-client'", patch)
 
     def test_exports_run_without_the_original_source_or_current_directory(self):
         outputs = [self.export(name) for name in export_bundle.FORMATS]

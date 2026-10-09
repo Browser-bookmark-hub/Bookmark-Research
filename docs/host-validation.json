@@ -294,5 +294,47 @@
       "Codex feature state and Claude manifest validation do not prove native tools or account access in an arbitrary session.",
       "Local correlation IDs beginning local: are not native host run IDs."
     ]
+  },
+  "host_install_review": {
+    "checked_on": "2026-10-08",
+    "host": "dsh",
+    "profile": "desktop",
+    "runtime_version": "0.2.0-rc.2",
+    "package_version": "0.5.0-beta.6",
+    "methods": [
+      "scripts/install.py install --host dsh --profile desktop with the managed export from this source tree",
+      "dsh plugin --profile <throwaway> add <packed release tarball> (registry-equivalent spec)",
+      "dsh plugin --profile desktop add bookmark-research@0.5.0-beta.6 (published registry release)"
+    ],
+    "observed": {
+      "bundle_selected_into_profile": true,
+      "skill_registered_in_host": true,
+      "mcp_tools_listed": 37,
+      "mcp_child_resolved_to_installed_package": true,
+      "composed_rows": [
+        "bookmark-research-skill",
+        "bookmark-research-mcp"
+      ],
+      "desktop_profile_dump_refused": true,
+      "managed_receipt_state": "verified",
+      "managed_export_files": 71,
+      "unit_tests_passed": 506,
+      "temporary_test_profile_removed": true
+    },
+    "published_release": {
+      "version": "0.5.0-beta.6",
+      "dist_tag": "beta",
+      "tarball_shasum": "7b9a11c7ef89ae9bba442b0b59b9e5ad8d5c0242",
+      "tarball_matches_verified_local_build": true,
+      "ships_dsh_bundle_layer": true,
+      "profile_dependency": "0.5.0-beta.6",
+      "installed_as_real_directory": true,
+      "bundle_selected_by_dsh": true,
+      "mcp_tools_listed_from_installed_copy": 37
+    },
+    "not_verified": [
+      "Windows or Pi installation",
+      "the npm cache permission retry on a failing machine (unit-tested only; this machine used npm_config_cache instead)"
+    ]
   }
 }

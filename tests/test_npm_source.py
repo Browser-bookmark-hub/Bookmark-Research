@@ -28,6 +28,8 @@ class Registry:
         self.run_original = subprocess.run
         self.error = False
         self.extra = None
+        self.cache_error = False
+        self.cache_retry_ok = True
 
     def run(self, args, **kwargs):
         if args[:2] != ['npm', 'pack']:
@@ -35,6 +37,10 @@ class Registry:
         self.calls.append(args)
         if self.error:
             return subprocess.CompletedProcess(args, 1, '', 'registry unavailable')
+        if self.cache_error and ('--cache' not in args or not self.cache_retry_ok):
+            return subprocess.CompletedProcess(args, 1, '', 'npm error code EPERM\n'
+                                               'npm error Your cache folder contains root-owned files, due to a bug in\n'
+                                               'npm error previous versions of npm which has since been addressed.\n')
         base = Path(args[args.index('--pack-destination') + 1])
         filename = 'bookmark-research.tgz'
         with tarfile.open(base / filename, 'w:gz') as archive:
@@ -107,6 +113,24 @@ class NpmSourceTests(unittest.TestCase):
         with self.registry.active(), self.assertRaisesRegex(RuntimeError, 'registry unavailable'):
             with npm_source.checkout(npm_source.source('npm:bookmark-research'), 20):
                 self.fail('failed registry accepted')
+
+    def test_unwritable_npm_cache_is_retried_in_a_scratch_cache(self):
+        self.registry.cache_error = True
+        with self.registry.active(), npm_source.checkout(npm_source.source('npm:bookmark-research'), 20) as (root, version):
+            self.assertEqual(version, export_bundle.read_plugin_manifest(self.root)['version'])
+            self.assertTrue((root / 'src/cli.py').is_file())
+        self.assertEqual(len(self.registry.calls), 2)
+        self.assertNotIn('--cache', self.registry.calls[0])
+        retry = self.registry.calls[1]
+        self.assertIn('--cache', retry)
+        self.assertTrue(Path(retry[retry.index('--cache') + 1]).is_absolute())
+
+    def test_unwritable_npm_cache_reports_how_to_repair_it(self):
+        self.registry.cache_error = True
+        self.registry.cache_retry_ok = False
+        with self.registry.active(), self.assertRaisesRegex(RuntimeError, 'chown'):
+            with npm_source.checkout(npm_source.source('npm:bookmark-research'), 20):
+                self.fail('unwritable cache accepted')
 
     @unittest.skipUnless(os.environ.get('BOOKMARK_RESEARCH_TEST_PUBLISHED_NPM') == '1' and shutil.which('npm'),
                          'Published release download requires npm and explicit opt-in')

@@ -201,7 +201,7 @@ def _manage(action, client, base, source, ref, dry_run):
         export_bundle(client.host, stage, root, python)
         manifest = read_plugin_manifest(root)
         # Render path-dependent manual instructions for the persistent location.
-        _write_adapter(stage, client.host, bundle, manifest, python)
+        _write_adapter(stage, client.host, bundle, manifest, python, source_root=root)
         content = _files(stage)
         digest = hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
         version = manifest["version"]

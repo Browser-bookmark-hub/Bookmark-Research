@@ -328,10 +328,18 @@ class RawLibrary:
         text = re.sub(r"\s+", " ", text).strip()
         return ("…" if start > 0 else "") + text + ("…" if start + width < len(body) else "")
 
-    def search(self, query, limit=10, offset=0, url=None):
-        """Literal search over saved page text; every term must occur (quoted query = one phrase)."""
+    def search(self, query, limit=10, offset=0, url=None, occurrence_limit=50, occurrence_offset=0):
+        """Literal search over saved page text; every term must occur (quoted query = one phrase).
+
+        Identical bodies are merged by SHA-256, so one result can have many
+        occurrences. Occurrences are paged with ``occurrence_limit`` /
+        ``occurrence_offset``: every result reports the true ``occurrence_count``,
+        whether the page is complete, and the offset that continues it.
+        """
         terms = self._terms(query)
-        for value, label, minimum, maximum in ((limit, "limit", 1, 50), (offset, "offset", 0, 10000000)):
+        for value, label, minimum, maximum in ((limit, "limit", 1, 50), (offset, "offset", 0, 10000000),
+                                               (occurrence_limit, "occurrence_limit", 1, 1000),
+                                               (occurrence_offset, "occurrence_offset", 0, 10000000)):
             if type(value) is not int or not minimum <= value <= maximum:
                 raise ValueError("%s must be between %s and %s" % (label, minimum, maximum))
         if url is not None and (not isinstance(url, str) or not url or len(url) > 2048 or "\x00" in url):
@@ -360,10 +368,14 @@ class RawLibrary:
                                       parameters + [limit, offset]).fetchall()
             results = []
             for sha256, characters, body in rows:
+                count = connection.execute("SELECT COUNT(*) FROM occurrences WHERE sha256 = ?",
+                                           (sha256,)).fetchone()[0]
                 occurrences = []
                 for row in connection.execute(
                         "SELECT kind, capture_id, research_id, source_id, path, url, title, retrieved_at "
-                        "FROM occurrences WHERE sha256 = ? ORDER BY unit, position", (sha256,)):
+                        "FROM occurrences WHERE sha256 = ? "
+                        "ORDER BY (retrieved_at IS NULL), retrieved_at DESC, unit, position "
+                        "LIMIT ? OFFSET ?", (sha256, occurrence_limit, occurrence_offset)):
                     kind, capture_id, research_id, source_id, path, found_url, title, retrieved_at = row
                     entry = {"kind": kind}
                     if kind == "archive":
@@ -372,17 +384,23 @@ class RawLibrary:
                         entry.update(research_id=research_id, source_id=source_id)
                     entry.update(path=path, url=found_url, title=title, retrieved_at=retrieved_at)
                     occurrences.append(entry)
-                occurrences.sort(key=lambda entry: entry["retrieved_at"] or "", reverse=True)
+                shown = occurrence_offset + len(occurrences)
                 results.append({"sha256": sha256, "characters": characters,
                                 "url": next((entry["url"] for entry in occurrences if entry["url"]), None),
                                 "title": next((entry["title"] for entry in occurrences if entry["title"]), None),
                                 "snippet": self._snippet(body, terms),
-                                "occurrence_count": len(occurrences), "occurrences": occurrences[:50]})
+                                "occurrence_count": count,
+                                "occurrence_offset": occurrence_offset,
+                                "occurrences_truncated": shown < count,
+                                "occurrences_next_offset": shown if shown < count else None,
+                                "occurrences": occurrences})
         finally:
             connection.close()
         next_offset = offset + len(results)
         return {"query": query, "total": total, "offset": offset,
                 "next_offset": next_offset if next_offset < total else None,
+                "occurrence_limit": occurrence_limit, "occurrence_offset": occurrence_offset,
                 "match": "fts_trigram" if fts else "substring", "results": results, "indexed": indexed,
                 "note": "Literal matching over saved page text (knowledge archive and research evidence); "
-                        "not web search and not semantic retrieval. Identical bodies are merged by SHA-256."}
+                        "not web search and not semantic retrieval. Identical bodies are merged by SHA-256 and "
+                        "each result pages its occurrences with occurrence_offset/occurrence_limit."}

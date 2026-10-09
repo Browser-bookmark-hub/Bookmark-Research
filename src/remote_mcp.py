@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
+from release import release_version, user_agent
+
 
 class McpError(RuntimeError):
     """A safe, classified failure; upstream bodies and credentials are omitted."""
@@ -107,7 +109,7 @@ class McpHttpClient:
     def _message(self, body):
         headers = {"Content-Type": "application/json",
                    "Accept": "application/json, text/event-stream",
-                   "User-Agent": "bookmark-research/0.5.0-beta.3"}
+                   "User-Agent": user_agent()}
         if self.initialized:
             headers["MCP-Protocol-Version"] = self.protocol
         request = urllib.request.Request(
@@ -232,7 +234,7 @@ class McpHttpClient:
             try:
                 result = self.request("initialize", {
                     "protocolVersion": self.protocol, "capabilities": {},
-                    "clientInfo": {"name": "bookmark-research", "version": "0.5.0-beta.3"}})
+                    "clientInfo": {"name": "bookmark-research", "version": release_version()}})
                 if (not isinstance(result, dict) or not isinstance(result.get("protocolVersion"), str)
                         or result["protocolVersion"] not in self.PROTOCOLS):
                     raise McpError("MCP server selected an unsupported protocol version")

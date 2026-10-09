@@ -13,6 +13,7 @@ import re
 import sqlite3
 import tempfile
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -117,9 +118,18 @@ class ResearchSessions:
     def _path(self, research_id):
         research_id = self._research_id(research_id)
         entry = self._registry().get(research_id)
-        registered = self._registered_path(research_id, entry) if entry is not None else None
         path = self.directory / research_id
-        if registered is not None and registered != path and (registered.is_dir() or not path.exists()):
+        # This instance's own root wins whenever the task actually lives there.
+        # A copied data directory can carry a registry entry pointing at the
+        # original absolute path, and letting that entry win would make reads
+        # and writes silently land in the other installation (a clone is not
+        # isolated by changing the data directory alone). The registry stays a
+        # fallback so tasks created beside their input are still found.
+        if (not path.is_symlink() and path.resolve().parent == self.directory
+                and (path / "state.json").is_file()):
+            return Settings.external_path(str(path), "Research session")
+        registered = self._registered_path(research_id, entry) if entry is not None else None
+        if registered is not None and registered != path:
             if not registered.is_dir():
                 raise ValueError("Research task folder is missing: " + str(registered))
             return registered
@@ -256,6 +266,23 @@ class ResearchSessions:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
+
+    @classmethod
+    @contextmanager
+    def _task_lock(cls, path):
+        """Serialize durable writes to one task, never across network I/O.
+
+        The lock is taken for a reservation or a commit only. A slow provider
+        answer therefore cannot block another process from recording evidence or
+        reading status for the same research id, and a genuine contention gets a
+        task-specific, retryable message instead of the settings wording.
+        """
+        try:
+            with Settings._update_lock(path / "state.json"):
+                yield
+        except TimeoutError as error:
+            raise TimeoutError(
+                "Research task is being written by another process; retry shortly") from error
 
     def _save(self, path, state):
         state["updated_at"] = self._now()
@@ -587,8 +614,16 @@ class ResearchSessions:
                     continue
                 path = self._registered_path(research_id, entry)
                 if research_id in found:
-                    if found[research_id]["placement"] is None and isinstance(entry, dict):
-                        found[research_id]["placement"] = entry.get("placement")
+                    row = found[research_id]
+                    if row["placement"] is None and isinstance(entry, dict):
+                        row["placement"] = entry.get("placement")
+                    # A second, different folder for the same task id is how a
+                    # same-machine clone looks. Resolution prefers this root, and
+                    # the duplicate is surfaced instead of hidden.
+                    if (row["location_status"] == "ok" and path is not None
+                            and str(path) != row["path"] and (path / "state.json").is_file()):
+                        row["location_status"] = "conflict"
+                        row["alternate_path"] = str(path)
                     continue
                 if path is None:
                     found[research_id] = {"research_id": research_id, "brief": None, "status": None,
@@ -746,10 +781,11 @@ class ResearchSessions:
             raise ValueError("Unknown research session")
         digest = hashlib.sha256(json.dumps({"kind": kind, "parameters": parameters}, sort_keys=True,
                                           ensure_ascii=False).encode("utf-8")).hexdigest()
-        # Hold the OS lock through the bounded request. Status reads remain available.
-        # Once this lock is released after a crash, an explicit interruption record
-        # can acknowledge a durable pending operation without resubmitting it.
-        with Settings._update_lock(path / "state.json"):
+        # Phase 1: reserve durably under the task lock. The lock is released
+        # before the request, so a slow provider cannot block another process
+        # from recording evidence for the same task. An explicit interruption
+        # record can still acknowledge a durable pending operation after a crash.
+        with self._task_lock(path):
             _, state = self._load(research_id)
             for previous in state["operations"]:
                 if previous["id"] != operation_id:
@@ -771,23 +807,45 @@ class ResearchSessions:
             for key, amount in cost.items():
                 state["usage"][key] += amount
             self._save(path, state)  # The reservation survives lost responses and process exits.
-            source_count = len(state["sources"])
-            try:
-                payload = execute(path, state, operation)
-                operation["status"] = payload.get("status", "ok")
-            except (RuntimeError, OSError, ValueError) as error:
-                payload = {"status": "error", "error": str(error)[:2000], "error_type": type(error).__name__}
-                operation["status"] = "error"
-            operation["finished_at"] = self._now()
-            operation["result_file"] = self._receipt_file(operation_id)
+            frozen = copy.deepcopy(state)  # Read-only context for the request phase.
+
+        # Phase 2: perform the bounded request without holding the task lock.
+        try:
+            payload = execute(path, frozen, operation)
+            status = payload.get("status", "ok")
+        except (RuntimeError, OSError, ValueError) as error:
+            payload = {"status": "error", "error": str(error)[:2000], "error_type": type(error).__name__}
+            status = "error"
+        if "error" in payload:
+            payload = {**payload, "error": payload["error"]}
+
+        # Phase 3: commit under the lock against the current on-disk state, so
+        # writes made by another process while the request was in flight survive.
+        with self._task_lock(path):
+            _, state = self._load(research_id)
+            stored = next((row for row in state["operations"] if row["id"] == operation_id), None)
+            if stored is None:
+                raise ValueError("Research operation disappeared before it was committed")
+            new_sources = payload.pop("sources", [])
+            committed = []
+            for source in new_sources:
+                source = copy.deepcopy(source)
+                source["id"] = "s%s" % (len(state["sources"]) + 1)
+                state["sources"].append(source)
+                committed.append(source)
+            stored["status"] = status
+            stored["finished_at"] = self._now()
+            stored["result_file"] = self._receipt_file(operation_id)
             if "error" in payload:
-                operation["error"] = payload["error"]
+                stored["error"] = payload["error"]
             if "usage" in payload:
-                operation["actual_usage"] = payload["usage"]
+                stored["actual_usage"] = payload["usage"]
+            if committed:
+                payload["sources"] = committed
             result = {"research_id": research_id, "operation_id": operation_id,
                       "replayed": False, **payload}
-            self._write(path / operation["result_file"], {**result, "_commit": {
-                "operation": copy.deepcopy(operation), "sources": state["sources"][source_count:]}})
+            self._write(path / stored["result_file"], {**result, "_commit": {
+                "operation": copy.deepcopy(stored), "sources": committed}})
             self._save(path, state)
             return result
 
@@ -813,15 +871,21 @@ class ResearchSessions:
 
         def execute(path, current, operation):
             def reserve(jobs):
-                remaining = current["budget"]["max_search_calls"] - current["usage"]["search_calls"]
-                selected = jobs[:remaining]
-                if selected:
-                    current["usage"]["search_calls"] += len(selected)
-                    operation["reserved"]["search_calls"] += len(selected)
-                    operation["fallback_attempts"] = [{"provider": name, "target": target, "query": query}
-                                                       for name, target, query in selected]
-                    self._save(path, current)
-                return selected
+                # A fallback reserves more budget mid-request, so it re-reads the
+                # latest state under the lock instead of trusting the snapshot.
+                with self._task_lock(path):
+                    _, latest = self._load(research_id, path)
+                    remaining = latest["budget"]["max_search_calls"] - latest["usage"]["search_calls"]
+                    chosen = jobs[:max(0, remaining)]
+                    if chosen:
+                        latest["usage"]["search_calls"] += len(chosen)
+                        stored = next((row for row in latest["operations"] if row["id"] == operation_id), None)
+                        if stored is not None:
+                            stored["reserved"]["search_calls"] = stored["reserved"].get("search_calls", 0) + len(chosen)
+                            stored["fallback_attempts"] = [{"provider": name, "target": target, "query": query}
+                                                           for name, target, query in chosen]
+                        self._save(path, latest)
+                return chosen
 
             result = self._web().search(**parameters, **({"reserve_fallback": reserve} if "fallback_providers" in parameters else {}))
             success = result.get("successful_provider_count", 0)
@@ -866,8 +930,7 @@ class ResearchSessions:
                         "usage": fetched.get("usage", {}), "provider_outcome": fetched}
             sources = []
             for page in archive["pages"]:
-                source = {"id": "s%s" % (len(current["sources"]) + 1),
-                          "question_id": question_id, "operation_id": operation_id,
+                source = {"question_id": question_id, "operation_id": operation_id,
                           "url": page["requested_url"], "canonical_url": SourceArchive._key(page["requested_url"]),
                           "provider": fetched["provider"], "retrieved_at": fetched["retrieved_at"],
                           "title": page["title"], "extraction_status": page["extraction_status"],
@@ -881,7 +944,8 @@ class ResearchSessions:
                           "response_file": Path(archive["response_path"]).relative_to(path).as_posix()}
                 source["review"] = {"verdict": "unreviewed", "text": None}
                 source["inventory_ids"], source["bookmark_refs"] = self._source_links(current, source["url"])
-                current["sources"].append(source)
+                # Source ids are assigned by the commit phase under the task lock,
+                # so a concurrent writer cannot make the numbering collide.
                 sources.append(source)
             extracted = sum(source["body_file"] is not None for source in sources)
             return {"status": "ok" if extracted == len(sources) else "partial" if extracted else "error",
@@ -893,19 +957,25 @@ class ResearchSessions:
             engine = self._web()
 
             def reserve(candidates, pending):
-                remaining = current["budget"]["max_fetch_calls"] - current["usage"]["fetch_calls"]
-                selected, reserved = [], 0
-                for name in candidates:
-                    cost = Settings.fetch_call_count(name, pending)
-                    if cost <= remaining:
-                        selected.append(name)
-                        reserved += cost
-                        remaining -= cost
-                if selected:
-                    current["usage"]["fetch_calls"] += reserved
-                    operation["reserved"]["fetch_calls"] += reserved
-                    operation["fallback_attempts"] = [{"provider": name, "urls": pending} for name in selected]
-                    self._save(path, current)  # Durable before any parallel requests.
+                # Durable before any parallel requests, and re-read under the lock
+                # so a concurrent writer cannot lose its usage or sources.
+                with self._task_lock(path):
+                    _, latest = self._load(research_id, path)
+                    remaining = latest["budget"]["max_fetch_calls"] - latest["usage"]["fetch_calls"]
+                    selected, reserved = [], 0
+                    for name in candidates:
+                        cost = Settings.fetch_call_count(name, pending)
+                        if cost <= remaining:
+                            selected.append(name)
+                            reserved += cost
+                            remaining -= cost
+                    if selected:
+                        latest["usage"]["fetch_calls"] += reserved
+                        stored = next((row for row in latest["operations"] if row["id"] == operation_id), None)
+                        if stored is not None:
+                            stored["reserved"]["fetch_calls"] = stored["reserved"].get("fetch_calls", 0) + reserved
+                            stored["fallback_attempts"] = [{"provider": name, "urls": pending} for name in selected]
+                        self._save(path, latest)
                 return selected
 
             fetched = SearchProviders._fetch_waterfall(urls, names, lambda name, pending:
@@ -1190,7 +1260,7 @@ class ResearchSessions:
         path = self._path(research_id)
         if not (path / "state.json").is_file():
             raise ValueError("Unknown research session")
-        with Settings._update_lock(path / "state.json"):
+        with self._task_lock(path):
             _, state = self._load(research_id)
             if entries is None:
                 result = self._record_entry(path, state, entry)
@@ -1354,7 +1424,7 @@ class ResearchSessions:
         path = self._path(research_id)
         if not (path / "state.json").is_file():
             raise ValueError("Unknown research session")
-        with Settings._update_lock(path / "state.json"):
+        with self._task_lock(path):
             _, state = self._load(research_id)
             self._active(state)
             if status == "completed":

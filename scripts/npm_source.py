@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 import json
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import subprocess
 import tarfile
@@ -13,6 +14,16 @@ from export_bundle import NAME, VERSION_PATTERN, read_plugin_manifest
 
 REGISTRY = "https://registry.npmjs.org"
 DEFAULT_SOURCE = "npm:" + NAME
+CACHE_PERMISSION = re.compile(r"EACCES|EPERM")
+CACHE_HINT = ("Hint: npm's cache may contain files owned by another user (a known npm state after a "
+              "privileged install); repair it with `sudo chown -R $(id -u):$(id -g) \"$(npm config get cache)\"` "
+              "or point npm_config_cache at a writable directory.")
+
+
+def _cache_permission_failure(detail):
+    """Whether npm failed because its cache directory is not writable."""
+    text = detail or ""
+    return "cache" in text.casefold() and CACHE_PERMISSION.search(text) is not None
 
 
 def source(value, ref=None):
@@ -35,10 +46,28 @@ def checkout(requested, timeout):
         raise ValueError("npm is required to download Bookmark Research releases")
     with tempfile.TemporaryDirectory(prefix="bookmark-npm-source-") as directory:
         base = Path(directory)
-        result = subprocess.run([
-            npm, "pack", NAME + "@" + selected["ref"], "--ignore-scripts", "--json",
-            "--registry", REGISTRY, "--pack-destination", str(base),
-        ], cwd=base, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+
+        def pack(cache=None):
+            command = [
+                npm, "pack", NAME + "@" + selected["ref"], "--ignore-scripts", "--json",
+                "--registry", REGISTRY, "--pack-destination", str(base),
+            ]
+            if cache is not None:
+                command += ["--cache", str(cache)]
+            return subprocess.run(command, cwd=base, capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", timeout=timeout)
+
+        result = pack()
+        if result.returncode and _cache_permission_failure(result.stderr):
+            # One retry in a scratch cache: a machine whose npm cache is unwritable
+            # otherwise cannot install any release, and the failure is not the release's.
+            with tempfile.TemporaryDirectory(prefix="bookmark-npm-cache-") as cache:
+                retry = pack(cache)
+            if retry.returncode == 0:
+                result = retry
+            else:
+                raise RuntimeError("Could not download the npm release: "
+                                   + result.stderr.strip()[-2000:] + "\n" + CACHE_HINT)
         if result.returncode:
             raise RuntimeError("Could not download the npm release: " + result.stderr.strip()[-2000:])
         rows = json.loads(result.stdout)

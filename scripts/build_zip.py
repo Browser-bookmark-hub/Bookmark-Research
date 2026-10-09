@@ -43,6 +43,7 @@ EXTRA_FILES = (
     "scripts/launcher.py",
     "bin/bookmark-research.js",
     "package.json",
+    "bundle.patch.yml",
     "docs/details.md",
     "docs/details.en.md",
     "skills/bookmark-research/agents/openai.yaml",

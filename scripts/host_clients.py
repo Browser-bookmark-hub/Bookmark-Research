@@ -23,6 +23,28 @@ def executable(binary):
     return found
 
 
+def bundled_pnpm(binary):
+    """The package manager a DSH CLI carries itself, if it ships one.
+
+    DeepSeek Harness Desktop runs `dsh plugin` with its own bundled pnpm, so that
+    carrier needs no `pnpm` on PATH. A generic CLI installs profile plugins by
+    forwarding to the pnpm it finds instead.
+    """
+    found = executable(binary)
+    if not found:
+        return None
+    try:
+        path = Path(found).resolve()
+    except OSError:
+        return None
+    # Desktop layout: <resources>/runtime/cli/bin/dsh beside <resources>/runtime/pnpm.
+    for parent in list(path.parents)[:5]:
+        candidate = parent / "pnpm" / "bin" / "pnpm.mjs"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def read_json(path, default=None):
     if not path.exists():
         return default
@@ -81,10 +103,11 @@ class HostClient:
     def require(self):
         if not executable(self.binary):
             raise ValueError(self.host + " CLI was not found: " + self.binary)
-        if self.host == "dsh" and not shutil.which("pnpm"):
-            # dsh plugin forwards to pnpm; fail before creating a profile.
-            raise ValueError("DSH installs profile plugins with pnpm, which was not found on PATH; "
-                             "install it (npm install -g pnpm, or corepack enable pnpm) and retry")
+        if self.host == "dsh" and not shutil.which("pnpm") and bundled_pnpm(self.binary) is None:
+            # A generic dsh forwards `plugin` to pnpm; fail before creating a profile.
+            raise ValueError("DSH installs profile plugins with pnpm, which was not found on PATH and is not bundled with "
+                             + self.binary + "; install it (npm install -g pnpm, or corepack enable pnpm) and retry, "
+                             "or pass the DeepSeek Harness Desktop CLI with --dsh (it carries its own pnpm)")
 
     def run(self, arguments, structured=False, quiet_error=False):
         result = subprocess.run([executable(self.binary) or self.binary, *arguments], cwd=self.cwd, text=True, encoding="utf-8", errors="replace",
@@ -186,11 +209,50 @@ class HostClient:
         if self.host == "dsh":
             if not registration["enabled"]:
                 raise RuntimeError("DSH installed the dependency without enabling its bundle")
-            composition = self.run(["--profile", self.profile, "--dump-config"], quiet_error=True)
-            if not all(name in composition for name in ("bookmark-research-skill", "bookmark-research-mcp", "bookmarkResearchPaths")):
-                raise RuntimeError("DSH composition is missing the Bookmark Research Skill or MCP configuration")
             package = self.settings.parent / "node_modules" / NAME
             if not package.is_dir():
                 raise RuntimeError("DSH did not retain the installed bundle in its profile")
+            if self.profile.casefold() == "desktop":
+                # DeepSeek Harness Desktop reserves this profile name: its launcher
+                # refuses every boot and dump for "desktop" (only the Electron carrier
+                # may manage it), so read the persisted layer the way the launcher does.
+                composition = self.desktop_composition(package)
+            else:
+                composition = self.run(["--profile", self.profile, "--dump-config"], quiet_error=True)
+            if not all(name in composition for name in ("bookmark-research-skill", "bookmark-research-mcp", "bookmarkResearchPaths")):
+                raise RuntimeError("DSH composition is missing the Bookmark Research Skill or MCP configuration")
             return package.resolve()
         return bundle
+
+    def desktop_composition(self, package):
+        """Offline evidence that the reserved desktop profile composes this bundle.
+
+        The installed layer must be exactly what the launcher loads: the profile
+        depends on the package, and the package declares a package-relative patch,
+        an entry module, and the Skill and MCP rows that patch inserts.
+        """
+        settings = read_json(self.settings, {})
+        if not isinstance(settings, dict):
+            raise ValueError("Unexpected DSH profile manifest: " + str(self.settings))
+        dependency = settings.get("dependencies", {}).get(NAME)
+        if not isinstance(dependency, str) or not dependency.strip():
+            raise RuntimeError("The desktop profile does not depend on " + NAME)
+        linked = local_path(dependency, self.settings.parent)
+        if linked is not None and linked != package.resolve():
+            raise RuntimeError("The desktop profile depends on another " + NAME + " source")
+        manifest = read_json(package / "package.json", {})
+        if not isinstance(manifest, dict) or manifest.get("name") != NAME:
+            raise RuntimeError("The installed bundle is not " + NAME)
+        declared = manifest.get("dsh", {})
+        patch = declared.get("bundle", {}).get("patch") if isinstance(declared, dict) else None
+        if not isinstance(patch, str) or not patch or Path(patch).is_absolute():
+            raise RuntimeError("The installed bundle declares no package-relative dsh.bundle.patch")
+        entry = manifest.get("main")
+        if not isinstance(entry, str) or not entry or Path(entry).is_absolute():
+            raise RuntimeError("The installed bundle declares no package-relative entry module")
+        for relative in (patch, entry):
+            resolved = (package / relative).resolve()
+            if package.resolve() not in resolved.parents or not resolved.is_file():
+                raise RuntimeError("The installed bundle is missing " + relative)
+        # The markers below are the same names the composed dump would contain.
+        return entry + "\n" + (package / patch).read_text(encoding="utf-8")

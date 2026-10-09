@@ -44,7 +44,7 @@ flowchart TB
 
   subgraph Plugin["Bookmark Research Plugin"]
     Skill["Skill：Markdown 指令<br/>查询方法、研究规则与宿主路由"]
-    MCP["本地 MCP 入口<br/>src/mcp_server.py · 35 个工具"]
+    MCP["本地 MCP 入口<br/>src/mcp_server.py · 工具随能力增长（本版 40 个）"]
     CLI["Python CLI 入口<br/>src/cli.py"]
     Core["共用 Python 运行时<br/>Python 3.9+ 标准库"]
     Sources["来源接入、增量同步与本地查询"]

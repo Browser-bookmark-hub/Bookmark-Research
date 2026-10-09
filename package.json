@@ -1,12 +1,53 @@
 {
   "name": "bookmark-research",
-  "version": "0.5.0-beta.5",
+  "version": "0.5.0-beta.7",
   "description": "Check bookmark URLs or Canvas packages, compare sources with host-led research, and retain verifiable reports.",
   "license": "GPL-3.0-only",
-  "repository": {"type": "git", "url": "git+https://github.com/Browser-bookmark-hub/Bookmark-Research.git"},
-  "keywords": ["bookmark-research", "mcp", "claude-code", "codex", "pi-package", "deepseek-harness"],
-  "bin": {"bookmark-research": "bin/bookmark-research.js"},
-  "engines": {"node": ">=18"},
-  "files": ["bin", "src", "scripts", "config", "skills", "hosts", "docs", ".codex-plugin/plugin.json", ".agents/plugins/marketplace.json", "install.sh", "LICENSE", "README.md", "README.zh.md", "!**/__pycache__", "!**/*.pyc"],
-  "pi": {"skills": ["./skills"]}
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Browser-bookmark-hub/Bookmark-Research.git"
+  },
+  "keywords": [
+    "bookmark-research",
+    "mcp",
+    "claude-code",
+    "codex",
+    "pi-package",
+    "deepseek-harness"
+  ],
+  "bin": {
+    "bookmark-research": "bin/bookmark-research.js"
+  },
+  "main": "./hosts/dsh/plugin.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "src",
+    "scripts",
+    "config",
+    "skills",
+    "hosts",
+    "docs",
+    "bundle.patch.yml",
+    ".codex-plugin/plugin.json",
+    ".agents/plugins/marketplace.json",
+    "install.sh",
+    "LICENSE",
+    "README.md",
+    "README.zh.md",
+    "!**/__pycache__",
+    "!**/*.pyc"
+  ],
+  "pi": {
+    "skills": [
+      "./skills"
+    ]
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./bundle.patch.yml"
+    }
+  }
 }

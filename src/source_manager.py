@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 import time
@@ -259,10 +260,114 @@ class SourceManager:
             self.connection.execute("UPDATE sources SET package_path=? WHERE source_id=?", (active_path, source_id))
             if recovered:
                 summary["warnings"].append("Recovered legacy JSON from SQLite without original whitespace: " + ", ".join(recovered))
+            duplicates = self._content_duplicates(source_id, version_id) if previous is None else []
+            if duplicates:
+                summary["warnings"].append(
+                    "Identical content is already indexed as %s; reuse source_id=%s to update that source instead of "
+                    "adding a duplicate, or run source merge/remove." % (", ".join(duplicates), duplicates[0]))
+                summary["duplicate_source_ids"] = duplicates
             summary.update(package_path=active_path, input_path=prepared["path"], input_kind=prepared["kind"],
                            mode=mode, completeness=completeness, version_id=version_id,
                            snapshot_path=str(snapshot_path), state=record["state"], performed=True)
             return summary
+
+    def _content_duplicates(self, source_id, version_id):
+        """Return other sources whose current content version is identical."""
+        duplicates = []
+        for other_id, record_json in self.connection.execute(
+                "SELECT source_id, record_json FROM source_records WHERE source_id<>?", (source_id,)):
+            try:
+                if json.loads(record_json).get("version_id") == version_id:
+                    duplicates.append(other_id)
+            except (TypeError, ValueError):
+                continue
+        return sorted(duplicates)
+
+    def _source_counts(self, source_id):
+        return {table: self.connection.execute(
+            "SELECT COUNT(*) FROM %s WHERE source_id=?" % table, (source_id,)).fetchone()[0]
+            for table in ("files", "sections", "items", "nodes", "edges", "memberships")}
+
+    def _snapshot_directory(self, source_id):
+        if self.storage is None:
+            return None
+        directory = self.storage / hashlib.sha256(source_id.encode("utf-8")).hexdigest()
+        if directory.parent != self.storage or directory.is_symlink():
+            raise ValueError("Managed snapshot directory is not safe to change")
+        return directory
+
+    def remove(self, source_id, confirm=False):
+        """Delete a source, its indexed rows and its managed snapshots.
+
+        Research inventories that froze this source keep their saved input but
+        can no longer resolve it, so a caller must confirm explicitly.
+        """
+        record = self._record(source_id)
+        if record is None:
+            raise ValueError("Unknown source_id: " + str(source_id))
+        counts = self._source_counts(source_id)
+        snapshot = self._snapshot_directory(source_id)
+        aliases = [row[0] for row in self.connection.execute(
+            "SELECT input_path FROM source_aliases WHERE source_id=? ORDER BY input_path", (source_id,))]
+        if not confirm:
+            return {"source_id": source_id, "status": "confirmation_required", "would_remove": counts,
+                    "aliases": aliases, "snapshot_directory": str(snapshot) if snapshot else None,
+                    "impact": "Research tasks that froze this source keep their saved inventory but stop resolving "
+                              "its items; Wiki pages citing those claims become stale. Re-run with confirm=true "
+                              "(CLI: --confirm) to delete."}
+        with self.index.transaction():
+            for table in ("items", "sections", "files", "nodes", "edges", "memberships",
+                          "source_snapshots", "source_aliases", "source_records"):
+                self.connection.execute("DELETE FROM %s WHERE source_id=?" % table, (source_id,))
+            self.connection.execute("DELETE FROM sources WHERE source_id=?", (source_id,))
+        removed_snapshot = False
+        if snapshot is not None and snapshot.is_dir() and not snapshot.is_symlink():
+            shutil.rmtree(snapshot)
+            removed_snapshot = True
+        return {"source_id": source_id, "status": "removed", "removed": counts,
+                "aliases": aliases, "snapshot_removed": removed_snapshot}
+
+    def merge(self, source_id, into_source_id, confirm=False):
+        """Drop a duplicate source whose content version equals the target's.
+
+        The target keeps its rows; the duplicate's path aliases move across so a
+        later import of the same folder updates the surviving source.
+        """
+        if source_id == into_source_id:
+            raise ValueError("source_id and into_source_id must differ")
+        record, target = self._record(source_id), self._record(into_source_id)
+        if record is None:
+            raise ValueError("Unknown source_id: " + str(source_id))
+        if target is None:
+            raise ValueError("Unknown into_source_id: " + str(into_source_id))
+        if record.get("version_id") != target.get("version_id"):
+            raise ValueError("Sources hold different content versions; keep one explicitly with source remove "
+                             "instead of merging")
+        aliases = [row[0] for row in self.connection.execute(
+            "SELECT input_path FROM source_aliases WHERE source_id=? ORDER BY input_path", (source_id,))]
+        if not confirm:
+            return {"source_id": source_id, "into_source_id": into_source_id, "status": "confirmation_required",
+                    "version_id": record.get("version_id"), "moved_aliases": aliases,
+                    "impact": "The duplicate is deleted and its paths re-point at into_source_id; saved research "
+                              "inventories that froze the duplicate stop resolving. Re-run with confirm=true "
+                              "(CLI: --confirm) to merge."}
+        with self.index.transaction():
+            for alias in aliases:
+                self.connection.execute("INSERT OR IGNORE INTO source_aliases VALUES(?,?)", (into_source_id, alias))
+            self.connection.execute("INSERT OR IGNORE INTO source_aliases VALUES(?,?)",
+                                    (into_source_id, target.get("input_path")))
+            for table in ("items", "sections", "files", "nodes", "edges", "memberships",
+                          "source_snapshots", "source_aliases", "source_records"):
+                self.connection.execute("DELETE FROM %s WHERE source_id=?" % table, (source_id,))
+            self.connection.execute("DELETE FROM sources WHERE source_id=?", (source_id,))
+        snapshot = self._snapshot_directory(source_id)
+        removed_snapshot = False
+        if snapshot is not None and snapshot.is_dir() and not snapshot.is_symlink():
+            shutil.rmtree(snapshot)
+            removed_snapshot = True
+        return {"source_id": source_id, "into_source_id": into_source_id, "status": "merged",
+                "version_id": record.get("version_id"), "moved_aliases": aliases,
+                "snapshot_removed": removed_snapshot}
 
     def _observation(self, source_id, record, state, **fields):
         record.update(state=state, checked_at=self._now(), **fields)

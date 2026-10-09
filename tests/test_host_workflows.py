@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import sys
@@ -64,7 +63,9 @@ class HostWorkflowTests(unittest.TestCase):
         export_bundle.export_bundle("dsh", original)
         original.rename(moved)
         patch = (moved / "bundle.patch.yml").read_text()
-        environment = json.loads(re.search(r"^        env: !!js (.+)$", patch, re.MULTILINE)[1])
+        # The layer stays path-free: every machine-specific value comes from the module.
+        for reference in ("python.command", "mcpArgs", "root", "env"):
+            self.assertIn("!!js ctx.bookmarkResearchPaths." + reference, patch)
         settings = Path(self.env["BOOKMARK_RESEARCH_CONFIG"])
         settings.write_text('{"research":{"response_language":"zh"}}')
         credentials = self.base / "private-credentials.json"
@@ -84,26 +85,67 @@ const candidates = await provider.list();
 assert.equal(candidates[0].name, "bookmark-research");
 const skill = await provider.get(candidates[0]);
 assert(skill.content.includes("research_readiness"));
-const env = Function("return (" + process.argv[2] + ")")();
+const env = paths.env;
 assert.equal(env.EXA_API_KEY, "environment-key-marker");
 assert.equal(env.UNRELATED_SECRET, undefined);
-const probe = spawnSync("python3", [paths.cli, "setup", "--non-interactive", "--skip-checks", "--host", "dsh"],
+// The module, not the patch, decides the interpreter and the MCP argument list.
+const interpreter = spawnSync(paths.python.command, [...paths.python.args, "-c", "import sqlite3"],
+  {encoding: "utf8"});
+assert.equal(interpreter.status, 0, interpreter.stderr);
+assert.equal(paths.mcpArgs[paths.mcpArgs.length - 1], "serve");
+assert.equal(paths.mcpArgs[paths.mcpArgs.length - 2], paths.cli);
+const probe = spawnSync(paths.python.command, [...paths.python.args, paths.cli, "setup", "--non-interactive",
+  "--skip-checks", "--host", "dsh"],
   {env: {PATH: process.env.PATH, HOME: process.env.HOME, ...env}, encoding: "utf8"});
 assert.equal(probe.status, 0, probe.stdout + probe.stderr);
 const result = JSON.parse(probe.stdout);
 assert.equal(result.settings.settings.research.response_language, "zh");
 assert.equal(result.credentials.path, process.env.BOOKMARK_RESEARCH_CREDENTIALS);
 assert(result.credentials.credentials.find(row => row.name === "OPENAI_API_KEY").configured);
-process.stdout.write(JSON.stringify({root: paths.root, cli: paths.cli}));
+process.stdout.write(JSON.stringify({root: paths.root, cli: paths.cli, mcp: paths.mcpArgs}));
 '''
         result = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script,
-                                 str(moved / "hosts/dsh/plugin.js"), environment], env=env, cwd=self.base,
+                                 str(moved / "hosts/dsh/plugin.js")], env=env, cwd=self.base,
                                 text=True, capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(Path(json.loads(result.stdout)["root"]), moved)
         self.assertEqual(Path(json.loads(result.stdout)["cli"]), moved / "src/cli.py")
+        self.assertEqual(json.loads(result.stdout)["mcp"][-1], "serve")
         self.assertNotIn("environment-key-marker", patch + result.stdout)
         self.assertNotIn("private-file-marker", patch + result.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "Node is required for the DSH preflight test")
+    def test_dsh_plugin_reports_an_incomplete_install_instead_of_registering(self):
+        # A stale registration used to surface only as an ENOENT on first use.
+        broken = self.base / "broken"
+        (broken / "hosts" / "dsh").mkdir(parents=True)
+        shutil.copy(ROOT / "hosts/dsh/plugin.js", broken / "hosts/dsh/plugin.js")
+        script = r'''
+import { pathToFileURL } from "node:url";
+const plugin = await import(pathToFileURL(process.argv[1]).href);
+let registered = false;
+plugin.apply({provide() {}, skills: {registerProvider() { registered = true; }}});
+process.stdout.write(JSON.stringify({registered}));
+'''
+        missing = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script,
+                                  str(broken / "hosts/dsh/plugin.js")], env=self.env, cwd=self.base,
+                                 text=True, capture_output=True, timeout=20)
+        self.assertEqual(missing.returncode, 0, missing.stdout + missing.stderr)
+        self.assertEqual(False, json.loads(missing.stdout)["registered"])
+        self.assertIn("installation is incomplete", missing.stderr)
+        self.assertIn("bookmark-research install", missing.stderr)
+        # Supplying the advertised files lets the provider register again.
+        (broken / "src").mkdir(parents=True)
+        shutil.copy(ROOT / "src/cli.py", broken / "src/cli.py")
+        (broken / "skills" / "bookmark-research").mkdir(parents=True)
+        shutil.copy(ROOT / "skills" / "bookmark-research" / "SKILL.md",
+                    broken / "skills" / "bookmark-research" / "SKILL.md")
+        ready = subprocess.run([shutil.which("node"), "--input-type=module", "-e", script,
+                                str(broken / "hosts/dsh/plugin.js")], env=self.env, cwd=self.base,
+                               text=True, capture_output=True, timeout=20)
+        self.assertEqual(ready.returncode, 0, ready.stdout + ready.stderr)
+        self.assertEqual(True, json.loads(ready.stdout)["registered"])
+        self.assertNotIn("installation is incomplete", ready.stderr)
 
     def test_dsh_language_validation_happens_before_preparing_a_call(self):
         script = ROOT / "hosts/dsh/workflow-call.py"

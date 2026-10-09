@@ -181,7 +181,16 @@ python3 scripts/install.py install --host dsh --profile web
 python3 scripts/install.py verify --host dsh --profile web
 ```
 
-The installer exports a relocatable `dsh.bundle` and calls `dsh plugin --profile web add PATH`. `dsh plugin` delegates to pnpm, so install it first (`npm install -g pnpm` or `corepack enable pnpm`); without it the installer stops before creating a profile and the wizard shows DSH as unavailable. The bundle registers the shared Skill and resolves Python/MCP paths from the installed module. The selected profile must provide the Skill registry and official MCP client. For local development, export with `--format dsh` and install the stable export using that native command. The legacy `cordis.patch.yml` still contains absolute paths and requires separate Skill discovery. Workflow execution separately requires the host service/engine; `hosts/dsh/workflow-call.py --research-id RID --run-key KEY` prepares a call without launching it.
+The installer exports a relocatable `dsh.bundle` and calls `dsh plugin --profile web add PATH`. A released package also installs straight from the registry: it declares `dsh.bundle.patch` and ships that layer, so `dsh plugin --profile web add bookmark-research@VERSION` — or the DSH plugin manager — needs no export first. The layer resolves the interpreter, the working directory and the MCP argument list from the installed module, so nothing is tied to the machine that built it; the selected profile must still provide the Skill registry and the official `@deepseek-ai/dsh-mcp-client`.
+
+`dsh plugin` delegates to pnpm. A generic CLI therefore needs pnpm on PATH (`npm install -g pnpm` or `corepack enable pnpm`) and the installer stops before creating a profile without it; the DeepSeek Harness Desktop CLI carries its own pnpm and needs none. DeepSeek Harness Desktop reserves the `desktop` profile — its launcher refuses every boot and dump for that name — so install it with the app's own CLI, and verification reads the persisted layer instead of `--dump-config`:
+
+```sh
+python3 scripts/install.py install --host dsh --profile desktop \
+  --dsh "<DSH app>/Contents/Resources/runtime/cli/bin/dsh"
+```
+
+The legacy `cordis.patch.yml` still contains absolute paths and requires separate Skill discovery. Workflow execution separately requires the host service/engine; `hosts/dsh/workflow-call.py --research-id RID --run-key KEY` prepares a call without launching it.
 
 ### Agent Plugins 1.0.0
 

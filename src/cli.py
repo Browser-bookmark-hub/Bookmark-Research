@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -21,6 +22,48 @@ def _database(value):
     if path == plugin_root or plugin_root in path.parents:
         raise ValueError("Keep the database outside the plugin directory; pass --db or BOOKMARK_RESEARCH_DATA_DIR")
     return path
+
+
+def _writable_directory(path):
+    """Report whether the nearest existing ancestor of ``path`` accepts a new file."""
+    candidate = Path(path).expanduser()
+    for parent in (candidate, *candidate.parents):
+        if parent.is_dir():
+            probe = parent / (".bookmark-research-write-probe-%d" % os.getpid())
+            try:
+                descriptor = os.open(str(probe), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except OSError as error:
+                return {"path": str(candidate), "checked": str(parent), "writable": False,
+                        "error": error.strerror or str(error)}
+            finally:
+                try:
+                    probe.unlink()
+                except OSError:
+                    pass
+            return {"path": str(candidate), "checked": str(parent), "writable": True, "error": None}
+    return {"path": str(candidate), "checked": None, "writable": False, "error": "no existing parent directory"}
+
+
+def _storage_report(args, settings):
+    """Preflight the two directories a first import needs to write."""
+    database = _database(args.db)
+    data = _writable_directory(database.parent)
+    config = _writable_directory(settings.path.parent)
+    existing = database.exists()
+    database_writable = (not existing) or os.access(str(database), os.W_OK)
+    ready = bool(data["writable"] and config["writable"] and database_writable)
+    report = {"ready": ready, "data_directory": data, "config_directory": config,
+              "database_exists": existing, "database_writable": database_writable}
+    if not ready:
+        suggestions = []
+        if not data["writable"]:
+            suggestions.append("export BOOKMARK_RESEARCH_DATA_DIR=<a writable directory>")
+        if not config["writable"]:
+            suggestions.append("export BOOKMARK_RESEARCH_CONFIG=<a writable settings.json path>")
+        if not database_writable:
+            suggestions.append("the existing database is read-only; move it or choose another data directory")
+        report["next_step"] = "Cannot write where this command stores data. " + "; ".join(suggestions)
+    return report
 
 
 def _read_json(path):
@@ -92,6 +135,15 @@ def _parser():
     history.add_argument("source")
     history.add_argument("--limit", type=int, default=20)
     history.add_argument("--offset", type=int, default=0)
+    source = commands.add_parser("source", help="Clean up duplicate or unwanted imported sources")
+    source_commands = source.add_subparsers(dest="source_command", required=True)
+    remove = source_commands.add_parser("remove", help="Delete a source, its indexed rows and its managed snapshots")
+    remove.add_argument("source_id")
+    remove.add_argument("--confirm", action="store_true", help="Required: perform the deletion (otherwise only reports it)")
+    merge = source_commands.add_parser("merge", help="Drop a duplicate source whose content version matches another")
+    merge.add_argument("source_id")
+    merge.add_argument("into_source_id")
+    merge.add_argument("--confirm", action="store_true", help="Required: perform the merge (otherwise only reports it)")
     watch = commands.add_parser("watch", help="Monitor live sources in this foreground process (MCP starts this automatically)")
     watch.add_argument("--interval", type=float, default=1.0)
     watch.add_argument("--debounce", type=float, default=2.0)
@@ -103,6 +155,10 @@ def _parser():
     search.add_argument("--group")
     search.add_argument("--folder")
     search.add_argument("--tag", action="append", default=[])
+    search.add_argument("--tag-color", action="append", default=[], help="Only items carrying a tag of this color")
+    search.add_argument("--item-type", action="append", choices=("bookmark", "folder"), default=[],
+                        help="Restrict to bookmark and/or folder rows; default bookmark, use folder to enumerate folders")
+    search.add_argument("--count-only", action="store_true", help="Return counts without result rows")
     search.add_argument("--limit", type=int, default=20)
     search.add_argument("--offset", type=int, default=0)
     search.add_argument("--no-refresh", action="store_true", help="Read the last synchronized index without refreshing")
@@ -136,6 +192,9 @@ def _parser():
     raw.add_argument("--limit", type=int, default=10)
     raw.add_argument("--offset", type=int, default=0)
     raw.add_argument("--url", help="Only bodies saved for a URL containing this substring")
+    raw.add_argument("--occurrence-limit", type=int, default=50,
+                     help="Occurrences listed per merged body (default 50); results report how to continue")
+    raw.add_argument("--occurrence-offset", type=int, default=0, help="Continue a body's occurrence list here")
     merge = commands.add_parser("merge-results", help="Fuse normalized batches from existing MCPs")
     merge.add_argument("input", help="JSON input file, or '-' for stdin")
     research = commands.add_parser("research", help="Durable host-led deep research, evidence and reports")
@@ -205,7 +264,11 @@ def _parser():
     wiki_commands = wiki.add_subparsers(dest="wiki_command", required=True)
     write = wiki_commands.add_parser("write")
     write.add_argument("page_id")
-    write.add_argument("--input", required=True, help="JSON {page,change_note,expected_revision?}")
+    write.add_argument("--input", required=True, help="JSON {page,change_note,expected_revision?,reviewed_input_version?}")
+    acknowledge = wiki_commands.add_parser("acknowledge",
+                                           help="Re-record that a page's sources were reviewed at their current input version")
+    acknowledge.add_argument("page_id")
+    acknowledge.add_argument("--input", required=True, help="JSON {note,expected_revision?}")
     get = wiki_commands.add_parser("get")
     get.add_argument("page_id")
     get.add_argument("--revision", type=int)
@@ -328,6 +391,8 @@ def main(argv=None):
             store = WikiStore(directory=args.directory, settings=settings, research_sessions=sessions)
             if args.wiki_command == "write":
                 result = store.write(**_checked_input(args.input, "wiki_write", {"page_id": args.page_id}))
+            elif args.wiki_command == "acknowledge":
+                result = store.acknowledge(**_checked_input(args.input, "wiki_acknowledge", {"page_id": args.page_id}))
             elif args.wiki_command == "get":
                 result = store.get(args.page_id, args.revision)
             elif args.wiki_command == "list":
@@ -373,6 +438,7 @@ def main(argv=None):
                       "config_path": str(settings.path),
                       "database_created": False, "network_checked": False,
                       "dependencies": "Python standard library"}
+            result["storage"] = _storage_report(args, settings)
         elif args.command in ("providers", "search-web", "fetch-web"):
             from web_search import SearchProviders
             engine = SearchProviders(timeout=args.timeout, settings=settings)
@@ -393,7 +459,8 @@ def main(argv=None):
                                        args.limit if args.limit is not None else payload.get("limit_per_target"))
         elif args.command == "search-archive":
             from raw_library import RawLibrary
-            result = RawLibrary(settings=settings).search(args.query, args.limit, args.offset, args.url)
+            result = RawLibrary(settings=settings).search(args.query, args.limit, args.offset, args.url,
+                                                          args.occurrence_limit, args.occurrence_offset)
         elif args.command == "merge-results":
             result = fuse_results(_read_json(args.input))
         else:
@@ -406,6 +473,11 @@ def main(argv=None):
                     result = sources.status(args.source)
                 elif args.command == "history":
                     result = sources.history(args.source, limit=args.limit, offset=args.offset)
+                elif args.command == "source":
+                    if args.source_command == "remove":
+                        result = sources.remove(args.source_id, confirm=args.confirm)
+                    else:
+                        result = sources.merge(args.source_id, args.into_source_id, confirm=args.confirm)
                 else:
                     refresh = None if args.no_refresh else sources.refresh(args.source)
                     if refresh and refresh["state"] in ("error", "unavailable"):
@@ -414,7 +486,8 @@ def main(argv=None):
                         if args.command == "search":
                             result = index.search(args.source, targets=args.target, section=args.section,
                                                   group_id=args.group, folder_id=args.folder, tags=args.tag,
-                                                  limit=args.limit, offset=args.offset)
+                                                  limit=args.limit, offset=args.offset, tag_colors=args.tag_color,
+                                                  item_types=args.item_type or None, count_only=args.count_only)
                         else:
                             result = index.context(args.source, section=args.section, group_id=args.group,
                                                    item_id=args.item)
@@ -435,7 +508,14 @@ def main(argv=None):
         print(json.dumps({"cancelled": True, "error": "Setup cancelled; previously saved preferences and keys are retained."}))
         return 130
     except (ValueError, OSError, RuntimeError, sqlite3.Error) as error:
-        print(json.dumps({"error": str(error), "type": type(error).__name__}, ensure_ascii=False))
+        message = str(error)
+        if isinstance(error, sqlite3.Error) and ("readonly" in message or "unable to open" in message):
+            # A raw SQLite error gives no way to recover; name the two paths the
+            # user can actually change and how.
+            message = ("Cannot write the data directory: %s. Set BOOKMARK_RESEARCH_DATA_DIR to a writable directory "
+                       "(and BOOKMARK_RESEARCH_CONFIG for settings), or fix that directory's permissions. "
+                       "Run doctor for a storage check." % message)
+        print(json.dumps({"error": message, "type": type(error).__name__}, ensure_ascii=False))
         return 1
 
 

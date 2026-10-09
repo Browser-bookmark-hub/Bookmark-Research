@@ -77,6 +77,9 @@ elif host == 'dsh':
         if not link.is_symlink():
             link.symlink_to(args[4], target_is_directory=True)
     elif '--dump-config' in args:
+        if profile == 'desktop':
+            # DeepSeek Harness Desktop reserves its profile: no boot or dump.
+            sys.exit('error: profile "desktop" is managed exclusively by the Electron application')
         print((root / 'node_modules/bookmark-research/bundle.patch.yml').read_text())
     else:
         sys.exit('unexpected DSH command: ' + str(args))
@@ -96,7 +99,7 @@ class HostInstallerTests(unittest.TestCase):
         self.source.mkdir()
         for directory in (*export_bundle.SHARED_ROOTS, "hosts", ".codex-plugin"):
             shutil.copytree(ROOT / directory, self.source / directory)
-        for relative in (*export_bundle.SHARED_DOCUMENTS, "LICENSE"):
+        for relative in (*export_bundle.SHARED_DOCUMENTS, "LICENSE", export_bundle.BUNDLE_PATCH):
             (self.source / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, self.source / relative)
         self.bin = self.base / "bin"
@@ -274,6 +277,30 @@ class HostInstallerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--scope"):
             self.manage("dsh", scope="user")
 
+    def test_desktop_profile_verifies_the_persisted_layer_without_dumping_it(self):
+        # DeepSeek Harness Desktop reserves "desktop": the launcher refuses every
+        # boot and dump, so verification must read the persisted layer instead.
+        result = self.manage("dsh", profile="desktop")
+        self.assertTrue(result["verified"])
+        self.assertEqual(Path(result["installed_path"]),
+                         (self.base / "dsh-config/profiles/desktop/node_modules/bookmark-research").resolve())
+        self.assertFalse([call for call in self.calls() if "--dump-config" in call])
+        self.assertTrue(self.manage("dsh", "verify", profile="desktop")["verified"])
+
+    def test_desktop_composition_requires_the_declared_layer_and_entry(self):
+        import host_clients
+        self.manage("dsh", profile="desktop")
+        package = (self.base / "dsh-config/profiles/desktop/node_modules/bookmark-research").resolve()
+        client = host_clients.HostClient("dsh", str(self.bin / "dsh"), 15, profile="desktop")
+        composition = client.desktop_composition(package)
+        self.assertIn("bookmark-research-skill", composition)
+        self.assertIn("bookmarkResearchPaths", composition)
+        manifest = json.loads((package / "package.json").read_text())
+        manifest["dsh"] = {"bundle": {"patch": "../outside.yml"}}
+        (package / "package.json").write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(RuntimeError, "missing"):
+            client.desktop_composition(package)
+
     def test_git_ref_is_retained_across_reinstall_and_update(self):
         environment = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.base / "gitconfig"))
         def git(*args):
@@ -312,6 +339,24 @@ class DshPrerequisiteTests(unittest.TestCase):
                 self.manage("dsh", profile="web")
         self.assertFalse(self.calls())
         self.assertFalse((self.base / "dsh-config").exists())
+
+    def test_desktop_cli_carries_its_own_package_manager(self):
+        # DeepSeek Harness Desktop runs `dsh plugin` with its bundled pnpm, so the
+        # PATH precondition does not apply to that carrier.
+        (self.bin / ("pnpm.cmd" if os.name == "nt" else "pnpm")).unlink()
+        runtime = self.base / "DeepSeek Harness.app/Contents/Resources/runtime"
+        binary = runtime / "cli" / "bin" / "dsh"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!" + sys.executable + "\n" + FAKE_CLIENT)
+        binary.chmod(0o755)
+        if os.name == "nt":
+            (binary.parent / "dsh.cmd").write_text('@"%s" "%s" %%*\r\n' % (sys.executable, binary))
+        (runtime / "pnpm" / "bin").mkdir(parents=True)
+        (runtime / "pnpm" / "bin" / "pnpm.mjs").write_text("// Desktop's own pnpm\n")
+        with mock.patch("shutil.which", lambda name, *a, **k: None if name == "pnpm" else str(self.bin / name)):
+            result = self.manage("dsh", profile="web", binary=str(binary))
+        self.assertTrue(result["verified"])
+        self.assertTrue([call for call in self.calls() if call[0] == "dsh"])
 
 
 class MultiHostInstallerTests(unittest.TestCase):

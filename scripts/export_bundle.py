@@ -16,6 +16,8 @@ from host_assets import export_host_assets
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 FORMATS = ("codex", "agent-plugin", "claude", "pi", "dsh")
 NAME = "bookmark-research"
+# The DSH bundle layer a released tree ships and declares in `dsh.bundle.patch`.
+BUNDLE_PATCH = "bundle.patch.yml"
 SCHEMA_ROOT = "https://agent-plugins.org/schemas/1.0.0/"
 SHARED_ROOTS = ("src", "config", "skills")
 SHARED_DOCUMENTS = (
@@ -366,8 +368,34 @@ Reference: https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/
     return introduction + instructions
 
 
-def _write_adapter(stage, format_name, output, manifest, python="python3"):
+def _generated_bundle_patch(python, environment):
+    """The bundle layer for a source tree that does not ship `bundle.patch.yml`.
+
+    Released trees carry the committed patch, which resolves the interpreter and
+    the forwarded environment from the module. An older published package or Git
+    ref only provides `root` and `cli`, so its generated layer must stay on that
+    narrower contract.
+    """
+    return """- insert:
+    - id: bookmark-research-skill
+      name: bookmark-research
+    - id: bookmark-research-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      inject: [bookmarkResearchPaths]
+      config:
+        serverName: bookmark-research
+        transport: stdio
+        command: %s
+        args: !!js "[ctx.bookmarkResearchPaths.cli, 'serve']"
+        cwd: !!js ctx.bookmarkResearchPaths.root
+        env: !!js %s
+        failOnStartupError: true
+""" % (json.dumps(python), environment)
+
+
+def _write_adapter(stage, format_name, output, manifest, python="python3", source_root=SOURCE_ROOT):
     metadata = {"name": NAME, "version": manifest["version"], "description": manifest["description"]}
+    adapter = {}
     if format_name == "codex":
         if python != "python3":
             # Codex registers this manifest verbatim; pin the detected interpreter.
@@ -408,27 +436,21 @@ def _write_adapter(stage, format_name, output, manifest, python="python3"):
         _write_json(stage, "package.json", {
             **metadata, "type": "module", "main": "./hosts/dsh/plugin.js",
             "exports": "./hosts/dsh/plugin.js",
-            "files": ["src", "config", "skills", "hosts", "workflows", "docs", "bundle.patch.yml", "LICENSE"],
-            "dsh": {"bundle": {"patch": "./bundle.patch.yml"}},
+            "files": ["src", "config", "skills", "hosts", "workflows", "docs", BUNDLE_PATCH, "LICENSE"],
+            "dsh": {"bundle": {"patch": "./" + BUNDLE_PATCH}},
         })
         forwarded = manifest["mcpServers"][NAME]["env_vars"]
         environment = json.dumps("Object.fromEntries(" + json.dumps(forwarded) +
             ".filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))")
-        (stage / "bundle.patch.yml").write_text("""- insert:
-    - id: bookmark-research-skill
-      name: bookmark-research
-    - id: bookmark-research-mcp
-      name: '@deepseek-ai/dsh-mcp-client'
-      inject: [bookmarkResearchPaths]
-      config:
-        serverName: bookmark-research
-        transport: stdio
-        command: %s
-        args: !!js "[ctx.bookmarkResearchPaths.cli, 'serve']"
-        cwd: !!js ctx.bookmarkResearchPaths.root
-        env: !!js %s
-        failOnStartupError: true
-""" % (json.dumps(python), environment), encoding="utf-8")
+        committed = Path(source_root) / BUNDLE_PATCH
+        if not committed.is_symlink() and committed.is_file():
+            # The released tree ships the layer; copying it keeps the npm package
+            # and the exported bundle on byte-identical patch content.
+            (stage / BUNDLE_PATCH).write_bytes(committed.read_bytes())
+            adapter["bundle_patch"] = "committed"
+        else:
+            (stage / BUNDLE_PATCH).write_text(_generated_bundle_patch(python, environment), encoding="utf-8")
+            adapter["bundle_patch"] = "generated"
         # JSON strings are valid YAML scalars, including paths with spaces/quotes.
         cli_path = json.dumps(str(output / "src/cli.py"), ensure_ascii=False)
         patch = """- insert:
@@ -446,6 +468,7 @@ def _write_adapter(stage, format_name, output, manifest, python="python3"):
 """ % (json.dumps(python), cli_path, environment)
         (stage / "cordis.patch.yml").write_text(patch, encoding="utf-8")
     (stage / "README.md").write_text(_readme(format_name, output), encoding="utf-8")
+    return adapter
 
 
 def export_bundle(format_name, output, source_root=SOURCE_ROOT, python="python3"):
@@ -473,13 +496,13 @@ def export_bundle(format_name, output, source_root=SOURCE_ROOT, python="python3"
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_root / relative, destination)
         host_files = export_host_assets(source_root, stage, format_name)
-        _write_adapter(stage, format_name, output, manifest, python)
+        adapter = _write_adapter(stage, format_name, output, manifest, python, source_root=source_root)
         _check_destination(output)
         if output.exists():
             output.rmdir()  # Only an empty directory can be removed here.
         stage.rename(output)  # Renaming a directory cannot replace nonempty data.
     return {"format": format_name, "version": manifest["version"], "output": str(output), "shared_files": len(files),
-            "host_files": host_files, "installed": False}
+            "host_files": host_files, "adapter": adapter, "installed": False}
 
 
 def main(argv=None):

@@ -13,6 +13,10 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
+# The trigram tokenizer indexes three-character sequences; shorter patterns
+# cannot use it and keep the LIKE fallback.
+TRIGRAM_MINIMUM = 3
+
 
 def _dump(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -172,6 +176,51 @@ class BookmarkIndex:
         except Exception:
             self.close()
             raise
+        self._fts_mode = self._prepare_search_index()
+        self._window_functions = self._supports_window_functions()
+
+    def _supports_window_functions(self):
+        """SQLite 3.25+ can return the pre-LIMIT count alongside the page."""
+        try:
+            self.connection.execute("SELECT row_number() OVER () FROM (SELECT 1)").fetchone()
+        except sqlite3.DatabaseError:
+            return False
+        return True
+
+    def _prepare_search_index(self):
+        """Keep items_fts able to answer literal substring searches.
+
+        The default FTS5 tokenizer treats a whole run of CJK characters as one
+        token, so ``MATCH '推理'`` cannot find ``推理加速``. The trigram tokenizer
+        does substring matching, which is the same contract as the LIKE fallback
+        used for short terms; when it is unavailable the index stays usable and
+        every term falls back to LIKE.
+        """
+        row = self.connection.execute("SELECT sql FROM sqlite_master WHERE name='items_fts'").fetchone()
+        existing = (row["sql"] or "") if row is not None else ""
+        if row is not None and "trigram" in existing:
+            return "trigram"
+        if row is not None and not self._trigram_available():
+            return "plain"
+        with self.transaction():
+            self.connection.execute("DROP TABLE IF EXISTS items_fts")
+            self.connection.execute("CREATE VIRTUAL TABLE items_fts USING fts5("
+                                    "title,url,note,tag_text,folder_path,content='items',content_rowid='pk',"
+                                    "tokenize='trigram')")
+            self.connection.execute("INSERT INTO items_fts(items_fts) VALUES('rebuild')")
+        return "trigram"
+
+    def _trigram_available(self):
+        try:
+            self.connection.execute("CREATE VIRTUAL TABLE temp.__trigram_probe USING fts5(body, tokenize='trigram')")
+        except sqlite3.DatabaseError:
+            return False
+        finally:
+            try:
+                self.connection.execute("DROP TABLE IF EXISTS temp.__trigram_probe")
+            except sqlite3.DatabaseError:
+                pass
+        return True
 
     def close(self):
         self.connection.close()
@@ -632,9 +681,12 @@ class BookmarkIndex:
             raise ValueError("Unknown or ambiguous group; use a unique group ID: " + str(group_id))
         return rows[0]
 
-    def _scope(self, source_id, section=None, group_id=None, folder_id=None, tags=None):
+    def _scope(self, source_id, section=None, group_id=None, folder_id=None, tags=None, tag_colors=None,
+               item_types=None):
         self._source(source_id)
-        clauses, args = ["i.source_id=?", "i.item_type='bookmark'"], [source_id]
+        selected_types = list(item_types) if item_types else ["bookmark"]
+        clauses = ["i.source_id=?", "i.item_type IN (%s)" % ",".join("?" for _ in selected_types)]
+        args = [source_id, *selected_types]
         sections = self._sections(source_id, section) if section is not None or group_id is not None else None
         if group_id is not None:
             group = self._group(source_id, group_id)
@@ -668,55 +720,181 @@ class BookmarkIndex:
             _string(tag, "tag", True)
             clauses.append("EXISTS (SELECT 1 FROM item_tags t WHERE t.item_pk=i.pk AND t.text=?)")
             args.append(tag)
+        for color in tag_colors or []:
+            _string(color, "tag color", True)
+            clauses.append("EXISTS (SELECT 1 FROM item_tags t WHERE t.item_pk=i.pk AND t.color=?)")
+            args.append(color)
         return clauses, args
 
-    @staticmethod
-    def _match(target):
-        # LIKE provides a literal substring fallback for Chinese short names.
-        # Escape all SQL wildcard characters; FTS query syntax is not exposed.
-        escaped = target.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        fields = ("title", "url", "note", "tag_text", "folder_path")
-        return "(" + " OR ".join("i.%s LIKE ? ESCAPE '\\'" % field for field in fields) + ")", ["%" + escaped + "%"] * len(fields)
+    def _match(self, target):
+        """Literal substring matching: every whitespace-separated term must occur.
 
-    def _item_result(self, row):
+        Terms of three or more characters use the trigram full-text index, which
+        is substring-based and case-insensitive. Shorter terms (and every term
+        when trigram is unavailable) keep the LIKE fallback, because a two
+        character CJK term cannot be answered by a trigram index.
+        """
+        terms = target.split() or [target]
+        clauses, parameters = [], []
+        for term in terms:
+            if self._fts_mode == "trigram" and len(term) >= TRIGRAM_MINIMUM:
+                clauses.append("i.pk IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)")
+                parameters.append('"' + term.replace('"', '""') + '"')
+                continue
+            # Escape all SQL wildcard characters; FTS query syntax is not exposed.
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            fields = ("title", "url", "note", "tag_text", "folder_path")
+            clauses.append("(" + " OR ".join("i.%s LIKE ? ESCAPE '\\'" % field for field in fields) + ")")
+            parameters.extend(["%" + escaped + "%"] * len(fields))
+        return "(" + " AND ".join(clauses) + ")", parameters
+
+    def _section_anchors(self, source_id):
+        """Map a canonical section to the copy-anchor sections that share its tree."""
+        anchors = {}
+        for row in self.connection.execute(
+                "SELECT section_id, canonical_id, is_anchor FROM sections WHERE source_id=?", (source_id,)):
+            if row["is_anchor"] and row["canonical_id"] and row["canonical_id"] != row["section_id"]:
+                anchors.setdefault(row["canonical_id"], []).append(row["section_id"])
+        return anchors
+
+    def _item_result(self, row, anchors=None):
         result = {key: row[key] for key in ("source_id", "section_id", "item_id", "parent_id", "item_type", "title", "url", "note", "note_color", "position")}
         result.update(source=row["source_id"], section=row["section_id"], item=row["item_id"],
             path=json.loads(row["path_json"]), folder_path=row["folder_path"], tags=json.loads(row["tags_json"]),
             raw_json=json.loads(row["raw_json"]), metadata=json.loads(row["metadata_json"]))
+        # An untitled parentless folder is the tree container a canvas package
+        # synthesizes, not a folder the user created. Mark it so counts and
+        # listings can tell them apart.
+        if row["item_type"] == "folder" and not row["title"] and not row["parent_id"]:
+            result["synthetic"] = True
+        if anchors:
+            # Which copy cards display this bookmark; the query just answers one
+            # of them, so "which cards contain it" would otherwise be incomplete.
+            shown = anchors.get(row["section_id"])
+            if shown:
+                result["shown_in_anchors"] = sorted(shown)
         section = self.connection.execute("SELECT label,file_path FROM sections WHERE source_id=? AND section_id=?", (row["source_id"], row["section_id"])).fetchone()
         result["section_label"], result["file_path"] = section[0], section[1]
         return result
 
-    def search(self, source_id, targets=None, section=None, group_id=None, folder_id=None, tags=None, limit=20, offset=0):
-        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
-            raise ValueError("limit must be an integer from 1 to 1000")
+    def search(self, source_id, targets=None, section=None, group_id=None, folder_id=None, tags=None,
+               limit=20, offset=0, tag_colors=None, item_types=None, count_only=False):
+        """Literal structured search. ``limit=0`` or ``count_only`` returns counts only."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 1000:
+            raise ValueError("limit must be an integer from 0 to 1000; 0 returns counts only")
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise ValueError("offset must be a non-negative integer")
-        if isinstance(targets, str) or isinstance(tags, str):
-            raise ValueError("targets and tags must be lists of strings")
+        if isinstance(targets, str) or isinstance(tags, str) or isinstance(tag_colors, str):
+            raise ValueError("targets, tags and tag_colors must be lists of strings")
         targets = list(dict.fromkeys(targets or []))
         if len(targets) > 100:
             raise ValueError("At most 100 targets per request")
         for target in targets:
             _string(target, "target", True)
-        clauses, args = self._scope(source_id, section, group_id, folder_id, tags)
+        if item_types is not None:
+            if (not isinstance(item_types, list) or not 1 <= len(item_types) <= 2
+                    or any(value not in ("bookmark", "folder") for value in item_types)
+                    or len(set(item_types)) != len(item_types)):
+                raise ValueError("item_types must select bookmark and/or folder without duplicates")
+        clauses, args = self._scope(source_id, section, group_id, folder_id, tags, tag_colors, item_types)
+        page_size = 0 if count_only else limit
+        anchors_by_section = self._section_anchors(source_id)
 
-        def query(chosen):
+        def query(chosen, page=True):
             predicates, parameters = list(clauses), list(args)
             if chosen:
                 matches = [self._match(target) for target in chosen]
                 predicates.append("(" + " OR ".join(match[0] for match in matches) + ")")
                 parameters.extend(value for _, values in matches for value in values)
             where = " AND ".join(predicates)
-            total = self.connection.execute("SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
-            rows = self.connection.execute("SELECT i.* FROM items i WHERE " + where + " ORDER BY i.section_id,i.preorder,i.item_id LIMIT ? OFFSET ?", parameters + [limit, offset]).fetchall()
-            return {"total": total, "limit": limit, "offset": offset, "results": [self._item_result(row) for row in rows]}
+            rows, total = [], None
+            if page and page_size:
+                if self._window_functions:
+                    # One statement returns the page and its pre-LIMIT count, so a
+                    # batch of targets does not pay a second scan per target.
+                    rows = self.connection.execute(
+                        "SELECT i.*, count(*) OVER () AS computed_total FROM items i WHERE " + where +
+                        " ORDER BY i.section_id,i.preorder,i.item_id LIMIT ? OFFSET ?",
+                        parameters + [page_size, offset]).fetchall()
+                    total = rows[0]["computed_total"] if rows else self.connection.execute(
+                        "SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
+                else:
+                    total = self.connection.execute("SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
+                    rows = self.connection.execute(
+                        "SELECT i.* FROM items i WHERE " + where + " ORDER BY i.section_id,i.preorder,i.item_id LIMIT ? OFFSET ?",
+                        parameters + [page_size, offset]).fetchall()
+            else:
+                total = self.connection.execute("SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
+            unique = self.connection.execute(
+                "SELECT count(DISTINCT i.url) FROM items i WHERE " + where + " AND i.url<>''", parameters).fetchone()[0]
+            return {"total": total, "unique_urls": unique, "limit": limit, "offset": offset,
+                    "results": [self._item_result(row, anchors_by_section) for row in rows]}
 
         result = query(targets)
-        result.update(source_id=source_id, query_scope={"section": section, "group_id": group_id, "folder_id": folder_id, "tags": list(tags or [])},
-            match_mode="literal_substring", searched_fields=["title", "url", "note", "tags.text", "folder_path"])
+        section_rows = self._sections(source_id, section) if section is not None else []
+        anchors = {row["section_id"]: row["canonical_id"] for row in section_rows if row["is_anchor"]}
+        result.update(source_id=source_id,
+            query_scope={"section": section, "group_id": group_id, "folder_id": folder_id,
+                         "tags": list(tags or []), "tag_colors": list(tag_colors or []),
+                         "item_types": list(item_types) if item_types else ["bookmark"]},
+            match_mode="literal_substring", match_index="fts_trigram+like" if self._fts_mode == "trigram" else "like",
+            searched_fields=["title", "url", "note", "tags.text", "folder_path"])
+        result["counts"] = {"instances": result["total"], "unique_urls": result["unique_urls"],
+            "note": "instances counts bookmark rows including duplicate URLs; unique_urls counts distinct non-empty "
+                    "URLs. Per-section totals must not be summed when a copy anchor shares another card's tree."}
+        if anchors:
+            result["anchor_of"] = anchors
+            result["anchor_note"] = ("The requested card is a copy anchor of another card; this result is the shared "
+                                     "tree, so it already appears under that card's own section.")
+        canvas_matches = self._canvas_matches(source_id, targets)
+        if canvas_matches:
+            result["canvas_matches"] = canvas_matches
+            result["canvas_match_note"] = ("Canvas text cards, group labels and edge labels matching a target. They are "
+                                           "not bookmark items, so they are excluded from total and results; use "
+                                           "get_context with group_id to read the full card.")
+        shown = offset + len(result["results"]) if result["results"] else offset
+        result["next_offset"] = None if page_size == 0 else (shown if shown < result["total"] else None)
         result["targets"] = [dict(target=target, **query([target])) for target in targets]
         return result
+
+    def _canvas_matches(self, source_id, targets):
+        """Find canvas text nodes, group labels and edge labels for these targets.
+
+        These are not bookmark items, so they never enter ``results`` or
+        ``total``. They are reported separately because a user asking about
+        "the card labelled 123" otherwise gets unrelated short-substring
+        bookmark hits and no sign that 123 is a group or edge label.
+        """
+        if not targets:
+            return []
+        patterns = []
+        for target in targets:
+            escaped = target.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            patterns.append("%" + escaped + "%")
+        # One query per canvas table for the whole batch, not two per target.
+        clause = " OR ".join("label LIKE ? ESCAPE '\\' OR text LIKE ? ESCAPE '\\'" for _ in patterns)
+        found = []
+        for row in self.connection.execute(
+                "SELECT canvas_path,node_id,node_type,label,text FROM nodes WHERE source_id=? AND (" + clause + ") "
+                "ORDER BY canvas_path,position", (source_id, *[value for pattern in patterns for value in (pattern, pattern)])):
+            found.append({"kind": "text" if row["node_type"] == "text" else "group",
+                          "canvas_path": row["canvas_path"], "node_id": row["node_id"],
+                          "label": row["label"], "text": row["text"], "node_type": row["node_type"]})
+        clause = " OR ".join("label LIKE ? ESCAPE '\\'" for _ in patterns)
+        for row in self.connection.execute(
+                "SELECT canvas_path,edge_id,from_node,to_node,label FROM edges WHERE source_id=? AND (" + clause + ") "
+                "ORDER BY canvas_path,edge_id", (source_id, *patterns)):
+            found.append({"kind": "edge", "canvas_path": row["canvas_path"], "edge_id": row["edge_id"],
+                          "label": row["label"], "from_node": row["from_node"], "to_node": row["to_node"]})
+        # Attribute each canvas hit to every target it answers.
+        matches = []
+        for row in found:
+            haystack = ((row.get("label") or "") + "\n" + (row.get("text") or "")).casefold()
+            for target, pattern in zip(targets, patterns):
+                needle = pattern.strip("%").casefold()
+                if needle and needle in haystack:
+                    matches.append({"target": target, **row})
+        return matches
 
     def context(self, source_id, section=None, group_id=None, item_id=None):
         source = self._source(source_id)
@@ -780,6 +958,11 @@ class BookmarkIndex:
             entry["raw_json"] = {key: value for key, value in json.loads(entry["raw_json"]).items()
                 if key not in ("tree", "items", "identityMap")}
             entry["bookmark_count"] = self.connection.execute("SELECT count(*) FROM items WHERE source_id=? AND section_id=? AND item_type='bookmark'", (source_id, entry["canonical_id"])).fetchone()[0]
+            # A copy anchor reports the shared tree's count, so summing section
+            # counts double counts. Say so explicitly instead of leaving a
+            # self-consistent but inflated total.
+            entry["anchor_of"] = entry["canonical_id"] if entry["is_anchor"] else None
+            entry["counted_in_totals"] = not bool(entry["is_anchor"])
             section_results.append(entry)
         items = [self._item_result(row) for row in item_rows]
         for item, row in zip(items, item_rows):
@@ -789,8 +972,22 @@ class BookmarkIndex:
                 if ancestor_row:
                     item["ancestors"].append(self._item_result(ancestor_row))
         return {"source_id": source_id, "source": source, "sections": section_results,
+            "counts": self._scope_counts(source_id, section_results),
             "items": items, "nodes": nodes, "groups": [node for node in nodes if node["node_type"] == "group"],
             "edges": edges, "related_nodes": related_nodes, "memberships": memberships}
+
+    def _scope_counts(self, source_id, section_results):
+        """Distinct totals for the returned sections, so copy anchors are not summed twice."""
+        counted = [row for row in section_results if row["counted_in_totals"]]
+        instances, urls = 0, set()
+        for row in counted:
+            instances += row["bookmark_count"]
+            urls.update(value for value in self.connection.execute(
+                "SELECT DISTINCT url FROM items WHERE source_id=? AND section_id=? AND item_type='bookmark' AND url<>''",
+                (source_id, row["canonical_id"])))
+        return {"sections": len(section_results), "counted_sections": len(counted),
+                "instances": instances, "unique_urls": len(urls),
+                "note": "Sum of counted_sections only; copy anchors share another card's tree and are excluded."}
 
     def inventory(self, source_ids):
         """Freeze the complete indexed input, independently of query previews.
@@ -900,8 +1097,12 @@ class BookmarkIndex:
         counts = dict(self.connection.execute("""SELECT count(*) AS items,
             coalesce(sum(item_type='bookmark'),0) AS bookmarks,
             coalesce(sum(item_type='folder'),0) AS folders,
+            coalesce(sum(item_type='folder' AND parent_id IS NULL AND title=''),0) AS tree_roots,
             count(DISTINCT CASE WHEN item_type='bookmark' THEN url END) AS unique_urls
             FROM items WHERE source_id=?""", (source_id,)).fetchone())
+        # "folders" is the raw row count, which includes the synthetic tree
+        # container; user_folders is what a person sees in the canvas.
+        counts["user_folders"] = counts["folders"] - counts["tree_roots"]
         for table in ("sections", "files", "nodes", "edges", "memberships"):
             counts[table] = self.connection.execute("SELECT count(*) FROM " + table + " WHERE source_id=?", (source_id,)).fetchone()[0]
         result["counts"] = counts
@@ -909,5 +1110,11 @@ class BookmarkIndex:
         package = Path(result["package_path"])
         result["package_exists"] = package.is_dir()
         result["retained_missing_files"] = [row[0] for row in self.connection.execute("SELECT file_path FROM files WHERE source_id=? ORDER BY file_path", (source_id,)) if not (package / row[0]).is_file()]
+        if result["retained_missing_files"]:
+            # partial imports keep removed cards on purpose; say so at the top
+            # level so the stale rows are not mistaken for current content.
+            result["retained_missing_note"] = ("%d imported file(s) are no longer in the package and were kept because "
+                "completeness=partial. Re-import with completeness=complete to reconcile the full mirror, or ignore "
+                "them deliberately." % len(result["retained_missing_files"]))
         result["sections"] = [{"section_id": row["section_id"], "label": row["label"], "is_anchor": bool(row["is_anchor"]), "canonical_id": row["canonical_id"]} for row in self._sections(source_id)]
         return result

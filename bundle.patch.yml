@@ -1,0 +1,18 @@
+# DeepSeek Harness bundle layer. Paths resolve from the installed package through
+# the module's context, so this file is identical in the npm package and in an
+# exported copy; `python` and the forwarded environment come from the module
+# (see hosts/dsh/plugin.js), not from this machine.
+- insert:
+    - id: bookmark-research-skill
+      name: bookmark-research
+    - id: bookmark-research-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      inject: [bookmarkResearchPaths]
+      config:
+        serverName: bookmark-research
+        transport: stdio
+        command: !!js ctx.bookmarkResearchPaths.python.command
+        args: !!js ctx.bookmarkResearchPaths.mcpArgs
+        cwd: !!js ctx.bookmarkResearchPaths.root
+        env: !!js ctx.bookmarkResearchPaths.env
+        failOnStartupError: true

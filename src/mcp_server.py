@@ -10,6 +10,7 @@ import math
 import sys
 from pathlib import Path
 
+from release import release_version
 from settings import Settings
 
 
@@ -74,12 +75,21 @@ TOOL_SCHEMAS = {
     "source_history": _object_schema({"source_id": IDENTIFIER,
         "limit": {"type": "integer", "minimum": 1, "maximum": 100},
         "offset": {"type": "integer", "minimum": 0, "maximum": 1000000000}}, ["source_id"]),
+    "source_remove": _object_schema({"source_id": IDENTIFIER, "confirm": {"type": "boolean", "default": False}},
+        ["source_id"]),
+    "source_merge": _object_schema({"source_id": IDENTIFIER, "into_source_id": IDENTIFIER,
+        "confirm": {"type": "boolean", "default": False}}, ["source_id", "into_source_id"]),
     "search_bookmarks": _object_schema({
         "source_id": IDENTIFIER, "targets": _array_schema(_text_schema(), 100),
         "section": IDENTIFIER, "group_id": IDENTIFIER, "folder_id": IDENTIFIER,
         "tags": _array_schema(_text_schema(), 100),
-        "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 20},
+        "tag_colors": _array_schema(_text_schema(), 20),
+        "item_types": {"type": "array", "items": {"type": "string", "enum": ["bookmark", "folder"]},
+                       "minItems": 1, "maxItems": 2, "uniqueItems": True,
+                       "description": "Defaults to bookmark; pass [\"folder\"] to enumerate folders."},
+        "limit": {"type": "integer", "minimum": 0, "maximum": 1000, "default": 20},
         "offset": {"type": "integer", "minimum": 0, "maximum": 1000000000, "default": 0},
+        "count_only": {"type": "boolean", "default": False},
         "refresh": {"type": "boolean", "default": True},
     }, ["source_id"]),
     "get_context": _object_schema({
@@ -108,6 +118,10 @@ TOOL_SCHEMAS = {
         "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
         "offset": {"type": "integer", "minimum": 0, "maximum": 10000000, "default": 0},
         "url": {**_text_schema(2048), "description": "Only bodies saved for a URL containing this substring (case-insensitive)."},
+        "occurrence_limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 50,
+            "description": "Occurrences listed per merged body. Each result reports occurrence_count, occurrences_truncated and occurrences_next_offset."},
+        "occurrence_offset": {"type": "integer", "minimum": 0, "maximum": 10000000, "default": 0,
+            "description": "Continue a body's occurrence list from this offset."},
     }, ["query"]),
 }
 
@@ -117,13 +131,15 @@ TOOL_DESCRIPTIONS = {
     "research_readiness": "Check retrieval and optional research service readiness before each new web research question. Respects cached/always/manual preferences; refresh forces checks and offline prevents network. Reports missing credentials, catalog reachability and the exact scope of verified auth separately. observed_tools establish host tool visibility, not OAuth login. test_retrieval additionally uses provider quota for a sample search/read; no professional research job is started.",
     "sync_package": "Import a directory, ZIP or single section JSON, retaining a managed snapshot outside the original. Reuse source_id for a moved or partial export of the same canvas; path aliases are remembered. New exports default to snapshot; Git directories default to live monitoring. Existing sources retain their mode. completeness=partial preserves absent cards; complete reconciles a full mirror. Single cards must be partial. Source files are never modified.",
     "source_history": "List saved source versions and their complete managed snapshot paths, including data retained from partial imports. Reimport a snapshot path to recover its data and recorded relationships. This does not refresh sources or change existing research inventories.",
-    "search_bookmarks": "Search bookmark metadata with literal title/URL/note/tag/folder-path matching and exact SQL scopes. Targets have independent totals and pages; this is not semantic webpage-body retrieval. Refresh checks live directories by default; snapshots remain usable after the original export disappears. Inspect source.state for pending changes or errors. refresh=false uses the last synchronized index, not an arbitrary historical version.",
+    "source_remove": "Delete an imported source, its indexed rows and its managed snapshots. Without confirm=true this only reports what would be removed. Research tasks that froze the source keep their saved inventory but stop resolving its items, and Wiki pages citing those claims become stale; prefer source_merge for an identical duplicate.",
+    "source_merge": "Drop a duplicate source whose current content version equals into_source_id, moving its path aliases to the survivor so a later import of the same folder updates it. Fails when the two hold different content. Without confirm=true this only reports the merge.",
+    "search_bookmarks": "Search bookmark metadata with literal title/URL/note/tag/folder-path matching and exact SQL scopes. Every whitespace-separated term must occur; three-character and longer terms use the trigram index while shorter ones use LIKE substring matching. Targets have independent totals and pages. Report instances separately from unique_urls: a copy anchor returns another card's shared tree, so per-section totals must not be summed. limit=0 or count_only returns counts without rows; item_types=[\"folder\"] enumerates folders, including the synthetic untitled tree container marked synthetic. Canvas text cards, group labels and edge labels matching a target are reported separately in canvas_matches and never inflate total. Refresh checks live directories by default; snapshots remain usable after the original export disappears. Inspect source.state for pending changes or errors. refresh=false uses the last synchronized index, not an arbitrary historical version.",
     "get_context": "Read section headers, bookmark metadata, folder ancestry, geometric group membership and directed canvas edges. Copy anchors share their primary tree. Refresh is enabled by default.",
     "index_status": "Read source modes, original input availability, saved snapshots, pending files, last check/error, counts and local monitor status. Does not refresh or fetch webpages. unchecked means a live directory has not been checked recently.",
     "search_web": "Search with saved primary providers concurrently, then saved fallback providers only for queries with no usable result (defaults: Exa + Parallel, then Tavily + keyed Jina). Missing fallback credentials are skipped. Explicit providers restrict the call to that list. Search snippets are not verified page evidence; result pages are not automatically fetched.",
     "fetch_web": "Read known URLs; pages contains one selected text per URL, with attempt statuses and archive paths. Omit provider for the saved waterfall (initially Exa then concurrent Parallel/Jina on unresolved URLs); an explicit provider selects one service. raw=true returns full provider envelopes; archive=false disables saving. Review page identity and meaning before citing.",
     "search_providers": "Describe Exa/Parallel/Tavily MCP and Jina HTTP capabilities and authentication per operation. Jina Reader supports anonymous access; Jina Search requires JINA_API_KEY. probe=true discovers MCP catalogs; HTTP mappings are local. Discovery does not prove successful retrieval.",
-    "search_archive": "Literal full-text search over page text already saved locally: the knowledge archive and every registered research task's evidence. Not web search and not semantic retrieval; no network access. Identical bodies are merged by SHA-256 and list every occurrence (archive capture or research_id+source_id, path, retrieval time). Bodies whose hash no longer matches are skipped and counted. The index refreshes incrementally on each call.",
+    "search_archive": "Literal full-text search over page text already saved locally: the knowledge archive and every registered research task's evidence. Not web search and not semantic retrieval; no network access. Identical bodies are merged by SHA-256 and list their occurrences (archive capture or research_id+source_id, path, retrieval time) with occurrence_count, occurrences_truncated and occurrences_next_offset for bodies with more occurrences than occurrence_limit. Bodies whose hash no longer matches are skipped and counted. The index refreshes incrementally on each call.",
 }
 
 RESEARCH_ID = _text_schema(80)
@@ -274,8 +290,12 @@ TOOL_SCHEMAS.update({
     "research_service_import": _object_schema({"external_id": RESEARCH_ID, "operation_id": RESEARCH_ID,
         "question_id": RESEARCH_ID}, ["external_id", "operation_id"]),
     "wiki_write": _object_schema({"page_id": RESEARCH_ID, "page": WIKI_PAGE, "change_note": _text_schema(4000),
-        "expected_revision": {"type": "integer", "minimum": 0, "maximum": 1000000}},
+        "expected_revision": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "reviewed_input_version": {**_text_schema(200), "description": "The already-synchronized input version this page was checked against; closes source_input_changed for cited tasks at that version."}},
         ["page_id", "page", "change_note"]),
+    "wiki_acknowledge": _object_schema({"page_id": RESEARCH_ID, "note": _text_schema(4000),
+        "expected_revision": {"type": "integer", "minimum": 1, "maximum": 1000000}},
+        ["page_id", "note"]),
     "wiki_get": _object_schema({"page_id": RESEARCH_ID, "revision": {"type": "integer", "minimum": 1, "maximum": 1000000}}, ["page_id"]),
     "wiki_list": _object_schema({"offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}}),
@@ -295,7 +315,8 @@ TOOL_DESCRIPTIONS.update({
     "research_service_cancel": "Request cancellation through the provider's documented interface. OpenAI supports this; Parallel Task cancellation is not established by this adapter. Local observation failure never means the remote job was cancelled.",
     "research_service_attach": "Attach an independently known provider run ID without starting remote work. Can recover a missing create response or reference a run started through an existing host integration. Status remains unverified until observed.",
     "research_service_import": "Import a saved completed provider report into a research session as unreviewed external-report evidence. Original URL coverage is unchanged; read and assess cited originals separately.",
-    "wiki_write": "Publish an authored topic/entity page outside source packages, with reviewed active claims, source provenance, relationships and an immutable revision. Supply the current expected_revision when updating. Semantic support requires the named human/model review.",
+    "wiki_write": "Publish an authored topic/entity page outside source packages, with reviewed active claims, source provenance, relationships and an immutable revision. Supply the current expected_revision when updating. Pass reviewed_input_version to record that the page was checked against that already-synchronized input version, which closes source_input_changed for cited tasks at that version. Semantic support requires the named human/model review.",
+    "wiki_acknowledge": "Re-publish a Wiki page unchanged to record that its cited sources were reviewed against their current input version, closing source_input_changed without editing content. Writes an immutable revision and preserves history; the note records who reviewed what. No network access and no semantic scoring.",
     "wiki_get": "Read a Wiki page or an immutable earlier revision with source/claim links resolved at current research locations. validation.status=needs_review signals changed bookmark input after the cited research; this does not automatically revise the page or refetch webpages.",
     "wiki_list": "List paginated Wiki pages and current revision metadata without network access.",
     "wiki_search": "Find saved knowledge when the task needs prior research absent from the conversation. Return matching Wiki text, revision dates and validation; needs_review flags changed bookmark input. Invalidated or retracted evidence is excluded. Literal full-text retrieval, not vector search.",
@@ -436,9 +457,14 @@ class StdioMcpServer:
         return self._research_services
 
     def _wiki(self):
-        if self._wiki_store is None:
-            from wiki import WikiStore
-            self._wiki_store = WikiStore(settings=self.settings, research_sessions=self._research())
+        from wiki import WikiStore
+        # Settings can change under a long-lived stdio server, so a cached store
+        # is rebound whenever the effective Wiki directory differs.
+        selected = WikiStore.selected_directory(self.settings)
+        if self._wiki_store is None or self._wiki_store.directory != Settings.external_path(
+                str(selected), "Wiki directory"):
+            self._wiki_store = WikiStore(directory=selected, settings=self.settings,
+                                         research_sessions=self._research())
         return self._wiki_store
 
     def _raw(self):
@@ -462,7 +488,8 @@ class StdioMcpServer:
             "research_service_cancel": "cancel", "research_service_attach": "attach", "research_service_import": "import_result"}
         if name in service_methods:
             return getattr(self._services(), service_methods[name])(**arguments)
-        wiki_methods = {"wiki_write": "write", "wiki_get": "get", "wiki_list": "list", "wiki_search": "search", "wiki_lint": "lint"}
+        wiki_methods = {"wiki_write": "write", "wiki_get": "get", "wiki_list": "list", "wiki_search": "search",
+                        "wiki_lint": "lint", "wiki_acknowledge": "acknowledge"}
         if name in wiki_methods:
             return getattr(self._wiki(), wiki_methods[name])(**arguments)
         if name == "research_route":
@@ -484,6 +511,10 @@ class StdioMcpServer:
             return result
         if name == "source_history":
             return self._sources().history(**arguments)
+        if name == "source_remove":
+            return self._sources().remove(**arguments)
+        if name == "source_merge":
+            return self._sources().merge(**arguments)
         if name in ("search_bookmarks", "get_context"):
             options = dict(arguments)
             refresh = options.pop("refresh", True)
@@ -566,7 +597,7 @@ class StdioMcpServer:
                 requested = params["protocolVersion"]
                 self.protocol = requested if requested in PROTOCOLS else PROTOCOLS[-1]
                 result = {"protocolVersion": self.protocol, "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "bookmark-research", "version": "0.5.0-beta.3"},
+                    "serverInfo": {"name": "bookmark-research", "version": release_version()},
                     "instructions": "Before each new web research question, call research_readiness with the actual host and observed tools. It follows saved cached/always/manual preferences; reuse checks during that investigation. Local bookmark queries need no network check. Configured keys and visible tools do not prove authorization. Optional service failures leave other routes available. Use the bundled CLI setup for preferences and hidden credential entry; never request API keys in chat."}
             elif method == "ping":
                 _params(params, ())

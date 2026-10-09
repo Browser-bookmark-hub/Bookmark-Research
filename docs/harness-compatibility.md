@@ -1,8 +1,8 @@
 # 宿主兼容、工作流与打包
 
-更新日期：2026-09-13。四宿主共用同一 Skill、Python CLI、stdio MCP 和研究档案。当前宿主模型负责规划、搜索／阅读、判断证据、按缺口补查及综合；原生协作支持独立分工。Deep Research 在这条流程上增加持续调查、独立核验、覆盖检查和报告。外部研究 API 可承担具体子问题，缺少它们仍能研究。
+更新日期：2026-10-08。四宿主共用同一 Skill、Python CLI、stdio MCP 和研究档案。当前宿主模型负责规划、搜索／阅读、判断证据、按缺口补查及综合；原生协作支持独立分工。Deep Research 在这条流程上增加持续调查、独立核验、覆盖检查和报告。外部研究 API 可承担具体子问题，缺少它们仍能研究。
 
-**正文依据、文件生成、隔离脚本检查、真实 MCP 调用和宿主端到端研究是不同验证层级。** 本轮没有安装 Pi / DSH、改全局配置或启动付费研究模型。具体脚本调用和研究规则见 [宿主工作流参考](../skills/bookmark-research/references/host-workflows.md)。
+**正文依据、文件生成、隔离脚本检查、真实 MCP 调用和宿主端到端研究是不同验证层级。** 本轮在 DSH 桌面版 profile `desktop` 上完成了一次真实安装，并观察到 Skill 注册与 MCP 工具实际应答；Pi 仍未安装，未改全局配置，未启动付费研究模型。具体脚本调用和研究规则见 [宿主工作流参考](../skills/bookmark-research/references/host-workflows.md)。
 
 | 宿主 | 协作基础与本插件入口 | 生命周期与限制 |
 | --- | --- | --- |
@@ -58,7 +58,7 @@
 | Claude Code 插件 | `.claude-plugin/plugin.json`；当前文档允许省略 manifest 后按约定发现组件 | 根 `skills/`、`.mcp.json` 或 manifest 配置 | 单独保留 Claude manifest／MCP 配置 |
 | Agent Plugins 1.0.0 标准包 | **根 `plugin.json`**，必填 `$schema` 与 `name` | 固定发现根 `skills/`、`mcp.json` | 从同一源码独立导出标准包 |
 | Pi | `package.json` 的 `pi` 字段，或资源目录约定 | 原生 skills／extensions；MCP 要靠扩展 | `pi.skills`＋Skill 调用 CLI；多组任务另登记项目工作流 |
-| DeepSeek Harness（DSH） | `--patch` 加载 Cordis 配置；可发布 bundle 另有 `package.json` 的 `dsh.bundle.patch` | 原生 Skill provider；官方 `dsh-mcp-client` 桥接 MCP tools | 导出使用绝对路径的本机 `cordis.patch.yml` 适配文件 |
+| DeepSeek Harness（DSH） | 包在 `package.json` 声明 `dsh.bundle.patch`，由 `dsh plugin` 或插件管理器安装；`--patch` 仍可手工加载 Cordis 配置 | 原生 Skill provider；官方 `dsh-mcp-client` 桥接 MCP tools | 发布包自带按安装位置解析的 `bundle.patch.yml`，registry 可直接安装；绝对路径 `cordis.patch.yml` 仅作手工适配 |
 
 这些入口不是同一文件的不同别名。符合 Agent Skills 的 `SKILL.md` 和 MCP 协议是主要复用边界；某个客户端能加载 Skill，并不表示它已经支持 Agent Plugins 的根 manifest。[H01][H04][H05][P02][D02]
 
@@ -157,7 +157,9 @@ DSH 的原生运行插件是 Cordis 模块，可导出 `name`、`inject` 和 `ap
 
 `command` 与 `args` 分开传递。不要在这个 DSH 片段里假设 `${PLUGIN_ROOT}` 会像 Codex／Agent Plugins 一样展开；本轮核实的 MCP 客户端并未定义这种插件根占位符约定。绝对路径片段适合本机 checkout；搬迁或重新安装到其他位置后需要重新生成。DSH 的 patch 文件位置也不会改变模块路径解析所依据的 profile 目录。[D03][D05]
 
-本次 DSH 导出是**本机配置适配文件**，不生成声明 `dsh.bundle` 的 `package.json`，也不安装 DSH 或官方 MCP client。后续如果要发布可搬迁 npm bundle，需要增加按安装位置解析源码路径的适配器，并按官方规则声明 `dsh.bundle.patch`；不能发布硬编码本机路径的配置并称其可移植。[D02][D03]
+发布包现在**自带** `bundle.patch.yml` 并在 `package.json` 声明 `dsh.bundle.patch`，因此 `dsh plugin --profile <name> add bookmark-research@<version>`（以及 DSH 插件管理界面）可以直接从 registry 安装；`dsh` 的 bundle 对账逻辑会把声明了 `dsh.bundle` 且 patch 存在的包自动加入 `dsh.profile.bundles`。层内不写死本机路径：`command`、`args`、`cwd` 与转发的环境变量都由入口模块 `hosts/dsh/plugin.js` 在加载时提供（`bookmarkResearchPaths.python/mcpArgs/env`），模块用与 npm 启动器相同的顺序发现 Python 3.9+／SQLite，所以导出副本、registry 安装和 Windows 都不需要重生成 patch。统一安装器仍导出带校验和的固定副本，用于可验证的托管安装；对不含该文件的旧发布包或旧 Git ref，导出器按模块的旧契约生成等价层，安装不回归。[D02][D03]
+
+DSH 桌面版把 profile 名 `desktop` 保留给 Electron 载体：启动器对该名字拒绝一切 boot／dump（`--dump-config` 亦然），只有载体自身可以管理其插件。因此对 `desktop` 的安装须用桌面版自带 CLI（`--dsh "<App>/Contents/Resources/runtime/cli/bin/dsh"`，它自带 pnpm，无需 PATH 中的 pnpm），安装器的验证改为读取持久层：profile 依赖指向该包、`dsh.bundle.patch` 与入口模块按包目录相对解析且文件存在、层内包含 Skill 与 MCP 行。2026-10-08 在本机（macOS、桌面运行时 0.2.0-rc.2、发布包 0.5.0-beta.5）实测：注册后 Skill 出现在宿主目录，`mcp__bookmark-research__*` 工具正常应答，运行中的 MCP 子进程解析到已安装包目录。[D02][D08]
 
 导出及查看合并配置的形式是：
 
@@ -166,7 +168,7 @@ python3 scripts/export_bundle.py --format dsh --output /private/tmp/bookmark-res
 dsh --profile web --patch /private/tmp/bookmark-research-dsh/cordis.patch.yml --dump-config
 ```
 
-实际启动可使用 `dsh web --patch <绝对配置路径>`。这些命令要求 DSH 环境已具备对应 MCP client 依赖，属于待客户端验证的接入说明；本文没有安装或修改 DSH profile。新建任意名称的 profile 默认只有 base bundle；`web` profile 才会按官方模板包含 Web 表面，不应把“创建一个任意 profile”描述成自动创建了完整 Web 应用。[D02][D08]
+实际启动可使用 `dsh web --patch <绝对配置路径>`。该手工路线仍属待客户端验证的接入说明，且不覆盖保留的 `desktop` profile。新建任意名称的 profile 默认只有 base bundle；`web` profile 才会按官方模板包含 Web 表面，不应把“创建一个任意 profile”描述成自动创建了完整 Web 应用。[D02][D08]
 
 `dsh plugin` 在 profile 目录中通过 pnpm 管理依赖，并把声明了 `dsh.bundle` 的包加入 `dsh.profile.bundles`。没有该声明的 npm 包仍能作为普通依赖安装，但不会自动增加插件配置层。后层 patch 会替换命中行的整个 `config`，不做深度合并。[D02][D08]
 

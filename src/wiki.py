@@ -33,9 +33,18 @@ class WikiStore:
 
     def __init__(self, directory=None, settings=None, research_sessions=None):
         self.settings = settings if settings is not None else Settings()
-        selected = directory if directory is not None else self.settings.load().get("wiki", {}).get("directory", Settings.data_directory() / "wiki")
+        selected = directory if directory is not None else self.selected_directory(self.settings)
         self.directory = Settings.external_path(str(selected), "Wiki directory")
         self.research = research_sessions if research_sessions is not None else ResearchSessions(settings=self.settings)
+
+    @classmethod
+    def selected_directory(cls, settings):
+        """Return the configured Wiki directory without building a store.
+
+        A long-lived MCP server caches its store, so it compares this value on
+        every call: ``update_settings`` applies to later calls without a restart.
+        """
+        return settings.load().get("wiki", {}).get("directory", Settings.data_directory() / "wiki")
 
     @staticmethod
     def _slug(value):
@@ -198,9 +207,21 @@ class WikiStore:
                 cache[key] = self.research.source_freshness(state=cache[research_id][1])
             freshness = cache[key]
             if freshness["requires_review"]:
-                issues.append({"severity": "warning", "code": "source_input_changed", "research_id": research_id,
-                    "message": "The bookmark input changed after the cited research; review this page against the new source version.",
-                    "source_freshness": freshness})
+                # A recorded review of this exact input version closes the
+                # warning. A later change produces a new version and reopens it.
+                acknowledged = next((row for row in self._acknowledged(record)
+                                     if row["research_id"] == research_id
+                                     and row["input_version"] == freshness.get("current_input_version")), None)
+                if acknowledged is not None:
+                    issues.append({"severity": "info", "code": "source_change_acknowledged",
+                        "research_id": research_id,
+                        "message": "The bookmark input changed after the cited research; this page was reviewed against the new source version.",
+                        "acknowledged_at": acknowledged.get("acknowledged_at"), "note": acknowledged.get("note"),
+                        "source_freshness": freshness})
+                else:
+                    issues.append({"severity": "warning", "code": "source_input_changed", "research_id": research_id,
+                        "message": "The bookmark input changed after the cited research; review this page against the new source version, then re-write it with reviewed_input_version or run wiki acknowledge.",
+                        "source_freshness": freshness})
         for link in record["resolved_links"]:
             latest = index["pages"].get(link["page_id"])
             if latest is None:
@@ -221,8 +242,59 @@ class WikiStore:
                 stack.enter_context(Settings._update_lock(self.research._path(research_id) / "state.json"))
             yield
 
-    def write(self, page_id, page, change_note, expected_revision=0):
-        """Create at revision 0, or update the explicit revision read by the caller."""
+    @staticmethod
+    def _acknowledged(record):
+        """Return well-formed acknowledgments from a revision record."""
+        rows = record.get("acknowledged")
+        if not isinstance(rows, list):
+            return []
+        return [row for row in rows if isinstance(row, dict)
+                and isinstance(row.get("research_id"), str) and isinstance(row.get("input_version"), str)]
+
+    def _acknowledgements(self, references, cache, reviewed_input_version, acknowledge_all, note,
+                          prior_record=None):
+        """Record which current input versions this revision was reviewed against."""
+        if not acknowledge_all and reviewed_input_version is None:
+            # A content edit does not invalidate a source-version review that is
+            # still current, so valid acknowledgements carry forward.
+            carried = []
+            for row in self._acknowledged(prior_record or {}):
+                if row["research_id"] not in cache:
+                    continue
+                key = ("source_freshness", row["research_id"])
+                if key not in cache:
+                    cache[key] = self.research.source_freshness(state=cache[row["research_id"]][1])
+                if cache[key].get("current_input_version") == row["input_version"]:
+                    carried.append(row)
+            return carried
+        versions = {}
+        for research_id in sorted({reference[0] for reference in references}):
+            key = ("source_freshness", research_id)
+            if key not in cache:
+                cache[key] = self.research.source_freshness(state=cache[research_id][1])
+            versions[research_id] = cache[key].get("current_input_version")
+        if acknowledge_all:
+            selected = {key: value for key, value in versions.items() if isinstance(value, str)}
+        else:
+            if (not isinstance(reviewed_input_version, str) or not reviewed_input_version.strip()
+                    or len(reviewed_input_version) > 200):
+                raise ValueError("reviewed_input_version must be a nonempty string of at most 200 characters")
+            selected = {key: value for key, value in versions.items() if value == reviewed_input_version}
+            if not selected:
+                raise ValueError("reviewed_input_version does not match the current input version of any cited "
+                                 "research task; read the page again or omit it")
+        stamp = ResearchSessions._now()
+        return [{"research_id": key, "input_version": value, "acknowledged_at": stamp, "note": note}
+                for key, value in sorted(selected.items())]
+
+    def write(self, page_id, page, change_note, expected_revision=0, reviewed_input_version=None,
+              acknowledge_all=False):
+        """Create at revision 0, or update the explicit revision read by the caller.
+
+        ``reviewed_input_version`` records that the page was checked against that
+        already-synchronized input version, which closes ``source_input_changed``
+        for the cited tasks at that version.
+        """
         page_id = self._slug(page_id)
         page, references = self._page(page)
         change_note = self._text(change_note, "Change note")
@@ -239,9 +311,10 @@ class WikiStore:
             previous = index["pages"].get(page_id)
             if expected_revision != (previous["revision"] if previous else 0):
                 raise ValueError("Wiki revision changed; read the current page before updating")
-            if previous:
-                self._revision(previous)
-            elif len(index["pages"]) >= 5000:
+            prior_record = self._revision(previous) if previous else None
+            acknowledged = self._acknowledgements(references, cache, reviewed_input_version, acknowledge_all,
+                                                  page["review"]["note"], prior_record)
+            if prior_record is None and len(index["pages"]) >= 5000:
                 raise ValueError("Wiki page limit reached")
             resolved_links = []
             for link in page["links"]:
@@ -256,8 +329,8 @@ class WikiStore:
             stem = "revisions/%s/%s-%s" % (page_id, revision, uuid.uuid4().hex[:12])
             record = {"schema_version": 1, "page_id": page_id, "revision": revision,
                       "updated_at": stamp, "change_note": change_note, "previous": previous,
-                      "page": page, "evidence": evidence, "resolved_links": resolved_links,
-                      "review_rubric": self.REVIEW_RUBRIC}
+                      "page": page, "evidence": evidence, "acknowledged": acknowledged,
+                      "resolved_links": resolved_links, "review_rubric": self.REVIEW_RUBRIC}
             raw = (json.dumps(record, ensure_ascii=False, allow_nan=False, indent=2) + "\n").encode("utf-8")
             if len(raw) > self.MAX_RECORD_BYTES:
                 raise ValueError("Wiki page and citation snapshots exceed 900000 bytes; split the topic")
@@ -274,7 +347,24 @@ class WikiStore:
             ResearchSessions._write(self._path("log.md"), self._log_text() + self._log_entry(page_id, pointer, change_note, references))
         return {"page_id": page_id, **pointer, "status": "written", "directory": str(self.directory),
                 "artifacts": self._artifacts(pointer), "semantic_review": "caller_declared",
+                "acknowledged": acknowledged,
                 "catalog": {key: str(self._path(key)) for key in ("index.md", "log.md")}}
+
+    def acknowledge(self, page_id, note, expected_revision=None):
+        """Re-publish a page unchanged, recording that its sources were re-reviewed.
+
+        This is the remedy for ``source_input_changed`` when the content still
+        holds: the page text is not edited, a new immutable revision records who
+        reviewed which input version, and history is preserved.
+        """
+        page_id = self._slug(page_id)
+        note = self._text(note, "Acknowledge note")
+        current = self.get(page_id)
+        revision = current["revision"] if expected_revision is None else expected_revision
+        result = self.write(page_id, current["page"], "Reviewed against the current input: " + note,
+                            expected_revision=revision, acknowledge_all=True)
+        result["acknowledged_note"] = note
+        return result
 
     @staticmethod
     def _line(value, limit=None):
@@ -404,7 +494,13 @@ class WikiStore:
                 page = record["page"]
                 body = "\n\n".join(section["heading"] + "\n" + section["text"] for section in page["sections"])
                 text = (page["title"] + "\n" + body).casefold()
-                if not all(term in text for term in terms):
+                # CJK writers do not put spaces where an author did ("唯一URL" vs
+                # "唯一 URL"), so a whitespace-insensitive pass runs in addition
+                # to the literal one. It only widens matches when spacing differs.
+                squashed = re.sub(r"\s+", "", text)
+                squashed_terms = [re.sub(r"\s+", "", term) for term in terms]
+                squashed_match = all(term and term in squashed for term in squashed_terms)
+                if not (all(term in text for term in terms) or squashed_match):
                     continue
                 rank = sum(min(text.count(term), 20) + (5 if term in page["title"].casefold() else 0) for term in terms)
                 positions = [body.casefold().find(term) for term in terms if term in body.casefold()]
@@ -412,6 +508,7 @@ class WikiStore:
                 matches.append((rank, {"page_id": page_id, "revision": pointer["revision"], "title": page["title"],
                                       "kind": page["kind"], "snippet": body[begin:begin + 500],
                                       "updated_at": pointer["updated_at"], "validation": validation,
+                                      "whitespace_insensitive": bool(squashed_match and not all(term in text for term in terms)),
                                       "artifacts": self._artifacts(pointer)}))
             except (OSError, ValueError, KeyError, TypeError):
                 excluded.append(page_id)
@@ -419,7 +516,8 @@ class WikiStore:
         return {"query": query, "results": [row[1] for row in matches[offset:offset + limit]], "total": len(matches),
                 "next_offset": offset + limit if offset + limit < len(matches) else None,
                 "excluded_stale_pages": len(excluded), "excluded_page_ids": excluded[:100],
-                "method": "casefolded literal terms over authored Wiki text; no semantic ranking"}
+                "method": "casefolded literal terms over authored Wiki text, plus a whitespace-insensitive pass so CJK "
+                          "queries match differently spaced text; no semantic ranking"}
 
     def _markdown(self, record, location):
         page = record["page"]
