@@ -206,7 +206,11 @@ class WikiStore:
             if key not in cache:
                 cache[key] = self.research.source_freshness(state=cache[research_id][1])
             freshness = cache[key]
-            if freshness["requires_review"]:
+            if freshness.get("state") == "unknown":
+                issues.append({"severity": "warning", "code": "source_input_unavailable", "research_id": research_id,
+                    "message": "The cited bookmark input cannot be checked; restore or synchronize its source before reviewing this page.",
+                    "source_freshness": freshness})
+            elif freshness["requires_review"]:
                 # A recorded review of this exact input version closes the
                 # warning. A later change produces a new version and reopens it.
                 acknowledged = next((row for row in self._acknowledged(record)
@@ -312,6 +316,11 @@ class WikiStore:
             if expected_revision != (previous["revision"] if previous else 0):
                 raise ValueError("Wiki revision changed; read the current page before updating")
             prior_record = self._revision(previous) if previous else None
+            if acknowledge_all and prior_record is not None:
+                # A freshness acknowledgement must preserve the previously
+                # published evidence baseline, even if it changed after get().
+                if any(issue["severity"] == "error" for issue in self._issues(prior_record, index, cache)):
+                    raise ValueError("Wiki acknowledgement cannot accept invalid evidence or links; repair them before reviewing input changes")
             acknowledged = self._acknowledgements(references, cache, reviewed_input_version, acknowledge_all,
                                                   page["review"]["note"], prior_record)
             if prior_record is None and len(index["pages"]) >= 5000:
@@ -361,6 +370,7 @@ class WikiStore:
         note = self._text(note, "Acknowledge note")
         current = self.get(page_id)
         revision = current["revision"] if expected_revision is None else expected_revision
+        current["page"]["review"]["note"] = note
         result = self.write(page_id, current["page"], "Reviewed against the current input: " + note,
                             expected_revision=revision, acknowledge_all=True)
         result["acknowledged_note"] = note
@@ -424,7 +434,8 @@ class WikiStore:
     @staticmethod
     def _validation(issues):
         return {"status": "stale" if any(item["severity"] == "error" for item in issues) else
-                          "needs_review" if any(item["code"] == "source_input_changed" for item in issues) else "current",
+                          "needs_review" if any(item["code"] in ("source_input_changed", "source_input_unavailable")
+                                                for item in issues) else "current",
                 "issues": issues, "semantic_review": "caller_declared; not evaluated by lint"}
 
     def get(self, page_id, revision=None):

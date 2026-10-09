@@ -3,11 +3,13 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,6 +38,60 @@ class SourceManager:
         with index.transaction():
             for statement in SCHEMA:
                 self.connection.execute(statement)
+            self._recover_retired_snapshots()
+
+    def _recover_retired_snapshots(self):
+        """Recover a removal interrupted before commit, using surviving DB references."""
+        if self.storage is None or self.storage.is_symlink() or not self.storage.is_dir():
+            return
+        retired = {}
+        for directory in self.storage.iterdir():
+            match = re.fullmatch(r"\.removed-([0-9a-f]{64})-[0-9a-f]{32}", directory.name)
+            if match and not directory.is_symlink() and directory.is_dir():
+                retired.setdefault(match[1], []).append(directory)
+        if not retired:
+            return
+        for row in self.connection.execute("SELECT source_id FROM sources").fetchall():
+            source_id = row[0]
+            try:
+                canonical = self._snapshot_directory(source_id)
+            except ValueError:
+                continue
+            candidates = retired.get(canonical.name, [])
+            if not candidates:
+                continue
+            references = list(self.connection.execute(
+                "SELECT version_id,snapshot_path FROM source_snapshots WHERE source_id=?", (source_id,)))
+            try:
+                current = self._record(source_id)
+            except (ValueError, TypeError):
+                current = None
+            if isinstance(current, dict):
+                references.append((current.get("version_id"), current.get("snapshot_path")))
+            for version_id, snapshot_path in references:
+                if not isinstance(version_id, str) or not re.fullmatch(r"v-[0-9a-f]{64}", version_id):
+                    continue
+                destination = canonical / version_id
+                if (not isinstance(snapshot_path, str) or Path(snapshot_path) != destination / "package"
+                        or destination.exists() or destination.is_symlink()):
+                    continue
+                for directory in candidates:
+                    saved = directory / version_id
+                    if saved.is_symlink() or not saved.is_dir():
+                        continue
+                    try:
+                        if any(entry.is_symlink() for entry in saved.rglob("*")):
+                            continue
+                        manifest = self._imported_snapshot(read_input(saved / "package"))
+                    except (OSError, ValueError, TypeError, KeyError):
+                        continue
+                    if not manifest or manifest.get("source_id") != source_id or manifest.get("version_id") != version_id:
+                        continue
+                    canonical.mkdir(exist_ok=True)
+                    saved.rename(destination)
+                    break
+        # Unreferenced versions and empty retirement directories stay untouched.
+        # A committed removal must never be undone just because its cleanup died.
 
     def _now(self):
         return datetime.fromtimestamp(self.clock(), timezone.utc).isoformat()
@@ -296,36 +352,66 @@ class SourceManager:
             raise ValueError("Managed snapshot directory is not safe to change")
         return directory
 
+    @contextmanager
+    def _source_removal(self, source_id):
+        """Retire snapshots before commit; clean only this removal's directory."""
+        if self.connection.in_transaction:
+            raise ValueError("Source remove/merge must run outside another index transaction")
+        snapshot = retired = None
+        cleanup = {"snapshot_removed": False}
+        try:
+            with self.index.transaction():
+                yield cleanup
+                snapshot = self._snapshot_directory(source_id)
+                if snapshot is not None and snapshot.is_dir():
+                    retired = snapshot.with_name(".removed-" + snapshot.name + "-" + uuid.uuid4().hex)
+                    snapshot.rename(retired)
+        except BaseException:
+            if retired is not None and retired.is_dir():
+                # A failed commit may have released SQLite's lock. Reacquire it
+                # and preserve any new snapshot published since that rollback.
+                with self.index.transaction():
+                    self._snapshot_directory(source_id)
+                    if not snapshot.exists():
+                        retired.rename(snapshot)
+                    else:
+                        # Version directories are immutable. Restore missing old
+                        # versions without replacing a concurrent import's files.
+                        for version in retired.iterdir():
+                            destination = snapshot / version.name
+                            if not destination.exists():
+                                version.rename(destination)
+                        shutil.rmtree(retired)
+            raise
+        if retired is not None:
+            shutil.rmtree(retired)
+            cleanup["snapshot_removed"] = True
+
     def remove(self, source_id, confirm=False):
         """Delete a source, its indexed rows and its managed snapshots.
 
         Research inventories that froze this source keep their saved input but
         can no longer resolve it, so a caller must confirm explicitly.
         """
-        record = self._record(source_id)
-        if record is None:
-            raise ValueError("Unknown source_id: " + str(source_id))
-        counts = self._source_counts(source_id)
-        snapshot = self._snapshot_directory(source_id)
-        aliases = [row[0] for row in self.connection.execute(
-            "SELECT input_path FROM source_aliases WHERE source_id=? ORDER BY input_path", (source_id,))]
-        if not confirm:
-            return {"source_id": source_id, "status": "confirmation_required", "would_remove": counts,
-                    "aliases": aliases, "snapshot_directory": str(snapshot) if snapshot else None,
-                    "impact": "Research tasks that froze this source keep their saved inventory but stop resolving "
-                              "its items; Wiki pages citing those claims become stale. Re-run with confirm=true "
-                              "(CLI: --confirm) to delete."}
-        with self.index.transaction():
+        transaction = self._source_removal(source_id) if confirm else self.index.read_snapshot()
+        with transaction as cleanup:
+            self._record(source_id)
+            counts = self._source_counts(source_id)
+            snapshot = self._snapshot_directory(source_id)
+            aliases = [row[0] for row in self.connection.execute(
+                "SELECT input_path FROM source_aliases WHERE source_id=? ORDER BY input_path", (source_id,))]
+            if not confirm:
+                return {"source_id": source_id, "status": "confirmation_required", "would_remove": counts,
+                        "aliases": aliases, "snapshot_directory": str(snapshot) if snapshot else None,
+                        "impact": "Research tasks that froze this source keep their saved inventory but stop resolving "
+                                  "its items; Wiki pages citing those claims require review. Re-run with confirm=true "
+                                  "(CLI: --confirm) to delete."}
             for table in ("items", "sections", "files", "nodes", "edges", "memberships",
                           "source_snapshots", "source_aliases", "source_records"):
                 self.connection.execute("DELETE FROM %s WHERE source_id=?" % table, (source_id,))
             self.connection.execute("DELETE FROM sources WHERE source_id=?", (source_id,))
-        removed_snapshot = False
-        if snapshot is not None and snapshot.is_dir() and not snapshot.is_symlink():
-            shutil.rmtree(snapshot)
-            removed_snapshot = True
         return {"source_id": source_id, "status": "removed", "removed": counts,
-                "aliases": aliases, "snapshot_removed": removed_snapshot}
+                "aliases": aliases, **cleanup}
 
     def merge(self, source_id, into_source_id, confirm=False):
         """Drop a duplicate source whose content version equals the target's.
@@ -335,23 +421,23 @@ class SourceManager:
         """
         if source_id == into_source_id:
             raise ValueError("source_id and into_source_id must differ")
-        record, target = self._record(source_id), self._record(into_source_id)
-        if record is None:
-            raise ValueError("Unknown source_id: " + str(source_id))
-        if target is None:
-            raise ValueError("Unknown into_source_id: " + str(into_source_id))
-        if record.get("version_id") != target.get("version_id"):
-            raise ValueError("Sources hold different content versions; keep one explicitly with source remove "
-                             "instead of merging")
-        aliases = [row[0] for row in self.connection.execute(
-            "SELECT input_path FROM source_aliases WHERE source_id=? ORDER BY input_path", (source_id,))]
-        if not confirm:
-            return {"source_id": source_id, "into_source_id": into_source_id, "status": "confirmation_required",
-                    "version_id": record.get("version_id"), "moved_aliases": aliases,
-                    "impact": "The duplicate is deleted and its paths re-point at into_source_id; saved research "
-                              "inventories that froze the duplicate stop resolving. Re-run with confirm=true "
-                              "(CLI: --confirm) to merge."}
-        with self.index.transaction():
+        transaction = self._source_removal(source_id) if confirm else self.index.read_snapshot()
+        with transaction as cleanup:
+            record, target = self._record(source_id), self._record(into_source_id)
+            if any(not isinstance(row.get("version_id"), str)
+                   or not re.fullmatch(r"v-[0-9a-f]{64}", row["version_id"]) for row in (record, target)):
+                raise ValueError("Sources need synchronized content versions before merging; sync legacy sources first")
+            if record["version_id"] != target["version_id"]:
+                raise ValueError("Sources hold different content versions; keep one explicitly with source remove "
+                                 "instead of merging")
+            aliases = [row[0] for row in self.connection.execute(
+                "SELECT input_path FROM source_aliases WHERE source_id=? ORDER BY input_path", (source_id,))]
+            if not confirm:
+                return {"source_id": source_id, "into_source_id": into_source_id, "status": "confirmation_required",
+                        "version_id": record["version_id"], "moved_aliases": aliases,
+                        "impact": "The duplicate is deleted and its paths re-point at into_source_id; saved research "
+                                  "inventories that froze the duplicate stop resolving. Re-run with confirm=true "
+                                  "(CLI: --confirm) to merge."}
             for alias in aliases:
                 self.connection.execute("INSERT OR IGNORE INTO source_aliases VALUES(?,?)", (into_source_id, alias))
             self.connection.execute("INSERT OR IGNORE INTO source_aliases VALUES(?,?)",
@@ -360,14 +446,9 @@ class SourceManager:
                           "source_snapshots", "source_aliases", "source_records"):
                 self.connection.execute("DELETE FROM %s WHERE source_id=?" % table, (source_id,))
             self.connection.execute("DELETE FROM sources WHERE source_id=?", (source_id,))
-        snapshot = self._snapshot_directory(source_id)
-        removed_snapshot = False
-        if snapshot is not None and snapshot.is_dir() and not snapshot.is_symlink():
-            shutil.rmtree(snapshot)
-            removed_snapshot = True
         return {"source_id": source_id, "into_source_id": into_source_id, "status": "merged",
                 "version_id": record.get("version_id"), "moved_aliases": aliases,
-                "snapshot_removed": removed_snapshot}
+                **cleanup}
 
     def _observation(self, source_id, record, state, **fields):
         record.update(state=state, checked_at=self._now(), **fields)

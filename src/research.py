@@ -774,6 +774,14 @@ class ResearchSessions:
                     references.append({key: bookmark[key] for key in ("source_id", "section_id", "item_id")})
         return [entry["id"] for entry in entries], references
 
+    @classmethod
+    def _pending_operation(cls, state, operation_id):
+        cls._active(state)
+        operation = cls._find(state["operations"], operation_id, "operation")
+        if operation["status"] != "pending":
+            raise ValueError("Research operation is no longer pending; its late result was not committed")
+        return operation
+
     def _operation(self, research_id, operation_id, kind, parameters, cost, execute):
         operation_id = self._identifier(operation_id, "operation_id")
         path = self._path(research_id)
@@ -823,14 +831,17 @@ class ResearchSessions:
         # writes made by another process while the request was in flight survive.
         with self._task_lock(path):
             _, state = self._load(research_id)
-            stored = next((row for row in state["operations"] if row["id"] == operation_id), None)
-            if stored is None:
-                raise ValueError("Research operation disappeared before it was committed")
+            # Cancellation and explicit interruption take effect immediately.
+            # A late response must not change a terminal report or revive its step.
+            stored = self._pending_operation(state, operation_id)
             new_sources = payload.pop("sources", [])
             committed = []
             for source in new_sources:
                 source = copy.deepcopy(source)
                 source["id"] = "s%s" % (len(state["sources"]) + 1)
+                if kind == "import_evidence":
+                    self._write(self._artifact(path, source["manifest_file"]),
+                                {"schema_version": 1, "kind": "host_evidence_import", "source": source})
                 state["sources"].append(source)
                 committed.append(source)
             stored["status"] = status
@@ -875,15 +886,14 @@ class ResearchSessions:
                 # latest state under the lock instead of trusting the snapshot.
                 with self._task_lock(path):
                     _, latest = self._load(research_id, path)
+                    stored = self._pending_operation(latest, operation_id)
                     remaining = latest["budget"]["max_search_calls"] - latest["usage"]["search_calls"]
                     chosen = jobs[:max(0, remaining)]
                     if chosen:
                         latest["usage"]["search_calls"] += len(chosen)
-                        stored = next((row for row in latest["operations"] if row["id"] == operation_id), None)
-                        if stored is not None:
-                            stored["reserved"]["search_calls"] = stored["reserved"].get("search_calls", 0) + len(chosen)
-                            stored["fallback_attempts"] = [{"provider": name, "target": target, "query": query}
-                                                           for name, target, query in chosen]
+                        stored["reserved"]["search_calls"] = stored["reserved"].get("search_calls", 0) + len(chosen)
+                        stored["fallback_attempts"] = [{"provider": name, "target": target, "query": query}
+                                                       for name, target, query in chosen]
                         self._save(path, latest)
                 return chosen
 
@@ -961,6 +971,7 @@ class ResearchSessions:
                 # so a concurrent writer cannot lose its usage or sources.
                 with self._task_lock(path):
                     _, latest = self._load(research_id, path)
+                    stored = self._pending_operation(latest, operation_id)
                     remaining = latest["budget"]["max_fetch_calls"] - latest["usage"]["fetch_calls"]
                     selected, reserved = [], 0
                     for name in candidates:
@@ -971,10 +982,8 @@ class ResearchSessions:
                             remaining -= cost
                     if selected:
                         latest["usage"]["fetch_calls"] += reserved
-                        stored = next((row for row in latest["operations"] if row["id"] == operation_id), None)
-                        if stored is not None:
-                            stored["reserved"]["fetch_calls"] = stored["reserved"].get("fetch_calls", 0) + reserved
-                            stored["fallback_attempts"] = [{"provider": name, "urls": pending} for name in selected]
+                        stored["reserved"]["fetch_calls"] = stored["reserved"].get("fetch_calls", 0) + reserved
+                        stored["fallback_attempts"] = [{"provider": name, "urls": pending} for name in selected]
                         self._save(path, latest)
                 return selected
 
@@ -1060,7 +1069,7 @@ class ResearchSessions:
             identifiers, refs = self._source_links(current, url)
             if supplied_ids is not None:
                 identifiers = supplied_ids
-            source = {"id": "s%s" % (len(current["sources"]) + 1), "question_id": question_id,
+            source = {"question_id": question_id,
                       "operation_id": operation_id, "url": url, "canonical_url": canonical,
                       "provider": provenance.get("provider", "host_import"),
                       "retrieved_at": provenance.get("retrieved_at"), "imported_at": imported_at,
@@ -1075,8 +1084,8 @@ class ResearchSessions:
                       "inventory_ids": [] if kind == "external_report" else identifiers,
                       "referenced_inventory_ids": (supplied_ids or []) if kind == "external_report" else [],
                       "bookmark_refs": [] if kind == "external_report" else refs}
-            self._write(manifest_file, {"schema_version": 1, "kind": "host_evidence_import", "source": source})
-            current["sources"].append(source)
+            # The commit assigns the source id and writes its manifest together.
+            # The request snapshot cannot predict ids allocated by other writers.
             return {"status": "ok", "sources": [source], "next_action":
                     "Read and review the saved text. An imported report is one secondary source and does not mark its referenced original pages as read."}
 
