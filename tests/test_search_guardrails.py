@@ -140,6 +140,28 @@ class SearchGuardrailTests(unittest.TestCase):
         only_temp = self.index.search(self.source_id, targets=["临时书签"], limit=5)["results"][0]
         self.assertNotIn("shown_in_anchors", only_temp)
 
+    def test_canvas_matches_preserve_literal_wildcards_and_backslashes(self):
+        marker = r"Release_100%\notes"
+        canvas = {"nodes": [
+            {"id": "permanent-section", "type": "file", "file": PRIMARY,
+             "x": 0, "y": 0, "width": 10, "height": 10},
+            {"id": "literal-group", "type": "group", "label": marker,
+             "x": 0, "y": 0, "width": 100, "height": 100},
+            {"id": "literal-text", "type": "text", "text": marker,
+             "x": 0, "y": 120, "width": 10, "height": 10}],
+            "edges": [{"id": "literal-edge", "fromNode": "permanent-section",
+                       "toNode": "literal-text", "label": marker}]}
+        write_json(self.base / "package", "literal.canvas", canvas)
+        with self.index.transaction():
+            self.index.sync(self.base / "package")
+        targets = ["Release", "Release_100%", "100%", r"\notes", marker, "%", "_", "\\"]
+        result = self.index.search(self.source_id, targets=targets, limit=5)
+        actual = {(row["target"], row["kind"]) for row in result["canvas_matches"]}
+        self.assertEqual({(target, kind) for target in targets for kind in ("text", "group", "edge")}, actual)
+        self.assertEqual(0, result["total"])
+        missing = self.index.search(self.source_id, targets=["ReleaseX100%"], limit=5)
+        self.assertNotIn("canvas_matches", missing)
+
     def test_item_type_and_tag_color_inputs_are_validated(self):
         with self.assertRaisesRegex(ValueError, "item_types"):
             self.index.search(self.source_id, item_types=["bookmark", "bookmark"])

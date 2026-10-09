@@ -890,8 +890,8 @@ class BookmarkIndex:
         matches = []
         for row in found:
             haystack = ((row.get("label") or "") + "\n" + (row.get("text") or "")).casefold()
-            for target, pattern in zip(targets, patterns):
-                needle = pattern.strip("%").casefold()
+            for target in targets:
+                needle = target.casefold()
                 if needle and needle in haystack:
                     matches.append({"target": target, **row})
         return matches

@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import cli
@@ -44,6 +45,50 @@ class StoragePreflightTests(unittest.TestCase):
         self.assertNotIn("next_step", report)
         # The probe must not leave anything behind.
         self.assertEqual([], list((self.base / "data").glob(".bookmark-research-write-probe-*")))
+
+    def test_probe_closes_its_file_descriptor(self):
+        original_open, opened = os.open, []
+
+        def tracked_open(*args, **kwargs):
+            descriptor = original_open(*args, **kwargs)
+            opened.append(descriptor)
+            return descriptor
+
+        with mock.patch("os.open", side_effect=tracked_open):
+            report = cli._writable_directory(self.base)
+        leaked = []
+        for descriptor in set(opened):
+            try:
+                os.fstat(descriptor)
+            except OSError:
+                continue
+            leaked.append(descriptor)
+            os.close(descriptor)
+        self.assertTrue(report["writable"])
+        self.assertTrue(opened)
+        self.assertEqual([], leaked)
+        self.assertEqual([], list(self.base.iterdir()))
+
+    def test_probe_preserves_an_existing_file_with_the_old_probe_name(self):
+        existing = self.base / (".bookmark-research-write-probe-%d" % os.getpid())
+        existing.write_text("Existing content", encoding="utf-8")
+        report = cli._writable_directory(self.base)
+        self.assertTrue(report["writable"])
+        self.assertEqual("Existing content", existing.read_text(encoding="utf-8"))
+        self.assertEqual([existing], list(self.base.iterdir()))
+
+    def test_regular_file_ancestor_is_not_reported_writable(self):
+        blocker = self.base / "data"
+        blocker.write_text("A file, not a directory", encoding="utf-8")
+        settings = Settings(self.base / "config" / "settings.json")
+        args = type("Args", (), {"db": str(blocker / "nested" / "index.sqlite3")})()
+        report = cli._storage_report(args, settings)
+        self.assertFalse(report["ready"])
+        self.assertFalse(report["data_directory"]["writable"])
+        self.assertEqual(str(blocker), report["data_directory"]["checked"])
+        self.assertIn("not a directory", report["data_directory"]["error"])
+        self.assertIn("BOOKMARK_RESEARCH_DATA_DIR", report["next_step"])
+        self.assertEqual("A file, not a directory", blocker.read_text(encoding="utf-8"))
 
     def test_read_only_data_directory_is_reported_with_a_next_step(self):
         data = self.base / "data"

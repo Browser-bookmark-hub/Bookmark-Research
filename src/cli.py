@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import sys
+import tempfile
 from pathlib import Path
 
 from bookmark_index import BookmarkIndex
@@ -28,19 +29,17 @@ def _writable_directory(path):
     """Report whether the nearest existing ancestor of ``path`` accepts a new file."""
     candidate = Path(path).expanduser()
     for parent in (candidate, *candidate.parents):
-        if parent.is_dir():
-            probe = parent / (".bookmark-research-write-probe-%d" % os.getpid())
-            try:
-                descriptor = os.open(str(probe), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            except OSError as error:
-                return {"path": str(candidate), "checked": str(parent), "writable": False,
-                        "error": error.strerror or str(error)}
-            finally:
-                try:
-                    probe.unlink()
-                except OSError:
+        try:
+            if parent.is_dir():
+                with tempfile.TemporaryFile(prefix=".bookmark-research-write-probe-", dir=parent):
                     pass
-            return {"path": str(candidate), "checked": str(parent), "writable": True, "error": None}
+                return {"path": str(candidate), "checked": str(parent), "writable": True, "error": None}
+            if parent.exists() or parent.is_symlink():
+                return {"path": str(candidate), "checked": str(parent), "writable": False,
+                        "error": "Existing path component is not a directory"}
+        except OSError as error:
+            return {"path": str(candidate), "checked": str(parent), "writable": False,
+                    "error": error.strerror or str(error)}
     return {"path": str(candidate), "checked": None, "writable": False, "error": "no existing parent directory"}
 
 
