@@ -13,13 +13,15 @@ HOST_SOURCE_FILES = (
 )
 
 
-def read_asset(root, relative):
+def read_asset(root, relative, default=None):
     """Read a curated asset without following source symlinks."""
     current = Path(root)
     for part in Path(relative).parts:
         current = current / part
         if current.is_symlink():
             raise ValueError("Source symlinks are not exported: " + relative)
+    if default is not None and not current.exists():
+        return default
     if not current.is_file():
         raise ValueError("Required host asset is missing: " + relative)
     return current.read_bytes()
@@ -62,7 +64,10 @@ def export_host_assets(source, stage, host):
                 files["hosts/dsh/plugin.js"] = read_asset(source, "hosts/dsh/plugin.js")
                 # Scope ESM to the entry module so a package root may stay CommonJS
                 # (the npm package keeps a CommonJS bin and the pi field).
-                files["hosts/dsh/package.json"] = read_asset(source, "hosts/dsh/package.json")
+                # Older releases predate the nested manifest. Supply the scope
+                # when absent, while still rejecting links or invalid file types.
+                files["hosts/dsh/package.json"] = read_asset(
+                    source, "hosts/dsh/package.json", default=b'{"type":"module"}\n')
                 files["workflows/bookmark-research/meta.json"] = (
                     json.dumps(definition["meta"], ensure_ascii=False, indent=2) + "\n").encode("utf-8")
                 relative = "hosts/dsh/workflow-call.py"

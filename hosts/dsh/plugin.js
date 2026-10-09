@@ -70,8 +70,9 @@ export function apply(ctx) {
   const missing = [cli, fileURLToPath(skillUrl)].filter((path) => !existsSync(path));
   if (missing.length > 0) {
     process.stderr.write("bookmark-research: installation is incomplete; missing " + missing.join(", ") + ".\n"
-      + "Reinstall the plugin (for example: npx --yes --package=bookmark-research@latest bookmark-research install"
-      + " --host dsh) or remove the stale registration that points at a deleted install directory.\n");
+      + "Reinstall the intended version in the affected profile: dsh plugin --profile <profile> add"
+      + " bookmark-research@<version> (use the Desktop app's CLI for profile desktop), or remove the stale"
+      + " registration that points at a deleted install directory.\n");
     return;
   }
   const env = Object.fromEntries(FORWARDED_ENV

@@ -155,15 +155,47 @@ class ExportBundleTests(unittest.TestCase):
 
     def test_dsh_source_without_the_release_layer_still_exports(self):
         # A published release or Git ref that predates the committed layer keeps
-        # installing: its module provides only root and cli.
+        # installing: its module provides only root and cli, and it has no nested
+        # ESM manifest. The exported package still supplies an ESM scope.
         (self.source / export_bundle.BUNDLE_PATCH).unlink()
+        (self.source / "hosts/dsh/package.json").unlink()
         output = self.base / "dsh older source"
         result = export_bundle.export_bundle("dsh", output, self.source)
         self.assertEqual(result["adapter"]["bundle_patch"], "generated")
+        self.assertEqual(self.read_json(output, "hosts/dsh/package.json"), {"type": "module"})
         patch = (output / export_bundle.BUNDLE_PATCH).read_text(encoding="utf-8")
         self.assertIn("ctx.bookmarkResearchPaths.cli", patch)
         self.assertIn("'serve'", patch)
         self.assertIn("name: '@deepseek-ai/dsh-mcp-client'", patch)
+
+    def test_optional_dsh_manifest_does_not_allow_links_or_directories(self):
+        manifest = self.source / "hosts/dsh/package.json"
+        manifest.unlink()
+        manifest.symlink_to(ROOT / "hosts/dsh/package.json")
+        output = self.base / "invalid dsh export"
+        with self.assertRaisesRegex(ValueError, "symlinks"):
+            export_bundle.export_bundle("dsh", output, self.source)
+        self.assertFalse(output.exists())
+        manifest.unlink()
+        manifest.mkdir()
+        with self.assertRaisesRegex(ValueError, "Required host asset"):
+            export_bundle.export_bundle("dsh", output, self.source)
+        self.assertFalse(output.exists())
+
+    def test_all_exported_mcp_handshakes_keep_the_release_version_after_relocation(self):
+        expected = self.read_json(self.source, ".codex-plugin/plugin.json")["version"]
+        outputs = [(name, self.export(name)) for name in export_bundle.FORMATS]
+        shutil.rmtree(self.source)
+        request = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25", "capabilities": {},
+            "clientInfo": {"name": "export-version-test", "version": "1"}}}
+        for name, original in outputs:
+            with self.subTest(format=name):
+                relocated = self.outside / ("relocated " + name)
+                original.rename(relocated)
+                result = self.run_cli(relocated, "serve", input_text=json.dumps(request) + "\n")
+                response = json.loads(result.stdout)
+                self.assertEqual(response["result"]["serverInfo"]["version"], expected)
 
     def test_exports_run_without_the_original_source_or_current_directory(self):
         outputs = [self.export(name) for name in export_bundle.FORMATS]

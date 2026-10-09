@@ -1,13 +1,10 @@
-"""Single release-version source, read from the installed package manifest.
+"""Release identity from the installed distribution's own manifest.
 
-The plugin is distributed as an npm package, so ``package.json`` travels with
-the code at the plugin root. Reading it here keeps the MCP handshake, remote
-client identity and HTTP user agents on the same version as the published
-manifest instead of drifting across hardcoded copies.
-
-When the manifest is missing (an exotic layout, or a single file copied out of
-the package) the version is reported as unknown rather than guessed, so a
-mismatch stays visible instead of being silently papered over.
+The npm, Pi and DSH packages carry ``package.json``. Codex, Claude and Agent
+Plugins exports retain the release version in their native plugin manifest.
+Read that identity for MCP and HTTP clients instead of hardcoding a version.
+An absent or invalid manifest reports an unknown version; an invalid preferred
+manifest never falls through to a different manifest that might hide damage.
 """
 
 import json
@@ -32,7 +29,12 @@ def read_manifest_version(path):
 @lru_cache(maxsize=1)
 def release_version():
     """Return this installation's manifest version."""
-    return read_manifest_version(Path(__file__).resolve().parents[1] / "package.json")
+    root = Path(__file__).resolve().parents[1]
+    for relative in ("package.json", ".codex-plugin/plugin.json", ".claude-plugin/plugin.json", "plugin.json"):
+        path = root / relative
+        if path.exists() or path.is_symlink():
+            return read_manifest_version(path)
+    return UNKNOWN_VERSION
 
 
 def user_agent(product="bookmark-research"):

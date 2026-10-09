@@ -120,6 +120,7 @@ process.stdout.write(JSON.stringify({root: paths.root, cli: paths.cli, mcp: path
         broken = self.base / "broken"
         (broken / "hosts" / "dsh").mkdir(parents=True)
         shutil.copy(ROOT / "hosts/dsh/plugin.js", broken / "hosts/dsh/plugin.js")
+        shutil.copy(ROOT / "hosts/dsh/package.json", broken / "hosts/dsh/package.json")
         script = r'''
 import { pathToFileURL } from "node:url";
 const plugin = await import(pathToFileURL(process.argv[1]).href);
@@ -133,7 +134,8 @@ process.stdout.write(JSON.stringify({registered}));
         self.assertEqual(missing.returncode, 0, missing.stdout + missing.stderr)
         self.assertEqual(False, json.loads(missing.stdout)["registered"])
         self.assertIn("installation is incomplete", missing.stderr)
-        self.assertIn("bookmark-research install", missing.stderr)
+        self.assertIn("dsh plugin --profile <profile> add bookmark-research@<version>", missing.stderr)
+        self.assertNotIn("@latest", missing.stderr)
         # Supplying the advertised files lets the provider register again.
         (broken / "src").mkdir(parents=True)
         shutil.copy(ROOT / "src/cli.py", broken / "src/cli.py")

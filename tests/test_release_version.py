@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -66,6 +67,17 @@ class ReleaseVersionTests(unittest.TestCase):
             self.assertEqual(UNKNOWN_VERSION, read_manifest_version(broken))
             broken.write_text(json.dumps({"version": "1.2.3"}), encoding="utf-8")
             self.assertEqual("1.2.3", read_manifest_version(broken))
+
+    def test_invalid_package_manifest_is_not_hidden_by_another_manifest(self):
+        with tempfile.TemporaryDirectory(prefix="bookmark-release-layout-") as name:
+            base = Path(name)
+            (base / "package.json").write_text("{invalid", encoding="utf-8")
+            (base / ".codex-plugin").mkdir()
+            (base / ".codex-plugin/plugin.json").write_text('{"version":"1.2.3"}', encoding="utf-8")
+            release_version.cache_clear()
+            self.addCleanup(release_version.cache_clear)
+            with mock.patch("release.__file__", str(base / "src/release.py")):
+                self.assertEqual(UNKNOWN_VERSION, release_version())
 
     def test_mcp_handshake_reports_the_manifest_version(self):
         with tempfile.TemporaryDirectory(prefix="bookmark-release-mcp-") as name:
