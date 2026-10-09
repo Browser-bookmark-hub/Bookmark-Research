@@ -52,6 +52,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Select the published npm baseline for a release candidate
+        if: startsWith(github.head_ref || github.ref_name, 'release/')
+        shell: bash
+        run: |
+          tag="$(node -p "require('./package.json').version.includes('-') ? 'beta' : 'latest'")"
+          version="$(npm view "bookmark-research@$tag" version --registry https://registry.npmjs.org)"
+          printf 'BOOKMARK_RESEARCH_TEST_NPM_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
+          printf 'Registry integration baseline: bookmark-research@%s\n' "$version"
       - name: Install native client for isolated tests
         run: npm install -g @openai/codex@0.160.1
       - run: codex --version

@@ -722,6 +722,8 @@ class NativeCodexInstallerTests(unittest.TestCase):
         # Move the Git catalog to the production npm source. The development
         # file remains tracked, so a root-directory copy would fail this test.
         catalog = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
+        if os.environ.get("BOOKMARK_RESEARCH_TEST_NPM_VERSION"):
+            catalog["plugins"][0]["source"]["version"] = os.environ["BOOKMARK_RESEARCH_TEST_NPM_VERSION"]
         (self.source / ".agents/plugins/marketplace.json").write_text(json.dumps(catalog))
         self.git("add", ".agents/plugins/marketplace.json")
         self.git("commit", "--quiet", "-m", "Select published package")

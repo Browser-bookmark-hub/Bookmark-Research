@@ -137,7 +137,7 @@ class NpmSourceTests(unittest.TestCase):
     def test_real_published_package_supplies_all_four_host_formats(self):
         import host_install
         catalog = json.loads((ROOT / '.agents/plugins/marketplace.json').read_text())
-        version = catalog['plugins'][0]['source']['version']
+        version = os.environ.get('BOOKMARK_RESEARCH_TEST_NPM_VERSION') or catalog['plugins'][0]['source']['version']
         with npm_source.checkout(npm_source.source('npm:bookmark-research@' + version), 90) as (root, actual):
             self.assertEqual(actual, version)
             self.assertTrue(host_install.runtime_check(root, 30)['fts5'])

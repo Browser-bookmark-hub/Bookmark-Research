@@ -334,7 +334,8 @@ class DshPrerequisiteTests(unittest.TestCase):
 
     def test_missing_pnpm_fails_before_creating_a_profile(self):
         (self.bin / ("pnpm.cmd" if os.name == "nt" else "pnpm")).unlink()
-        with mock.patch("shutil.which", lambda name, *a, **k: None if name == "pnpm" else str(self.bin / name)):
+        real_which = shutil.which
+        with mock.patch("shutil.which", lambda name, *a, **k: None if name == "pnpm" else real_which(name, *a, **k)):
             with self.assertRaisesRegex(ValueError, "pnpm"):
                 self.manage("dsh", profile="web")
         self.assertFalse(self.calls())
@@ -353,7 +354,8 @@ class DshPrerequisiteTests(unittest.TestCase):
             (binary.parent / "dsh.cmd").write_text('@"%s" "%s" %%*\r\n' % (sys.executable, binary))
         (runtime / "pnpm" / "bin").mkdir(parents=True)
         (runtime / "pnpm" / "bin" / "pnpm.mjs").write_text("// Desktop's own pnpm\n")
-        with mock.patch("shutil.which", lambda name, *a, **k: None if name == "pnpm" else str(self.bin / name)):
+        real_which = shutil.which
+        with mock.patch("shutil.which", lambda name, *a, **k: None if name == "pnpm" else real_which(name, *a, **k)):
             result = self.manage("dsh", profile="web", binary=str(binary))
         self.assertTrue(result["verified"])
         self.assertTrue([call for call in self.calls() if call[0] == "dsh"])
