@@ -30,7 +30,6 @@ REQUIRED_FILES = (
     "LICENSE",
     "src/archive.py",
     "src/bookmark_index.py",
-    "src/bookmark_output.py",
     "src/cli.py",
     "src/credentials.py",
     "src/onboarding.py",
