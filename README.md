@@ -22,13 +22,13 @@ Works in **Codex, Claude Code, Pi and DSH (DeepSeek Harness)**.
 
 ## Install
 
-**Current beta (`0.5.0-beta.8`)**, interactive on macOS, Linux and Windows:
+**Current beta (`0.5.0-beta.9`)**, interactive on macOS, Linux and Windows:
 
 ```sh
-npx bookmark-research@0.5.0-beta.8 install --source npm:bookmark-research@0.5.0-beta.8
+npx bookmark-research@0.5.0-beta.9 install --source npm:bookmark-research@0.5.0-beta.9
 ```
 
-This pins both the installer and the content. The `@latest` examples below follow the default channel, which remains `0.5.0-beta.3`; `@beta` currently points to `0.5.0-beta.8`. Changing only the npx selector does not change the installer's default content source.
+This pins both the installer and the content. The `@latest` examples below follow the default channel, which remains `0.5.0-beta.3`; `@beta` currently points to `0.5.0-beta.9`. Changing only the npx selector does not change the installer's default content source.
 
 **Default-channel interactive installation:**
 

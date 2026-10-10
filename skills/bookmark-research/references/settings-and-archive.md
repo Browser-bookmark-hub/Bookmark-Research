@@ -12,12 +12,12 @@ Run `python3 <root>/src/cli.py setup --host codex` (or `claude_code`, `pi`, `dsh
 
 Keys saved by setup live in `credentials.json` next to the settings file, or `BOOKMARK_RESEARCH_CREDENTIALS`. The file is unencrypted and readable only by its owner (`0600`). Runtime tools reload it, so saving a key takes effect without restarting the plugin; changed process environment requires restarting that process. Environment variables take precedence. Host OAuth tokens remain in the host, and plugin keys do not automatically authenticate a separate host MCP.
 
-Before each new web research question, call `research_readiness` with the actual `host`, `observed_tools` and any explicitly restricted `providers`. CLI: `readiness --host codex --tool mcp__exa__agent_run`. Only report tools actually observed; omitted observations mean unknown, an empty list means no tools were observed. Local bookmark queries require no check. During an investigation, reuse its result instead of repeatedly refreshing. CLI callers run readiness explicitly before web commands.
+Use `research_readiness` when access is unclear, diagnosing a failure or selecting an external research service. Pass the actual `host`, `observed_tools` and restricted `providers`. CLI: `readiness --host codex --tool mcp__exa__agent_run`. Omitted observations mean unknown; an empty list means no tools were observed. Reuse current results. Local queries need no check, and known URLs can go directly to the chosen reader. Search/read commands do not implicitly run readiness; the following policy governs explicit readiness calls.
 
 | Policy | Behavior |
 | --- | --- |
 | `cached` (default) | Check on first use, changed settings/keys, or expiry; default TTL 900 seconds |
-| `always` | Fresh check on each new question's readiness call |
+| `always` | Fresh check on each readiness call |
 | `manual` | No network unless `refresh:true` / `--refresh` or an explicit retrieval test |
 | `offline:true` / `--offline` | Local configuration and valid cached evidence only; no network |
 

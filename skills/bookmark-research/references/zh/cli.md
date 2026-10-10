@@ -30,7 +30,9 @@ python3 <root>/src/cli.py context my-canvas --item actual-bookmark-id
 
 `search` 同时匹配标题、URL、note、tag 和文件夹路径。多个 `--tag` 为同时满足；多个 `--target` 各自计算结果并返回并集。它不提供任意 SQL 执行。默认 refresh 检查 live 来源的文件哈希；snapshot 不读取原下载位置。`--no-refresh` 使用当前已同步索引，不能选择某个历史版本。查询返回的 `source.state` 区分固定快照、已同步、待更新和失败状态；CLI 的兼容字段 `stored_snapshot_only` 仍只表示跳过主动检查。
 
-`context` 不传 `--item` 时只返回栏目头、画布节点和关系，`items:[]` 不代表栏目为空。取文件夹 ID 可先 `search` 找到其中一个书签，再 `context --item <书签ID>` 读取 `ancestors`，随后用 `search --folder <文件夹ID>` 限定范围。`--section` 匹配重复 label 时可能选择多个栏目，单张卡片应传唯一 ID。
+`context` 不传 `--item` 时返回栏目头、画布节点和关系；`items:[]` 不代表空栏目，counts 是栏目总数而非条目子树计数。用 `search --item-type folder` 找文件夹，再用 `search --folder <文件夹ID>`；加 `--item-type folder --item-type bookmark` 可返回两种条目，包括空文件夹。完整列表需分页，并区分合成根容器。需要祖先元数据或布局时才用条目 context。`--section` 的重复 label 可能选择多张卡片，单张卡片应传唯一 ID。
+
+需要较短的结果页时加 `search --compact`（MCP：`compact:true`）。`result_refs` 和 `targets[].result_refs` 分别从 `rows` 选择有序页面；行表还含各 target 独有的行，不能据此计算总数。`_compact.format` 为 `bookmark-search-v1`。重复别名和与标准值相等的原始字段被省略，未知／冲突的 `raw_json`、`metadata` 字段留在行内。省略 `--compact`（MCP：`compact:false`）返回原有完整行格式；`get_context` 仍返回完整视图。
 
 数据库优先级：`--db` → `BOOKMARK_RESEARCH_DATA_DIR/index.sqlite3` → `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/index.sqlite3`。CLI 与各客户端设相同路径即可共用一个索引。数据库不能放在原始同步包或插件代码目录内。
 
@@ -51,7 +53,7 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 
 `config show` / `config set` 对应 MCP `get_settings` / `update_settings`。`config set --input /path/to/changes.json`（或 `-` 从 stdin）支持合并部分配置。CLI 标志覆盖同次 JSON 输入中的对应字段。`fetch-web` 默认归档，`--archive` / `--no-archive` 只覆盖本次；后续调用的默认值用 `config set --archive true|false`。其他配置与目录优先级见 [配置与归档](settings-and-archive.md)。
 
-`setup` 引导偏好、隐藏密钥输入和服务检查；Agent 使用 `--non-interactive --input FILE`，`--skip-checks` 阻止联网检查。`readiness` 遵循 cached／always／manual 偏好；`--refresh` 强制检查，`--offline` 不联网，`--test-retrieval` 选择执行使用额度的样例搜索／读取。重复 `--provider` 限定检索服务，`--service openai|parallel` 选择专业服务，`--tool` 传入实际观察到的宿主工具；`--host` 为 `codex`、`claude_code`、`pi`、`dsh` 或 `unknown`。新联网问题前运行一次 readiness 并按结果修复，不启动专业任务。状态含义与凭据保存见配置参考。
+`setup` 引导偏好、隐藏密钥输入和服务检查；Agent 使用 `--non-interactive --input FILE`，`--skip-checks` 阻止联网检查。`readiness` 遵循 cached／always／manual 偏好；`--refresh` 强制检查，`--offline` 不联网，`--test-retrieval` 选择执行使用额度的样例搜索／读取。重复 `--provider` 限定检索服务，`--service openai|parallel` 选择专业服务，`--tool` 传入实际观察到的宿主工具；`--host` 为 `codex`、`claude_code`、`pi`、`dsh` 或 `unknown`。访问不明、诊断失败或选择外部服务时使用 readiness 并复用当前结果，不启动专业任务。状态含义与凭据保存见配置参考。
 
 `search-archive` 不联网，查找本地已保存的正文（知识归档与研究证据）；`--url` 按 URL 子串过滤。`fetch-web.pages` 按 URL 返回一份正文，保留各次尝试状态和归档路径；`--raw` 返回完整服务响应。`--timeout` 作用于单个服务 HTTP 请求，发现工具和回退可能使总耗时更长。`research fetch` 只接受文档规定的 MCP JSON 字段，不接受 `timeout`。
 

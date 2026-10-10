@@ -12,12 +12,12 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 
 向导将密钥保存为配置旁的 `credentials.json`，或 `BOOKMARK_RESEARCH_CREDENTIALS` 指定的文件；文件为权限 `0600` 的本地明文，仅当前用户可读。运行时会重新读取文件，保存后不必重启插件；更改进程环境变量需重启对应进程。环境变量优先。宿主 OAuth token 留在宿主，插件密钥不会自动授权另外登记的宿主 MCP。
 
-每个联网研究新问题前调用 `research_readiness`，传入实际 `host`、`observed_tools` 及明确限定的 `providers`。CLI 示例：`readiness --host codex --tool mcp__exa__agent_run`。只传实际观察到的工具；省略表示未知，空数组表示未观察到任何工具。本地查询无需检查，同一调查复用结果，不反复强制刷新。直接调用 CLI 时，在网页操作前显式运行 readiness。
+访问能力不明、诊断失败或选择外部研究服务时调用 `research_readiness`，传入实际 `host`、`observed_tools` 及限定的 `providers`。CLI 示例：`readiness --host codex --tool mcp__exa__agent_run`。工具观察省略表示未知，空数组表示未观察到工具；复用当前结果。本地查询无需检查，已知 URL 可以直接交给选定的读取工具。搜索／读取命令不会隐式运行 readiness；下表策略作用于显式的 readiness 调用。
 
 | 策略 | 行为 |
 | --- | --- |
 | `cached`（默认） | 首次、配置／密钥变化或过期后检查，默认 TTL 为 900 秒 |
-| `always` | 每个新问题的 readiness 调用均刷新 |
+| `always` | 每次 readiness 调用均刷新 |
 | `manual` | 仅 `refresh:true`／`--refresh` 或明确的实际检索测试联网 |
 | `offline:true`／`--offline` | 只读本地配置和仍有效的缓存证据，不联网 |
 

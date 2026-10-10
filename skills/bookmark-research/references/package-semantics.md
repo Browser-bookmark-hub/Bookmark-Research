@@ -50,6 +50,12 @@ The bounds are `[x, y, x+width, y+height]`; x increases rightward and y downward
 - Edges default from `fromNode` to `toNode`, with `fromEnd:none` and `toEnd:arrow`. Read returned `direction` and original endpoints: `forward`, `reverse`, `both`, `none`. Interpret labels when present; an unlabeled connection does not establish dependency, competition or recommendation.
 - Folders, groups, chain labels, tags, notes and descriptions are different classification clues. Preserve clear user categories; disclose conflicts and distinguish inference from stored facts. Analysis alone does not require reorganizing the package.
 
+### Repeated and related bookmarks across cards
+
+The same bookmark appearing in different cards is spatial context even when those cards are distant or unconnected. Search for its URL within the requested source, follow pagination, then check exact returned `url` equality: public search is substring matching. Retain each `source_id + section_id + item_id`, folder path, sibling order, notes and tags. Use `get_context` to connect each appearance to its card rectangle, groups, neighbors and edges. An item's `position` is tree order, not a canvas coordinate; bookmarks obtain canvas position through their cards.
+
+`shown_in_anchors` identifies additional copy cards displaying the same main-tree item. Include each copy's own layout and description when relevant without inventing extra bookmark instances. An exact URL match establishes a shared link, not why it was placed there. For related topics or similar bookmarks, compare titles, folders, tags and notes and label the inferred relationship; SQLite lookup does not itself establish semantic similarity. Preserve distinct appearances and their contexts when deduplicating URLs for counts.
+
 ## Querying and counting
 
 `source_id` is the logical canvas namespace. Locate items with `source_id + section_id + item_id`. One URL in different sections, paths or items still represents multiple bookmark instances. Report bookmark counts, unique URLs and company counts separately.
@@ -58,13 +64,22 @@ A permanent copy B queries the main tree A while keeping B's own description and
 
 With both `section` and `group_id`, intersect actual cards before resolving their shared main trees. If only B belongs to the group, A plus that group does not match; B plus the group returns its shared bookmarks.
 
-`search_bookmarks` uses SQL substring matching on bookmark titles, URLs, notes, tag text and folder paths, plus section/group/folder/tag filters. It does not search `descriptionMd`, text nodes or edge labels; use `get_context` for those. Short terms can produce incidental matches: `Exa` can match `examples` in a URL. Inspect matched fields and context.
+`search_bookmarks` matches literal substrings in selected item titles, URLs, notes, tag text and folder paths, with section/group/folder/tag filters. Separate source-wide `canvas_matches` report text cards, group labels and edge labels, outside item totals and pagination. Read `descriptionMd` and full layout through `get_context`. Short terms can produce incidental matches: `Exa` can match `examples` in a URL. Inspect matched fields and context.
 
 The `tags` filter matches text only; returned `tags[].color` retains color. To count a color/text combination, paginate all candidates and match both fields on the same tag object. A filtered first page is not the total.
 
-`section` can match an ID, slot, label or file path. Repeated labels can select multiple cards; use a section ID for a unique card. Without `item_id`, `get_context` returns section headers, nodes, groups and edges. Empty `items` does not mean there are no bookmarks or folders. Get a folder ID from a matched item's `ancestors`. For a complete folder list, read the relevant section JSON; there is no separate folder-list tool.
+`section` can match an ID, slot, label or file path. Repeated labels can select multiple cards; use a section ID for a unique card. Without `item_id`, `get_context` returns section headers, nodes, groups and edges; empty `items` does not mean an empty tree. Its counts cover returned sections, not an item's subtree. Find folders with `search_bookmarks(item_types:["folder"])`, then pass `folder_id` and the desired item types to read the subtree. Paginate complete listings and distinguish `synthetic:true` roots from user folders. Use item context only for additional ancestor metadata or layout.
 
 Derived FTS5 tables exist, but the public query does not use BM25 ranking, embeddings, webpage-body search or arbitrary SQL. Retaining an unknown field does not provide a filter or an interpretation rule for it.
+
+## Temporal context
+
+Use the available time evidence alongside spatial context when explaining a card's history or changes:
+
+- Read explicit date fields and dates in card titles, descriptions, notes or filenames under their documented meaning. Retain source, timezone and precision; unknown timezone stays unknown. Raw fields remain available through context/search or the original JSON, without implying a dedicated time filter.
+- The package protocol defines bookmark/folder IDs such as `syncId_YYYYMMDD_hash_<token7>` and `tempId_YYYYMMDD_hash_<token7>`. Their valid date segment is an identity-generation clue. Import, copying or migration may create new IDs for older content. A parent folder's date does not date its descendants. Do not decode arbitrary IDs, chain counters or digit strings as timestamps without a generation rule, or infer exact time from a day-only ID.
+- For a Git-backed package, use scoped `git log`, `git show` and content diffs as described in [learning retrospectives](github-and-sync.md#review-learning-stages). Compare the corresponding layouts and bookmark appearances as well as text. A commit dates the recorded change; a file's first appearance in available history is only its first observed version.
+- Keep identity generation, recorded creation/modification, export/import, commit, collection and reading dates distinct. Use notes or other explicit evidence for collecting/learning claims. Without Git, dated content and available snapshots support only a bounded account; missing dates remain missing.
 
 ## Synchronization and retention
 

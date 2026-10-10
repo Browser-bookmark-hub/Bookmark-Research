@@ -163,6 +163,9 @@ class SearchGuardrailTests(unittest.TestCase):
         self.assertNotIn("canvas_matches", missing)
 
     def test_item_type_and_tag_color_inputs_are_validated(self):
+        for compact in (1, "false", None):
+            with self.subTest(compact=compact), self.assertRaisesRegex(ValueError, "compact"):
+                self.index.search(self.source_id, compact=compact)
         with self.assertRaisesRegex(ValueError, "item_types"):
             self.index.search(self.source_id, item_types=["bookmark", "bookmark"])
         with self.assertRaisesRegex(ValueError, "item_types"):

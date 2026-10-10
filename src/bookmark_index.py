@@ -778,12 +778,14 @@ class BookmarkIndex:
         return result
 
     def search(self, source_id, targets=None, section=None, group_id=None, folder_id=None, tags=None,
-               limit=20, offset=0, tag_colors=None, item_types=None, count_only=False):
+               limit=20, offset=0, tag_colors=None, item_types=None, count_only=False, compact=False):
         """Literal structured search. ``limit=0`` or ``count_only`` returns counts only."""
         if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 1000:
             raise ValueError("limit must be an integer from 0 to 1000; 0 returns counts only")
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise ValueError("offset must be a non-negative integer")
+        if type(compact) is not bool:
+            raise ValueError("compact must be a boolean")
         if isinstance(targets, str) or isinstance(tags, str) or isinstance(tag_colors, str):
             raise ValueError("targets, tags and tag_colors must be lists of strings")
         targets = list(dict.fromkeys(targets or []))
@@ -840,7 +842,7 @@ class BookmarkIndex:
             match_mode="literal_substring", match_index="fts_trigram+like" if self._fts_mode == "trigram" else "like",
             searched_fields=["title", "url", "note", "tags.text", "folder_path"])
         result["counts"] = {"instances": result["total"], "unique_urls": result["unique_urls"],
-            "note": "instances counts bookmark rows including duplicate URLs; unique_urls counts distinct non-empty "
+            "note": "instances counts rows of query_scope.item_types, including synthetic folders when selected; unique_urls counts distinct non-empty "
                     "URLs. Per-section totals must not be summed when a copy anchor shares another card's tree."}
         if anchors:
             result["anchor_of"] = anchors
@@ -850,11 +852,14 @@ class BookmarkIndex:
         if canvas_matches:
             result["canvas_matches"] = canvas_matches
             result["canvas_match_note"] = ("Canvas text cards, group labels and edge labels matching a target. They are "
-                                           "not bookmark items, so they are excluded from total and results; use "
-                                           "get_context with group_id to read the full card.")
+                                           "not bookmark items, so they are excluded from item totals and result pages; "
+                                           "use get_context for the surrounding layout.")
         shown = offset + len(result["results"]) if result["results"] else offset
         result["next_offset"] = None if page_size == 0 else (shown if shown < result["total"] else None)
         result["targets"] = [dict(target=target, **query([target])) for target in targets]
+        if compact:
+            from bookmark_output import compact_search
+            return compact_search(result)
         return result
 
     def _canvas_matches(self, source_id, targets):
@@ -987,7 +992,7 @@ class BookmarkIndex:
                 (source_id, row["canonical_id"])))
         return {"sections": len(section_results), "counted_sections": len(counted),
                 "instances": instances, "unique_urls": len(urls),
-                "note": "Sum of counted_sections only; copy anchors share another card's tree and are excluded."}
+                "note": "Section totals, not item or folder subtree totals. Sum of counted_sections only; copy anchors share another card's tree and are excluded."}
 
     def inventory(self, source_ids):
         """Freeze the complete indexed input, independently of query previews.

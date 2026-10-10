@@ -138,11 +138,42 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(decode_tool(old)["total"], 1)
         self.assertIn("Tool failed: search_bookmarks", self.stderr.getvalue())
 
+    def test_compact_search_keeps_full_default_and_live_source_state(self):
+        self.ready()
+        self.sync()
+        self.server._source_watcher.close()
+        arguments = {"source_id": "fixture", "targets": ["docs"], "refresh": False}
+        full = decode_tool(self.call("search_bookmarks", arguments))
+        explicit_full = decode_tool(self.call("search_bookmarks", {**arguments, "compact": False}))
+        self.assertEqual(full, explicit_full)
+        self.assertIn("raw_json", full["results"][0])
+        compact = decode_tool(self.call("search_bookmarks", {**arguments, "compact": True}))
+        self.assertEqual("bookmark-search-v1", compact["_compact"]["format"])
+        self.assertNotIn("results", compact)
+        row = compact["rows"][compact["result_refs"][0]]
+        self.assertEqual("temp-one", row["item_id"])
+        self.assertEqual(full["results"][0]["url"], row["url"])
+        self.assertEqual(compact["result_refs"], compact["targets"][0]["result_refs"])
+        for field in ("counts", "source", "refresh", "query_scope", "next_offset"):
+            self.assertEqual(full[field], compact[field])
+        self.document["items"][0]["note"] = "fresh compact evidence"
+        self.write_document()
+        refreshed = decode_tool(self.call("search_bookmarks", {
+            "source_id": "fixture", "targets": ["fresh compact evidence"], "compact": True}))
+        self.assertTrue(refreshed["refresh"]["performed"])
+        current = refreshed["rows"][refreshed["result_refs"][0]]
+        self.assertEqual("fresh compact evidence", current["note"])
+        context = decode_tool(self.call("get_context", {
+            "source_id": "fixture", "item_id": "temp-one", "refresh": False}))
+        self.assertIn("raw_json", context["items"][0])
+
     def test_unknown_tools_methods_and_invalid_arguments_never_execute(self):
         self.ready()
         self.assertEqual(self.call("execute_sql", {"sql": "DROP TABLE items"})["error"]["code"], -32602)
         self.assertEqual(self.server.handle(request("resources/list"))["error"]["code"], -32601)
         cases = [
+            ("search_bookmarks", {"source_id": "fixture", "compact": "false"}),
+            ("search_bookmarks", {"source_id": "fixture", "compact": 1}),
             ("update_settings", {"changes": {"api_key": "not-supported"}}),
             ("update_settings", {"changes": {"archive": {"enabled": "false"}}}),
             ("sync_package", {"package_path": str(self.package), "command": "echo untrusted"}),

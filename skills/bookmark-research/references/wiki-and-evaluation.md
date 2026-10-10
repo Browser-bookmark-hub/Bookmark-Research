@@ -43,7 +43,7 @@ New revision records store evidence paths relative to their research task. `wiki
 
 Each write regenerates `index.md` (current pages by kind: link, title, one-line summary, revision, date, claim count) and appends `log.md` (`## [date] write | title (rN)` with page ID, change note and research IDs). Read or grep them to orient; `index.json` and revision files remain authoritative, and `wiki_lint` warns `catalog_stale`/`catalog_missing` until the next write regenerates `index.md`.
 
-After research, `research_finish.wiki_follow_up` applies `settings.wiki.after_research`: `suggest` (default) → show `candidates` and eligible claims and ask before writing; `auto` → update a matching page (read it for `expected_revision`) or create one using only `eligible_claim_ids`, then report the changes; `off` → nothing unless requested.
+Complete an already authorized Wiki write without asking again; use only eligible reviewed claims. Otherwise `research_finish.wiki_follow_up` follows `settings.wiki.after_research`: `suggest` offers candidates before writing, `auto` updates or creates an eligible page, and `off` skips it. Updates still require the current `expected_revision`. Report completed writes.
 
 ## Evaluate actual runs
 

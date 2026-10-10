@@ -103,7 +103,7 @@ def _parser():
     setup.add_argument("--test-retrieval", action="store_true", help="One search and sample page read per provider; uses retrieval quota")
     setup.add_argument("--host", choices=("codex", "claude_code", "pi", "dsh", "unknown"), default="unknown")
     setup.add_argument("--tool", action="append", help="Tool actually observed in the current host session; repeatable")
-    readiness = commands.add_parser("readiness", help="Check capabilities and auth before web research; respects saved cache policy")
+    readiness = commands.add_parser("readiness", help="Diagnose retrieval/auth availability; respects saved cache policy")
     readiness.add_argument("--provider", action="append", choices=Settings.PROVIDERS)
     readiness.add_argument("--service", choices=("openai", "parallel"))
     readiness.add_argument("--refresh", action="store_true")
@@ -149,6 +149,7 @@ def _parser():
     watch.add_argument("--deletion-grace", type=float, default=5.0)
     search = commands.add_parser("search", help="Literal structured bookmark search")
     search.add_argument("source")
+    search.add_argument("--compact", action="store_true", help="Return shared rows with ordered page references; preserve extra fields")
     search.add_argument("--target", action="append", default=[])
     search.add_argument("--section")
     search.add_argument("--group")
@@ -486,7 +487,8 @@ def main(argv=None):
                             result = index.search(args.source, targets=args.target, section=args.section,
                                                   group_id=args.group, folder_id=args.folder, tags=args.tag,
                                                   limit=args.limit, offset=args.offset, tag_colors=args.tag_color,
-                                                  item_types=args.item_type or None, count_only=args.count_only)
+                                                  item_types=args.item_type or None, count_only=args.count_only,
+                                                  compact=args.compact)
                         else:
                             result = index.context(args.source, section=args.section, group_id=args.group,
                                                    item_id=args.item)

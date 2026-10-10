@@ -2,7 +2,7 @@
 
 **English** · [中文](zh/research-methods.md)
 
-Select methods for the research question; simple lookups do not require every analysis step. Readers and independent verifiers share questions, frozen inventory IDs, comparison dimensions and evidence format. The host owns concurrency. Package categories and edges help interpret intent without proving webpage facts.
+Select methods for the research question; simple lookups do not require every analysis step. When collaborating, share questions, inventory IDs, comparison dimensions and evidence format. Package categories and edges help interpret intent without proving webpage facts.
 
 ## comparative_analysis: compare equivalent dimensions
 
@@ -30,7 +30,7 @@ Split compound statements into independently supportable claims. “This host ha
 
 For a quick fact check, apply the relevant checks and answer with citations; no research session is required. Within a persistent research session, save `source_review`, then a `claim` with an exact `quote`. Mark inferences with `inference:true` and explain their factual basis. Do not present inference as a documentation statement. Use `retraction` when evidence fails and revise affected questions; retain both sides of version conflicts and their resolution through `conflict` / `resolution`.
 
-For deep research, an independent verifier reads original text, claims and the final draft, then reports supported/unsupported/uncertain, reasons, counterevidence and inventory/question IDs needing follow-up. Check qualifications lost during synthesis: an available method is not necessarily required, and an output field does not alone guarantee completeness. Repeating a reader's summary is insufficient. Correct the draft and affected records before finishing. Check `research_coverage` afterward: record completeness and semantic reliability are separate checks.
+Review the final draft for lost conditions and unsupported inferences. Use an independent verifier when the task warrants it and delegation is authorized; provide original evidence and request supported/unsupported/uncertain judgments with reasons and follow-up IDs. Correct affected records and check coverage after those changes. Record completeness and semantic reliability are separate checks.
 
 ## benchmark_review: establish comparability
 

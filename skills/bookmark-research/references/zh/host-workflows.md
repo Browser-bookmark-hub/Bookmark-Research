@@ -2,100 +2,83 @@
 
 [English](../host-workflows.md) · **中文阅读版**
 
-当前宿主模型负责研究：结合问题和已有语境规划、搜索／读文、判断证据、针对缺口补查。普通 Agentic Search 先由当前模型处理；Deep Research 增加独立核验、覆盖检查与报告，按需协作处理可分离的专题或核验任务。主代理先判断任务再分工，最后审阅综合结果。外部研究 API 是可选支持。
+确定委派有用且已获授权后才读本文。普通问答和 Wiki 写入不要求委派；只读当前宿主小节。宿主负责代理、并发、等待和取消，插件保存证据与研究状态。
 
-| 宿主 | 协作入口 | 必要能力 |
+| 宿主 | 入口 | 前提 |
 | --- | --- | --- |
-| [Codex](https://developers.openai.com/codex/subagents) | 原生子代理；分组研究参考 `hosts/codex/delegate.md` | 本次会话有委派／等待工具，且允许委派 |
-| [Claude Code](https://code.claude.com/docs/en/sub-agents) | 普通 `Agent`／旧版 `Task`；可选团队或本插件 Dynamic Workflow | 以可见工具为准；[Agent Teams](https://code.claude.com/docs/en/agent-teams) 为实验功能，默认关闭 |
-| [Pi](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/usage.md) | 已加载的 `subagent` 扩展；可选 `pi_subagent_workflow` | 核心不内置子代理或 MCP；[官方扩展示例](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent) 支持单任务、并发和链式执行 |
-| [DSH](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/workflow) | 已配置的 subagent 或 `workflow` 工具 | 当前 profile 提供对应服务、工具及研究 MCP／CLI 入口 |
+| [Codex](https://developers.openai.com/codex/subagents) | 原生子代理，`hosts/codex/delegate.md` | 本次可见委派／等待工具且允许委派 |
+| [Claude Code](https://code.claude.com/docs/en/sub-agents) | `Agent`／旧 `Task`；可选 Dynamic Workflow | 当前工具访问；团队／工作流须宿主启用 |
+| [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent) | 已加载子代理扩展；可选 `pi_subagent_workflow` | 核心不内置子代理或 MCP |
+| [DSH](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/workflow) | subagent 或 `workflow` | 当前 profile 提供工具及研究 MCP／CLI |
 
-上述官方正文于 2026-09-13 经 Exa 读取；文档支持不证明当前会话已加载。`research_route` 对普通 Agentic Search 优先使用当前模型，对深度研究优先使用原生协作，对 `batch_research` 才优先采用所选分组工作流。没有协作能力时主代理继续调查，并如实标明同代理复核。
+给子代理传范围、问题、输出语言、Skill 路径、操作号前缀、实际工具入口和共享研究目录。除非另有指示，继承当前模型、推理与权限；不假定父会话或 Skill 自动传入。无法委派时继续本地工作，如实描述实际复核方式。
 
-宿主负责子代理、并发、等待、取消和恢复。插件保存研究清单、来源、正文、审阅、覆盖率和报告。给每个子代理传任务、范围、问题、相关 Skill 内容或真实路径、操作号前缀及实际 MCP／CLI 入口，确保共用同一研究数据目录。各宿主对父代理已读 Skill 与工具的继承不同，需核对任务配置。子代理不另建调度器。
+## 已选择的分组流程
 
-## 整包分组流程
+以下配方用于冻结的书签清单；一般网页问题使用宿主常规循环。范围、记录字段、预算和恢复规则统一见[深度研究](deep-research.md)。
 
-以下脚本用于已有冻结清单的书签研究。没有输入清单的一般网页研究由宿主循环或普通子代理按同一证据方法完成，无需套用整包脚本。
+1. 完整清单读一次后分组，脚本默认每组 12 项。使用真实研究／清单 ID，保留每个分配实例。
+2. 读者抓取／阅读，保存来源审阅、有引文的 claim 和 inventory_review。已就绪记录使用稳定分组／阶段 `batch_id` 批量提交，依赖记录使用返回 ID。
+3. 等全部读者结束，再按选定分组配方派新核验者，检查原证据、引用语义、版本与反证；保留失败和无法核验的项目。
+4. 比较完整覆盖差集，针对剩余 ID 补查。脚本默认补查 1 轮，可设 0–4；复用未变证据与清单。
+5. 保存完整分析和有依据的回答，由 `research_finish` 判定完成。返回后核对一次已存状态、相关覆盖及产物路径，查看分析中的分组失败和核验缺口，不能只信代理的成功消息。
 
-委派前确定输出语言：在研究 brief 和 Codex 各次任务中保留要求，脚本工作流通过 `output_language` 传入（例如 `"en"` 或 `"zh"`）。省略或传 `"auto"` 时跟随 brief／问题中的语言要求，没有语言依据才默认英文。这是单次任务参数，不是安装语言或持久设置；引用、ID 和 JSON 字段保持原样。完整提示阅读对照见插件根目录 `docs/prompt-reference.md`。
+分析通过 `external_run` 保存，使用真实 `result_path`、`result_sha256` 并校验附件。`<run_key>-analysis` 和 `run_id:local:<run_key>` 表示本地分析阶段，不是原生运行 ID 或整项完成。真实宿主运行 ID 另记；pending／未知状态先观察再判断是否重发。
 
-1. 用 `research_start` 建立问题与冻结范围，保留返回的 `research_id`。`source_ids` 指已同步的数据包；`u-` ID 指原始 URL 清单；`sN` 指已保存的证据来源，三者不可互换。选中书签不能隐式缩小一个完整数据包的审阅范围；确需子集时使用显式范围参数并在报告中标明。
-2. 分页读取 `research_inventory`，直到 `next_offset` 为 null。保存全部 ID、原始 URL 和对应的书签实例，不使用第一页或预览替代全量清单。现有任务状态为 `incomplete` 时先明确记录 `resume`；已完成或取消的任务不能重开。
-3. 每组默认 12 项，读者逐项读取正文并记录 `source_review`、有准确引文的 claim、`inventory_review`。已有的多条记录用 `research_record.entries` 批量提交（最多 50 条），按分组和阶段使用稳定的 `batch_id`，后续批次引用返回的真实 claim ID。`reviewed` 需要已接受的原始来源、问题和引文或 claim；失败页面只记录具体阻塞原因，排除项需说明 `out_of_scope` 或 `non_content`。
-4. 等全部读者结束后，由另一批子代理独立核验原文、引用语义、版本日期和反证。无法检查不等于反驳成功；保留缺口、失败和未核验 ID。
-5. 对 `research_coverage` 的 `all`、`missing`、`unread`、`unreviewed` 各自读取全部分页。比较完整 ID 集合及 `difference_counts`。把来源差集和未核验项交给下一轮阅读、独立核验；脚本默认补查 1 轮，可设为 0 至 4 轮。
-6. 保存完整分析 JSON，再回答问题和重查覆盖。`research_finish` 决定研究能否完成；所有输入被列明、可用正文覆盖、实质审阅覆盖、问题完成率是不同指标。全失败、全排除、重要结论未核验或仍有未解释缺口时输出 `incomplete`。工作流返回后，主代理直接调用 `research_status`、`research_coverage` 并读取返回的报告与分析附件，核对真实状态、完整范围和哈希；不能只相信子代理返回的成功文字或预期文件名。
-7. 宿主主代理收到返回后，直接调用 `research_status` 和完整分页的 `research_coverage`，核对真实终态、冻结范围和实际产物；不要仅信报告子代理返回的状态或路径。回读 `external_runs` 中的完整分析附件并核对 SHA-256，将报告路径与 status.artifacts 对照。宿主脚本成功、子代理声称完成或某个附件存在，都不能代替这一核验。
-
-脚本的分析附件通过 `research_record` 的 `external_run` 保存，取真实的 `recorded.result_path` 与 `recorded.result_sha256`。附件含完整清单、各组返回、失败、差集和核验状态。`<run_key>-analysis` 的 `run_id` 使用 `local:<run_key>`，明确是本地关联号；它记录已结束的分析阶段，不能冒充宿主 run ID 或整项研究完成。可获得真实宿主 run ID 时另存其观测状态。
-
-`pending`、`queued`、`in_progress`、`unknown_outcome` 不能记为完成。工作流停止或超时时先查宿主状态和已保存研究状态，不盲目重发付费操作。宿主会话的恢复能力与插件研究档案的持久保存分别处理。
-
-新任务未显式给 `max_fetch_calls` 时，根据冻结 URL 数量按每次最多 8 URL 计算首轮下界，再保留 12 次有界补查余量，并受 80 次硬上限限制。207 URL 的下界为 26 次，默认上限为 38 次。显式用户预算保持原值；`initial_fetch_plan` 报告 `minimum_required`、`call_shortfall` 和 `urls_beyond_capacity`，不足时保留完整范围。读者在适用时批量抓取，每组如何拆分、失败重试和补充证据可能需要更多调用；这些估计不保证正文一定可用。
+每次新脚本运行用唯一 `run_key`，恢复时保持原值；仅字母数字、点、横线和下划线，最长 40 字符。显式传 `output_language`；`auto` 根据 brief／问题判断，无依据则英文。原句和 ID 不翻译。
 
 ## Codex
 
-按 `hosts/codex/delegate.md` 使用当前会话的原生子代理。`prepare.py` 只是分页读取共享 MCP 后生成分组，不启动子代理：
+按 `hosts/codex/delegate.md` 使用当前代理工具。辅助脚本只准备清单分组：
 
 ```sh
 python3 hosts/codex/prepare.py --research-id RID --group-size 12
 ```
 
-主代理传入完整分组，遵守当前并发上限并等待全部读者结束，再派新核验代理。沿用当前模型、推理、权限和工具访问，除非用户另有指定。没有原生子代理工具时说明缺失能力，可由宿主按相同证据规则处理有界的单代理任务；不要声称发生了原生委派。Codex 没有由本插件提供的 JavaScript workflow runtime。
+RID 换成真实研究 ID。遵守并发上限，等待已分配阶段结束并复核综合结果。插件不提供 Codex JavaScript 工作流运行时。
 
 ## Claude Code
 
-普通子代理可继承父会话可用的 MCP 工具，但仍受工具过滤限制。Skill 可通过 `skills` 预载或由子代理在任务中读取，不假定父代理已读内容会自动传入。已启用的团队成员读取项目／用户 MCP 与 Skill 配置，但不继承主代理对话历史。这两种协作都不要求本插件的 Dynamic Workflow。
+普通子代理的 MCP 访问受工具过滤约束，需显式传入／预载相关 Skill；团队不继承主代理对话。两者均不要求 Dynamic Workflow。
 
-Claude 导出包的 `workflows/bookmark-research.js` 包含 `export const meta` 和原生脚本正文。已建立研究后，由用户明确调用，例如：
+导出的 `workflows/bookmark-research.js` 包含原生脚本。启用工作流访问后（Claude Code 2.1.154+，Pro 另需 `/config` 设置），显式调用：
 
 ```text
-运行 /bookmark-research:bookmark-research，传入对象
+运行 /bookmark-research:bookmark-research，传入
 {"research_id":"RID","run_key":"review-1","group_size":12,"max_gap_rounds":1,"method":"comparison","output_language":"zh"}。
 ```
 
-将 `RID` 替换为真实研究 ID。`run_key` 每次新运行保持唯一，同一运行恢复时保持不变；只含字母数字、点、横线和下划线，最长 40 字符。Claude 将对象作为全局 `args` 提供，脚本使用原生 `agent` 和 `pipeline`，读者通过可见的研究 MCP 工具操作。
-
-Dynamic Workflows 需要 Claude Code 2.1.154+ 及启用的工作流访问；Pro 还需在 `/config` 开启。使用 `/workflows` 管理宿主运行。只能在同一会话恢复，退出后重新开始，部分已结束子代理也可能重跑。读者需复用已保存证据和操作 ID。
-
-Claude 自带 `/deep-research` 是另一项入口，自 2.1.218 起需显式调用；它不自动保证本插件冻结的书签清单被逐项审阅。`ultracode` 的触发取决于用户真实输入；把该词写进 Skill、普通 `-p` 输入或没有 human origin 的 SDK 内容不能触发。插件不替用户切换 effort 或启用设置。
+通过 `/workflows` 管理运行。只能同会话恢复，重启可能重跑已完成子代理，因此复用证据和操作 ID。Claude 自带的深研不自动保证本插件冻结清单的覆盖。
 
 ## Pi
 
-已有子代理扩展可通过共享 MCP 或 CLI 处理有界研究，无需保存工作流扩展。以下整包脚本需要 Node 22.19+、Pi 0.83+、`pi-subagents` 0.43.0+ 和 `pi-subagents-workflows`。导出包的 `package.json` 只声明 Skill；保存的脚本需单独在受信任项目登记：
+分组配方需要 Node 22.19+、Pi 0.83+、`pi-subagents` 0.43.0+ 和 `pi-subagents-workflows`。导出只声明 Skill；在预期的受信任项目中登记脚本：
 
 ```sh
 python3 hosts/pi/register-workflow.py --project /absolute/path/to/project
 ```
 
-登记器只创建项目 `.pi/subagent-workflows/bookmark-research/workflow.json` 和 `script.js`，相同内容可重复执行，已有不同内容会保留并报冲突。它不修改 Pi settings，不安装扩展。桥接脚本的绝对路径绑定当前稳定导出目录，迁移后需重新登记。
-
-在该项目的 Pi 会话调用：
+登记器只写项目 `.pi/subagent-workflows/bookmark-research/` 下的两个工作流文件，保留冲突内容，不安装扩展或更改设置。稳定导出搬迁后需重新登记绝对桥接路径。
 
 ```js
 pi_subagent_workflow({
-  action: "run",
-  name: "bookmark-research",
+  action: "run", name: "bookmark-research",
   args: { research_id: "RID", run_key: "review-1", output_language: "zh" }
 });
 ```
 
-扩展以 detached 模式启动；主代理必须用扩展的状态、等待和 artifacts 功能等到终态，检查每个失败子代理。脚本使用 `runs.all`、`outputSchema` 和 `structuredOutput`，逐项检查 `run.error` 与 `ok`，不从可截断的显示文本重建结果。脚本只用顶层 await 与 Promise 链，避开该运行时禁止的嵌套 async helper。注册表不提供跨会话 journal replay。
+扩展 detached 运行，须通过状态／附件工具等到终态并检查失败。使用结构化结果（`structuredOutput`、`run.error`、`ok`），不能重建被截断的显示文本；不支持跨会话 journal replay。
 
-读者使用 `delegate`，需要 Bash 访问稳定包中的 `hosts/shared/research-call.py`，或已有原生研究 MCP 工具。Python bridge 以 `{name,arguments}` 为 JSON stdin，调用同一 stdio MCP 并返回 `{isError,result}`；不是 Pi 核心的 MCP 功能。超时返回 `unknown_outcome`，先查已保存状态再判断是否继续。
+子代理需原生 MCP 或通过 Bash 访问 `hosts/shared/research-call.py`，JSON 输入 `{name,arguments}`、输出 `{isError,result}`。超时表示结果未知，继续前先查保存状态。
 
 ## DSH
 
-DSH 导出含 `workflows/bookmark-research/meta.json`、无 export 的 `script.js` 和生成调用对象的脚本：
+导出包含元数据、普通 JavaScript 和调用对象生成器：
 
 ```sh
 python3 hosts/dsh/workflow-call.py --research-id RID --run-key review-1 --output-language zh
 ```
 
-将输出 JSON 整体作为宿主 `workflow` 工具参数。它分别包含 `meta`、普通 JS `script` 和对象 `args`。宿主脚本使用 `agent(prompt,{label,schema})` 与 `pipeline`；MCP 名称以当前可见工具为准，常见格式是 `mcp__bookmark-research__research_*`。
+把返回 JSON 整体传给当前 `workflow` 工具，其中有 `meta`、`script` 和对象 `args`；使用实际 MCP 名称。宿主等待后返回 `{runId,agentsStarted,result}`，取消返回错误；保留分支失败，fatal schema／上限错误正常传播。
 
-DSH 等完整流程结束后返回 `{runId,agentsStarted,result}`；取消作为错误返回。普通分支失败需保留，schema 错误或硬上限等 fatal 错误交给宿主传播。渲染可能截断，不能假设另有自动生成的完整结果句柄；报告子代理显式保存的完整分析附件才是本插件的可回读结果。宿主没有在此接口定义后台 start/poll API。
-
-`cordis.patch.yml` 使用最终导出路径连接官方 MCP client，但不会安装 DSH、配置 Skill discovery 或启用 workflow 服务。profile 必须预先提供这些能力，搬迁导出目录后重新生成绝对路径补丁。
+显示可能截断，显式保存的分析附件才是完整结果；此接口没有后台 start/poll。`cordis.patch.yml` 用最终绝对路径连接 MCP client，不启用 Skill／工作流服务，搬迁后重新生成路径。
