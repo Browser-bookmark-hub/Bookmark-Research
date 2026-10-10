@@ -179,6 +179,7 @@ class RawLibrary:
         items = []
         if kind == "archive":
             directory = primary.parent
+            hashes = self.archive.legacy_hashes(directory, value)
             for entry in value.get("pages") or []:
                 if not isinstance(entry, dict) or not _text(entry.get("body_file")) or not _text(entry.get("sha256")):
                     continue
@@ -186,6 +187,8 @@ class RawLibrary:
                         "url": _text(entry.get("requested_url")), "title": _text(entry.get("title")),
                         "retrieved_at": _text(value.get("retrieved_at"))}
                 try:
+                    if hashes is not None and hashes.get(self.archive._key(item["url"])) != entry["sha256"]:
+                        raise ValueError("Legacy extract has ambiguous source attribution")
                     item["target"] = self.archive.page_path(directory, entry)
                 except ValueError as error:
                     item["error"] = str(error)
@@ -205,13 +208,25 @@ class RawLibrary:
                 if "\x00" in relative or Path(relative).is_absolute() or not _inside(directory, target) or target == directory:
                     item["error"] = "Research body is outside its task folder"
                 else:
-                    item["target"] = target
+                    try:
+                        if (source.get("source_attribution_version") != self.archive.ATTRIBUTION_VERSION
+                                and not source.get("provenance") and source.get("manifest_file")):
+                            manifest_path = (directory / source["manifest_file"]).resolve()
+                            if not _inside(directory, manifest_path):
+                                raise ValueError("Research manifest is outside its task folder")
+                            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                            hashes = self.archive.legacy_hashes(manifest_path.parent, manifest)
+                            if hashes is not None and hashes.get(self.archive._key(item["url"])) != source["sha256"]:
+                                raise ValueError("Legacy extract has ambiguous source attribution")
+                        item["target"] = target
+                    except (OSError, ValueError) as error:
+                        item["error"] = str(error)
                 items.append(item)
         return items
 
     def _index_unit(self, connection, unit, kind, primary, capture_id, report):
         connection.execute("DELETE FROM occurrences WHERE unit = ?", (unit,))
-        stamps = [[str(primary), _stamp(primary)]]
+        stamps = [["attribution", self.archive.ATTRIBUTION_VERSION], [str(primary), _stamp(primary)]]
         files, skipped, error = [], 0, None
         try:
             items = self._items(kind, primary, capture_id)
@@ -264,7 +279,7 @@ class RawLibrary:
                 current.add(unit)
                 previous = known.get(unit)
                 if previous is not None:
-                    signature = json.dumps([[str(primary), _stamp(primary)]] +
+                    signature = json.dumps([["attribution", self.archive.ATTRIBUTION_VERSION], [str(primary), _stamp(primary)]] +
                                            [[path, _stamp(path)] for path in previous[1]])
                     if signature == previous[0]:
                         continue

@@ -46,15 +46,21 @@ wiki.write("reusable-sessions", revised_page, "解释新增限制", expected_rev
 
 | 方法 | 返回 |
 | --- | --- |
-| `write(page_id, page, change_note, expected_revision=0)` | 修订元数据与绝对产物路径 |
+| `write(page_id, page, change_note, expected_revision=0)` | 修订元数据、绝对产物路径与已提交的 `work_receipt` |
 | `get(page_id, revision=None)` | 正文、证据快照、更新记录与当前 provenance 核验 |
-| `list(offset=0, limit=20)` | 当前页元数据的分页 |
+| `list(offset=0, limit=20, source_url=None)` | 当前页元数据分页，可按来源 URL 查直接引用与关联页面 |
+| `refresh(page_id, expected_revision=None, offset=0, limit=8)` | 返回待审阅新快照与受影响页面，保留 Wiki 修订不变 |
+| `work(kind=None, status=None, research_id=None, page_id=None, capture_id=None, offset=0, limit=20)` | 可恢复的工作状态、待整理结论、当前发布回执与继续调用参数 |
 | `lint(page_id=None)` | 来源审阅、有效 claim、引文、哈希、链接和历史问题 |
 | `search(query, offset=0, limit=10)` | 匹配 Wiki 正文、修订日期及核验状态；排除已失效页，保留 `needs_review` 警告 |
 
 Lint 检测后续来源拒绝、结论撤回、来源／claim 变化和缺失／改动的产物。历史正文保留并标记过时，明确返回 `semantic_support:"not_scored"`。
 
-检索匹配标题、章节标题和整理后的正文，采用忽略大小写的字面词匹配（包含中文子串）及简单出现次数排序。仅保存 provider 摘录不会使它成为可检索的 Wiki 知识。没有 embedding 检索或语义重排，也不会未经实际问答评测就选择它们。
+`work` 依据持久快照、研究回执和当前已提交修订，重建 `archived`、`pending`、`compiled`、`needs_review` 状态。未提交的修订文件不算完成，提交后响应丢失仍可恢复。快照标记已整理，表示保存的正文完整且有当前修订引用，不表示每段原文都已提炼或源站仍然最新；新鲜度另看页面工作项。这是显式的本地审计，不联网抓取或自动发布，普通回答无需枚举全部工作。
+
+检索对标题、章节、正文和可选 `page.aliases` 建立 Unicode 字符索引，支持忽略大小写／空白差异的字面匹配、显式查询别名及简单出现次数排序。只对匹配候选核验证据，完整巡检用 `lint`。派生索引失败时退回版本扫描，不会撤销已提交的写入。
+
+证据完整性与时效性分别判断：新正文、过期／未知快照时间、刷新失败及关联 Wiki 变化都需复核。直接网页结论检查所引用书签及相关画布上下文，本地文档和推断结论保留完整输入依赖。`wiki.max_source_age_days` 默认 30 天，相同正文的新快照可延长有效期；正文变化须审阅后再 `write`。版本登记覆盖配置的归档根目录及同一研究根目录下的任务。提供商可能返回缓存，因此始终明确 `origin_current_verified:false`；尚无后台网页监控、向量检索或语义重排。
 
 新记录使用相对于研究任务的证据路径。`get` 将已验证引用解析到当前研究位置，兼容旧绝对路径记录，不改写不可变修订；身份、结论、引文与产物哈希仍须一致。迁移时同时保留 Wiki 和引用的研究 state／inventory／证据，保持相对布局以维持 Markdown 链接，并配置目标机器的本地研究路径。仅有 Wiki Markdown 不构成完整可迁移的知识库。
 

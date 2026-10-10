@@ -64,7 +64,8 @@ class Settings:
                 "professional_research": {"enabled": False, "provider": None,
                     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
                     "parallel": {"processor": "pro"}},
-                "wiki": {"directory": str(cls.data_directory() / "wiki"), "after_research": "suggest"},
+                "wiki": {"directory": str(cls.data_directory() / "wiki"), "after_research": "suggest",
+                         "max_source_age_days": 30},
                 # Where new research task folders go; existing tasks are never moved.
                 "output": {"mode": "central", "directory": str(cls.data_directory() / "research")}}
 
@@ -93,6 +94,7 @@ class Settings:
                 ("timeout_seconds", value["timeout_seconds"], 1, 60),
                 ("search.limit_per_target", value["search"]["limit_per_target"], 1, 20),
                 ("fetch.max_characters", value["fetch"]["max_characters"], 100, 100000),
+                ("wiki.max_source_age_days", value["wiki"]["max_source_age_days"], 1, 3650),
                 ("readiness.ttl_seconds", value["readiness"]["ttl_seconds"], 60, 86400),
                 ("readiness.timeout_seconds", value["readiness"]["timeout_seconds"], 1, 30)):
             if type(number) is not int or not minimum <= number <= maximum:

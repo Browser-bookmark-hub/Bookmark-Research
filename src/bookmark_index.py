@@ -757,7 +757,7 @@ class BookmarkIndex:
                 anchors.setdefault(row["canonical_id"], []).append(row["section_id"])
         return anchors
 
-    def _item_result(self, row, anchors=None):
+    def _item_result(self, row, anchors=None, section_cache=None):
         result = {key: row[key] for key in ("source_id", "section_id", "item_id", "parent_id", "item_type", "title", "url", "note", "note_color", "position")}
         result.update(source=row["source_id"], section=row["section_id"], item=row["item_id"],
             path=json.loads(row["path_json"]), folder_path=row["folder_path"], tags=json.loads(row["tags_json"]),
@@ -773,7 +773,11 @@ class BookmarkIndex:
             shown = anchors.get(row["section_id"])
             if shown:
                 result["shown_in_anchors"] = sorted(shown)
-        section = self.connection.execute("SELECT label,file_path FROM sections WHERE source_id=? AND section_id=?", (row["source_id"], row["section_id"])).fetchone()
+        key = row["source_id"], row["section_id"]
+        cache = {} if section_cache is None else section_cache
+        if key not in cache:
+            cache[key] = self.connection.execute("SELECT label,file_path FROM sections WHERE source_id=? AND section_id=?", key).fetchone()
+        section = cache[key]
         result["section_label"], result["file_path"] = section[0], section[1]
         return result
 
@@ -801,6 +805,7 @@ class BookmarkIndex:
         clauses, args = self._scope(source_id, section, group_id, folder_id, tags, tag_colors, item_types)
         page_size = 0 if count_only else limit
         anchors_by_section = self._section_anchors(source_id)
+        section_cache = {}
 
         def query(chosen, page=True):
             predicates, parameters = list(clauses), list(args)
@@ -830,7 +835,7 @@ class BookmarkIndex:
             unique = self.connection.execute(
                 "SELECT count(DISTINCT i.url) FROM items i WHERE " + where + " AND i.url<>''", parameters).fetchone()[0]
             return {"total": total, "unique_urls": unique, "limit": limit, "offset": offset,
-                    "results": [self._item_result(row, anchors_by_section) for row in rows]}
+                    "results": [self._item_result(row, anchors_by_section, section_cache) for row in rows]}
 
         result = query(targets)
         section_rows = self._sections(source_id, section) if section is not None else []
@@ -856,7 +861,10 @@ class BookmarkIndex:
                                            "use get_context for the surrounding layout.")
         shown = offset + len(result["results"]) if result["results"] else offset
         result["next_offset"] = None if page_size == 0 else (shown if shown < result["total"] else None)
-        result["targets"] = [dict(target=target, **query([target])) for target in targets]
+        # A single-target union is identical to its per-target page.
+        result["targets"] = [dict(target=target, **({key: result[key] for key in
+            ("total", "unique_urls", "limit", "offset", "results")} if len(targets) == 1 else query([target])))
+            for target in targets]
         if compact:
             from bookmark_output import compact_search
             return compact_search(result)
@@ -1011,6 +1019,7 @@ class BookmarkIndex:
                   "sections": [], "folders": [], "nodes": [], "edges": [],
                   "memberships": [], "entries": []}
         by_url = {}
+        section_cache = {}
         self.connection.execute("SAVEPOINT inventory_snapshot")
         try:
             for source_id in identifiers:
@@ -1041,7 +1050,7 @@ class BookmarkIndex:
                 rows = self.connection.execute("SELECT * FROM items WHERE source_id=? "
                     "ORDER BY section_id,preorder,item_id", (source_id,)).fetchall()
                 for row in rows:
-                    item = self._item_result(row)
+                    item = self._item_result(row, section_cache=section_cache)
                     item.update(ancestor_ids=json.loads(row["ancestor_ids_json"]),
                                 revision=row["revision"], preorder=row["preorder"])
                     if row["item_type"] == "folder":

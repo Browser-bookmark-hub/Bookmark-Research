@@ -153,12 +153,12 @@ class IndexBehaviorTests(unittest.TestCase):
                 index.refresh("demo")
             committed.set()
 
-        def paused_item(row):
+        def paused_item(row, **options):
             if not reading.is_set():
                 reading.set()
                 if not committed.wait(5):
                     raise AssertionError("Concurrent writer did not commit")
-            return original_item_result(row)
+            return original_item_result(row, **options)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(writer)

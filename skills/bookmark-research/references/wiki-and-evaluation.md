@@ -4,6 +4,21 @@
 
 The Wiki contains reviewed knowledge synthesized across sources; page archives contain original evidence. They are stored separately. Evaluation calculates supplied runs and judgments; it neither conducts research nor automatically judges citation meaning.
 
+## Resume compilation and review
+
+Use `wiki_work` when resuming unfinished organization or checking whether a write committed. Scope it with `research_id`, `capture_id` or `page_id`, or list a `kind` (`research`, `capture`, `page`) and optional `status`. Stable `work_id` values and pagination support resumption. A full listing is a local audit, not a prerequisite for each answer.
+
+- `archived`: saved material has no eligible, unpublished claim identified yet; this does not mean the text was read or accepted.
+- `pending`: reviewed active claims remain outside current intact Wiki revisions. Follow `pending_claim_ids` and `resume`. Candidates do not authorize publication or require writing every claim.
+- `compiled`: the applicable claims or captured bodies are cited by current intact Wiki revisions; this does not mean every passage of a capture has been synthesized. `pages` and `work_receipt` identify actual page IDs, revisions and record hashes. Check page work separately for freshness.
+- `needs_review`: a page has freshness/integrity issues, or a task/capture cannot be validated. Page entries include issue previews and `source_reads` for already saved new evidence, avoiding another fetch. Read the page and evidence before revising it.
+
+The view is reconstructed from durable captures, recoverable research receipts and the current committed Wiki index; there is no second mutable completion flag. It survives process restarts, ignores orphan revision files, and recognizes a committed write even if its response was lost. Removing a citation from the current Wiki can make its claim pending again; historical revisions remain accessible through `wiki_get`. Rows can change while paging; re-list the affected ID before writing.
+
+For a useful research result, follow the existing `suggest` / `auto` / `off` preference and session authorization. Read matching pages, compile eligible claims, maintain relevant links, and write with `expected_revision`. A `wiki_follow_up.instruction` is a next action, not a completed write. Report actual `work_receipt` page IDs and revisions; after interruption, check `wiki_work` before retrying.
+
+For changed webpages, read saved `source_reads` or follow `wiki_refresh` continuation, import and review new evidence, then revise affected pages. Recheck their IDs or `wiki_work(kind="page", status="needs_review")`; linked pages may still need review after their target changes. A successful fetch alone does not close a review. This workflow starts no background model, monitor or automatic publisher.
+
 ## Compile research into a Wiki
 
 Read text with `research_source`, accept valid material with `source_review`, and save atomic `claim` entries. Organize supporting/conflicting claims into topic/entity pages. Preserve versions, conditions, counterevidence and unresolved issues rather than stacking unstructured extracts.
@@ -35,9 +50,13 @@ Use the task's output language for titles, section headings, authored prose and 
 
 Write target entity/topic pages before adding `links:[{page_id,relation}]`. For updates, read the current revision through `wiki_get` and use it as `expected_revision`. On conflict, reread and merge rather than overwriting another update. Historical revisions and their referenced target versions remain unchanged.
 
-`wiki_get` returns page content, claim/source mappings, bookmark instances and inventory IDs. `wiki_search` includes revision dates and the same `validation` status: `needs_review` signals changed bookmark input and remains discoverable with the warning; invalid/retracted evidence is excluded. `wiki_lint` checks hashes, retractions/rejections, changed input, links and revisions. `semantic_support:"not_scored"` means it is not a semantic judge; no status proves a webpage is still current.
+`wiki_get` returns page content, claim/source mappings, bookmark instances and inventory IDs. `validation.integrity` checks saved evidence; `validation.freshness` checks capture age and known source versions. Newer extracts, expired/unknown capture dates, failed refreshes and changed linked pages produce `needs_review`. Direct webpage claims compare their cited bookmarks and related canvas context; inferences and local-document claims retain the full input scope. Invalid/retracted evidence is excluded from search. `semantic_support:"not_scored"` and `origin_current_verified:false` remain explicit.
 
-`wiki_list` and `wiki_search` are paginated. Search matches literal terms in authored titles, headings and text, including Chinese. Saving page text does not automatically write a Wiki. There are no embeddings, vector retrieval, reranking or monitoring. Default storage is the data directory's `wiki/`, overridable with `settings.wiki.directory`; keep it outside the original package.
+`wiki_list` and `wiki_search` are paginated. Search uses a rebuildable SQLite character index over authored titles, headings, text and optional `page.aliases` (up to 30 names). Literal/spacing matches and explicit query aliases such as 价格/定价/pricing improve recall; there are no embeddings or semantic reranking. Only matching candidates undergo evidence validation; use `wiki_lint` for a complete audit. Writes update one search document and reuse catalog summaries. A failed derived search index does not undo a committed revision; queries fall back to scanning revisions. Default storage is the data directory's `wiki/`, overridable with `settings.wiki.directory`.
+
+For time-sensitive knowledge, use `wiki_refresh(page_id, expected_revision, offset=0, limit=8)` to fetch and archive only that page's cited URLs. Follow its continuation to cover more URLs. Results distinguish changed, unchanged and unverified captures, return saved-capture read arguments, and list affected pages. `wiki_list(source_url=..., offset=..., limit=...)` paginates direct citations and linked dependents. Read saved text through `fetch_web` with `capture_id`, import actual evidence with `research_import_evidence` and its original `retrieved_at`, review sources/claims, then update the Wiki with `expected_revision`. Refresh never rewrites authored text or the bookmark package.
+
+`wiki.max_source_age_days` defaults to 30 (range 1–3650). A newer identical body can renew capture age without rewriting history. A changed body requires review; historical imports cannot supersede newer known captures. Source observations are tracked across research tasks in the same research root and ordinary captures in the configured archive root. Retrieval may use a provider cache, so neither a fresh capture nor `current` proves live-origin freshness. There is no automatic background webpage monitor.
 
 New revision records store evidence paths relative to their research task. `wiki_get` resolves verified evidence at current task locations; legacy absolute-path records remain readable without rewriting history. Move/sync the Wiki index and revisions together with the cited research state, inventory and evidence, keeping their relative layout for Markdown links. Configure the destination's local data/research paths; copying only Wiki Markdown does not preserve a verifiable knowledge base. Git synchronization belongs to the host and stays outside the canvas-managed directory.
 

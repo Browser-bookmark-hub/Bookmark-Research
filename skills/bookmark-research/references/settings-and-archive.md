@@ -60,7 +60,7 @@ The effective configuration shape is below. Replace example `directory` values w
   "professional_research": {"enabled": false, "provider": null,
     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
-  "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest"},
+  "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest", "max_source_age_days": 30},
   "output": {"mode": "central", "directory": "/absolute/path/to/research"}
 }
 ```
@@ -85,6 +85,10 @@ Output language precedence is the current request → `research.response_languag
 
 ## What a page read saves
 
+Ordinary `fetch_web` output always enforces `max_characters` per page and `max_total_characters` across the batch (default 100000, range 100–800000), even when a provider ignores its requested limit. `characters` and `text_sha256` describe the returned slice; `source_characters` and `sha256` describe the complete saved extract. `output_truncated`, `next_offset` and `continuation` make omitted text explicit. Repeat the returned `capture_id` and offset to read the same immutable capture without network; omit provider/archive/raw options on such reads. `raw:true` is diagnostic provider output, still subject to the MCP result-size ceiling.
+
+The stdio server runs up to four network-capable calls with at most 16 accepted calls pending. Local bookmark SQLite work remains on the connection thread and can return while a fetch is pending. Responses may arrive out of order and retain request IDs. Queue overflow returns an explicit error. Cancellation stops queued work; already issued HTTP calls finish under their provider timeout and retain their results/receipts. Normal stdin EOF drains accepted calls.
+
 `fetch_web` saves actual provider responses it receives. Search hits do not trigger reads or archives. Responses from Exa/GitHub MCPs separately configured by the host are not intercepted.
 
 If authentication, transport or tool-contract failure prevents any actual response, the tool returns `status:"error"`, `error_kind` and `usage`, with no `result` and no invented archive. An actual response with no extracted text is retained with per-page status. MCP marks a complete call failure `isError:true`; partial success preserves usable results.
@@ -104,7 +108,8 @@ knowledge/
 - Fragments such as `#comments` remain, but extraction does not guarantee all comments were loaded. `fragment_scope_verified:false` makes this explicit. Retrieval time differs from publication, update and cache time.
 - Unrecognized response formats still retain the response and manifest, with no body path. Partial failures save only recognized successful text. Per-page `extraction_status:"provider_error"` means the provider reported failure; conflicting text for one URL becomes `conflicting_provider_results` without arbitrarily choosing a body. Archive failure is explicit in `archive.status:"error"`; the actual received content is still returned without automatically repeating a paid fetch.
 - Exa batch records support indented multiline titles. Every standalone `URL:` field must belong to a recognized record; unmatched, malformed or duplicate boundaries leave the block raw. Unrequested redirect records also delimit pages. This conservative check may withhold text containing ambiguous record-like fields; inspect the raw response instead of treating it as another page's body.
-- Reading the URL again appends a new snapshot without replacing prior records. This is per-call retention, not background version monitoring.
+- Legacy provider captures are rechecked against their saved response when continued or cited. Ambiguously attributed extracts are rejected even if their stored body hash still matches. The archive search index rechecks existing units once for this extraction version; original capture files remain unchanged.
+- Reading the URL again appends a new snapshot without replacing prior records. A source-version index records the observation to warn related Wiki pages; this does not accept new claims or start background monitoring. A tracking-index failure is reported separately from successful archival.
 
 Reports can cite `archive.manifest_path` and page `body_path`. `search_archive` (CLI `search-archive`) is a literal full-text search over saved bodies in this archive and in all registered research tasks' evidence, merged by content hash; its rebuildable index is `<data dir>/raw-library.sqlite3`. Archives do not automatically enter the bookmark SQLite index or become Wiki pages. Use `research_import_evidence` for original text actually obtained by the host with real provenance. Mark external research reports as external_report; their citation lists do not count as original-page review. Use `wiki_write` for knowledge synthesis.
 

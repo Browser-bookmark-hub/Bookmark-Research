@@ -60,12 +60,12 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
   "professional_research": {"enabled": false, "provider": null,
     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
-  "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest"},
+  "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest", "max_source_age_days": 30},
   "output": {"mode": "central", "directory": "/absolute/path/to/research"}
 }
 ```
 
-优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，只有 provider 支持对应参数时才会传递限制，实际请求参数记录在归档中；`character_limit_applied: false` 表示服务未提供本插件支持的长度参数。加大限额不保证得到完整页面。
+优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
 
 ## 研究结果位置与 Wiki 后续整理
 
@@ -87,6 +87,10 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 
 `fetch_web` 自动保存它自己收到的实际 provider 响应。搜索命中本身不触发抓取或存档，宿主另外配置的 Exa／GitHub MCP 响应也不会被本插件自动截获。
 
+普通输出同时执行每页 `max_characters` 与整批 `max_total_characters` 限制（整批默认 100000，范围 100–800000）。`characters`／`text_sha256` 对应当前切片，`source_characters`／`sha256` 对应完整归档正文；`output_truncated`、`next_offset` 和 `continuation` 明确标出未返回部分。带 `capture_id` 和 offset 续读同一快照时不联网，并省略 provider、archive、raw。`raw:true` 用于诊断原始响应，仍受 MCP 总返回上限约束。
+
+stdio 服务最多同时执行 4 个网络调用，运行与排队合计最多 16 个。本地书签 SQLite 查询留在连接线程，可在抓取期间先返回；响应按 request ID 对应，可能乱序。队列满时明确报错，取消只能停止尚未开始的请求，已发出的 HTTP 调用按提供商超时结束并保留结果／操作回执。正常 stdin EOF 会处理完已接受请求。
+
 认证、传输或工具契约失败且没有取得实际响应时，返回 `status:"error"`、`error_kind` 和 `usage`，不包含 `result`，也不生成虚构归档。已经取得响应但没有提取出正文时，仍保留实际 `result` 与逐页状态。MCP 将完整调用失败标为 `isError:true`；部分成功保留可用结果。
 
 ```text
@@ -104,6 +108,7 @@ knowledge/
 - `#comments` 等锚点会保留，但网页提取不保证所有评论已加载；`fragment_scope_verified: false` 明示这一点。检索时间不等于网页发布时间、更新时间或缓存时间。
 - 返回格式无法识别时仍保存响应与 manifest，正文路径为空；部分 URL 失败时只保存成功识别的正文。每页的 `extraction_status: "provider_error"` 表示服务报告失败；同一 URL 的正文冲突时为 `conflicting_provider_results`，不自动挑选一份正文。归档失败会在 `archive.status: "error"` 明示，工具仍返回已收到的内容，不自动重复付费抓取。
 - Exa 批量记录支持带缩进的多行标题。每个独占行的 `URL:` 字段都必须属于已识别的记录；边界缺失、格式异常或重复时，该文本块只保留原始响应。未请求的重定向页面同样构成边界。正文内出现类似记录字段的歧义内容时，这项保守检查可能不提取正文，应检查原始响应，不将其归给另一页。
+- 旧提供商快照在续读或引用时会对照保存的原始响应重新核对来源；即使正文哈希未变，串页等归属不明的摘录也会被拒绝。归档检索索引会按新提取版本对已有记录复核一次，原抓取文件保留不动。
 - 再读同一 URL 会追加新快照，不覆盖旧档案；这只是按调用保存，不是后台版本监控。
 
 报告可引用 `archive.manifest_path` 和各页 `body_path`。`search_archive`（CLI `search-archive`）对本归档和所有已登记研究任务证据中的已保存正文做字面全文检索，按内容哈希合并；可重建的索引为 `<数据目录>/raw-library.sqlite3`。档案不自动加入书签 SQLite 或生成 Wiki。宿主实际取得的原文可用 `research_import_evidence` 导入并标明 provenance；外部研究报告用 external_report，引用列表不算原页阅读。整理知识页使用 `wiki_write`。

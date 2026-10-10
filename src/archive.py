@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import tempfile
 import uuid
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ class SourceArchive:
     """
 
     PAGES = "pages"
+    ATTRIBUTION_VERSION = 1
 
     def __init__(self, directory):
         self.directory = Settings.external_path(str(directory), "Archive directory")
@@ -83,7 +85,39 @@ class SourceArchive:
             raise ValueError("Archived page body is outside the archive: " + relative)
         return target
 
-    def read_page(self, capture_directory, entry):
+    @classmethod
+    def legacy_hashes(cls, capture_directory, manifest):
+        """Recheck old extracts against their actual saved provider response."""
+        if not isinstance(manifest, dict):
+            raise ValueError("Invalid archive manifest")
+        if manifest.get("source_attribution_version") == cls.ATTRIBUTION_VERSION or "requested_urls" not in manifest:
+            return None
+        directory = Path(capture_directory).resolve()
+        response_path = directory / manifest.get("response_file", "response.json")
+        if (response_path.is_symlink() or response_path.resolve().parent != directory
+                or response_path.stat().st_size > 32 * 1024 * 1024):
+            raise ValueError("Invalid archived provider response")
+        raw = response_path.read_bytes()
+        if manifest.get("response_sha256") and hashlib.sha256(raw).hexdigest() != manifest["response_sha256"]:
+            raise ValueError("Archived provider response SHA-256 changed")
+        response = json.loads(raw)
+        if not isinstance(response, dict):
+            raise ValueError("Invalid archived provider response")
+        by_url = {}
+        for row in cls._extract(response, manifest["requested_urls"]):
+            try:
+                by_url.setdefault(cls._key(row["url"]), []).append(row)
+            except ValueError:
+                continue
+        hashes = {}
+        if not response.get("isError"):
+            for url, rows in by_url.items():
+                _, body, _, _ = cls._select(rows)
+                if body is not None:
+                    hashes[url] = hashlib.sha256(body.encode("utf-8")).hexdigest()
+        return hashes
+
+    def read_page(self, capture_directory, entry, manifest=None):
         """Return the verified body text for a manifest page entry, or raise ValueError."""
         target = self.page_path(capture_directory, entry)
         if target is None:
@@ -91,6 +125,12 @@ class SourceArchive:
         data = target.read_bytes()
         if hashlib.sha256(data).hexdigest() != entry.get("sha256"):
             raise ValueError("Archived page body does not match its recorded SHA-256")
+        if manifest is None:
+            manifest_path = Path(capture_directory) / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
+        hashes = self.legacy_hashes(capture_directory, manifest)
+        if hashes is not None and hashes.get(self._key(entry["requested_url"])) != entry.get("sha256"):
+            raise ValueError("Legacy extract has ambiguous source attribution; fetch a new capture")
         return data.decode("utf-8")
 
     @staticmethod
@@ -148,7 +188,7 @@ class SourceArchive:
             if structured:
                 rows.extend(structured)
                 continue
-            rows.extend(cls._text_rows(text))
+            rows.extend(cls._text_rows(text, requested_urls))
         return rows
 
     @staticmethod
@@ -170,7 +210,7 @@ class SourceArchive:
         return None if fence is not None else "".join(lines)
 
     @classmethod
-    def _text_rows(cls, text):
+    def _text_rows(cls, text, requested_urls=None):
         rows = []
         # Exa appends partial failures after all successful page records. Keep
         # this provider footer out of the last page's extracted body.
@@ -203,6 +243,17 @@ class SourceArchive:
             return rows
         if not matches or matches[0].start() != 0 or len(set(keys)) != len(keys):
             return rows
+        # A provider can truncate one page inside a fence and concatenate the
+        # next page before a later fence happens to close it. Global Markdown
+        # balance alone then hides real page headers. If a requested page is
+        # missing, do not guess whether hidden headers are examples or records.
+        # Complete batches still preserve fenced examples, including examples
+        # referring to another URL that has its own visible record.
+        expected = {cls._key(url) for url in requested_urls} if requested_urls is not None else None
+        if expected is None or expected - set(keys):
+            visible = {match.start() for match in matches}
+            if any(match.start() not in visible for match in re.finditer(header, text)):
+                return rows
         for index, match in enumerate(matches):
             end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             body = text[match.end():end]
@@ -275,7 +326,7 @@ class SourceArchive:
         return (bodies or candidates)[0]
 
     @classmethod
-    def compact_fetch(cls, fetched):
+    def compact_fetch(cls, fetched, max_characters=None, max_total_characters=100000, offset=0):
         """Present one selected extract per URL, retaining every attempt's provenance.
 
         Raw MCP responses may repeat a body in text, structured data and excerpts.
@@ -307,25 +358,105 @@ class SourceArchive:
                 row, body, extraction, kind = cls._select(by_url.get(cls._key(url)))
                 if response.get("isError"):
                     body, extraction = None, "provider_error"
+                archived = saved.get(url, {})
+                if body is not None and archived.get("sha256") and hashlib.sha256(
+                        body.encode("utf-8")).hexdigest() != archived["sha256"]:
+                    body, extraction = None, "source_attribution_mismatch"
                 metadata = row or {}
-                pages[url] = {"url": url, "provider": provider,
+                pages[url] = {**archived, "url": url, "provider": provider,
+                    "capture_id": archive.get("capture_id"),
                     "returned_url": row.get("url") if row else None,
                     "title": row.get("title") if row else None,
                     "extraction_status": extraction, "content_kind": kind,
                     "completeness": "unknown", "retrieved_at": attempt.get("retrieved_at"),
                     "characters": len(body) if body is not None else 0,
-                    "possibly_truncated": bool(metadata.get("truncated") or (body is not None and
+                    "possibly_truncated": bool(archived.get("possibly_truncated") or metadata.get("truncated") or (body is not None and
                         attempt.get("character_limit_applied") and len(body) >= attempt["requested_max_characters"] - 2)),
                     "provider_published_at": metadata.get("publishedDate") or metadata.get("published_at") or metadata.get("publishedTime"),
                     "provider_crawled_at": metadata.get("crawled_at") or metadata.get("crawledAt"),
-                    **saved.get(url, {}), "text": body,
+                    "text": body,
                     "manifest_path": archive.get("manifest_path")}
+                if body is None:
+                    pages[url].update(sha256=None, body_path=None, page_body_archived=False)
         result = {key: value for key, value in fetched.items() if key not in ("result", "attempts")}
         if "attempts" in fetched:
             result["attempts"] = [{key: value for key, value in attempt.items() if key != "result"}
                                   for attempt in attempts]
-        result.update(output_format="compact", pages=[pages[url] for url in fetched.get("urls", []) if url in pages])
+        limits = [attempt.get("requested_max_characters", 12000) for attempt in attempts]
+        limit = max_characters if max_characters is not None else min(limits or [12000])
+        ordered = [pages[url] for url in fetched.get("urls", []) if url in pages]
+        result.update(output_format="compact", pages=cls._bounded_pages(
+            ordered, limit, max_total_characters, offset),
+            output_budget={"max_characters_per_page": limit, "max_total_characters": max_total_characters,
+                           "offset": offset, "raw_archive_preserved": any(
+                               attempt.get("archive", {}).get("status") == "saved" for attempt in attempts)})
         return result
+
+    @staticmethod
+    def _bounded_pages(pages, limit, total, offset):
+        for name, value, low, high in (("max_characters", limit, 100, 100000),
+                                       ("max_total_characters", total, 100, 800000),
+                                       ("offset", offset, 0, 100000000)):
+            if type(value) is not int or not low <= value <= high:
+                raise ValueError("%s must be between %s and %s" % (name, low, high))
+        remaining = total
+        for page in pages:
+            body = page.get("text")
+            if body is None:
+                continue
+            start = min(offset, len(body))
+            excerpt = body[start:start + min(limit, remaining)]
+            end = start + len(excerpt)
+            remaining -= len(excerpt)
+            page.update(source_characters=len(body), characters=len(excerpt),
+                        text=excerpt, text_sha256=hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
+                        offset=start, next_offset=end if end < len(body) else None,
+                        output_truncated=start > 0 or end < len(body))
+            if page["output_truncated"]:
+                page["possibly_truncated"] = True
+            if page["next_offset"] is not None and page.get("capture_id"):
+                page["continuation"] = {"urls": [page["url"]], "capture_id": page["capture_id"],
+                                        "offset": end, "max_characters": limit}
+        return pages
+
+    def read_capture(self, capture_id, urls, max_characters=12000, max_total_characters=100000, offset=0):
+        """Read a stable archived extract without issuing another web request."""
+        if not isinstance(capture_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", capture_id):
+            raise ValueError("Invalid archive capture_id")
+        if not isinstance(urls, list) or not 1 <= len(urls) <= 8:
+            raise ValueError("urls must contain 1 to 8 archived URLs")
+        requested = list(dict.fromkeys(urls))
+        for url in requested:
+            self._key(url)
+        directory = self.directory / "sources" / capture_id
+        if ((self.directory / "sources").is_symlink() or directory.is_symlink()
+                or directory.resolve().parent != self.directory / "sources"):
+            raise ValueError("Archive capture must remain in the configured archive")
+        manifest_path = directory / "manifest.json"
+        if manifest_path.is_symlink() or manifest_path.stat().st_size > 8000000:
+            raise ValueError("Invalid archive manifest")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("capture_id") != capture_id:
+            raise ValueError("Archive manifest belongs to a different capture")
+        saved = {self._key(page["requested_url"]): page for page in manifest["pages"]}
+        pages = []
+        for url in requested:
+            record = saved.get(self._key(url))
+            if record is None:
+                raise ValueError("URL is not in the selected archive capture")
+            body = self.read_page(directory, record, manifest) if record.get("body_file") else None
+            pages.append({**record, "url": url, "capture_id": capture_id,
+                          "provider": manifest.get("provider"), "retrieved_at": manifest.get("retrieved_at"),
+                          "manifest_path": str(manifest_path), "text": body,
+                          "body_path": str(self.page_path(directory, record)) if body is not None else None})
+        successful = sum(page["text"] is not None for page in pages)
+        return {"mode": "archive_read", "status": "ok" if successful == len(pages) else
+                "partial" if successful else "error", "urls": requested, "output_format": "compact",
+                "successful_url_count": successful,
+                "network_request_performed": False,
+                "pages": self._bounded_pages(pages, max_characters, max_total_characters, offset),
+                "output_budget": {"max_characters_per_page": max_characters,
+                                  "max_total_characters": max_total_characters, "offset": offset}}
 
     @staticmethod
     def _write_json(path, value):
@@ -346,9 +477,11 @@ class SourceArchive:
         capture_id = archived_at.strftime("%Y%m%dT%H%M%S%fZ-") + uuid.uuid4().hex[:12]
         captures = self.directory / "sources"
         Settings.external_path(str(captures), "Archive directory")
+        if captures.is_symlink():
+            raise ValueError("Archive captures must not be a symlink")
         captures.mkdir(parents=True, exist_ok=True)
         destination = captures / capture_id
-        manifest = {"schema_version": 2, "capture_id": capture_id,
+        manifest = {"schema_version": 2, "capture_id": capture_id, "source_attribution_version": self.ATTRIBUTION_VERSION,
                     "archived_at": archived_at.isoformat(),
                     "provider": fetch["provider"], "tool": fetch["tool"], "retrieved_at": fetch["retrieved_at"],
                     "requested_urls": fetch["urls"], "request_arguments": fetch["request_arguments"],
@@ -392,8 +525,22 @@ class SourceArchive:
                 manifest["pages"].append(entry)
             self._write_json(stage / "manifest.json", manifest)
             stage.rename(destination)
+        tracking = "indexed"
+        try:
+            from source_versions import SourceVersions
+            SourceVersions(self.directory / "source-versions.sqlite3").record("capture:" + capture_id, [
+                {"id": str(position), "url": page["requested_url"], "sha256": page["sha256"],
+                 "retrieved_at": fetch["retrieved_at"], "provider": fetch["provider"]}
+                for position, page in enumerate(manifest["pages"]) if page["page_body_archived"]])
+        except (OSError, ValueError, sqlite3.Error):
+            # Publishing immutable evidence succeeded. A derived index failure
+            # must not turn that success into a retry of the provider request.
+            tracking = "unavailable"
         return {"status": "saved", "capture_id": capture_id, "directory": str(destination),
+                "knowledge_state": "archived",
+                "wiki_work": {"tool": "wiki_work", "arguments": {"capture_id": capture_id}},
                 "manifest_path": str(destination / "manifest.json"),
                 "response_path": str(destination / "response.json"),
+                "source_version_tracking": tracking,
                 "pages": [{**row, "body_path": str(bodies[row["requested_url"]]) if row["body_file"] else None}
                           for row in manifest["pages"]]}

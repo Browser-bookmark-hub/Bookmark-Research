@@ -168,6 +168,9 @@ def _parser():
     context.add_argument("--group")
     context.add_argument("--item")
     context.add_argument("--no-refresh", action="store_true")
+    context.add_argument("--collection", choices=("sections", "items", "nodes", "groups", "edges", "related_nodes", "memberships"))
+    context.add_argument("--offset", type=int, default=0)
+    context.add_argument("--limit", type=int, default=200, help="Rows per context collection")
     providers = commands.add_parser("providers")
     providers.add_argument("--probe", action="store_true", help="Connect to selected official MCP endpoints")
     providers.add_argument("--provider", action="append")
@@ -183,6 +186,9 @@ def _parser():
     fetch.add_argument("--provider", choices=Settings.PROVIDERS)
     fetch.add_argument("--timeout", type=int, help="Per provider HTTP request timeout; discovery and fallback can take longer overall")
     fetch.add_argument("--max-characters", type=int)
+    fetch.add_argument("--max-total-characters", type=int, default=100000)
+    fetch.add_argument("--capture-id", help="Read a saved capture without a new network request")
+    fetch.add_argument("--offset", type=int, default=0)
     fetch.add_argument("--raw", action="store_true", help="Return full provider envelopes instead of one selected text per URL")
     archival = fetch.add_mutually_exclusive_group()
     archival.add_argument("--archive", dest="archive", action="store_true", default=None)
@@ -274,10 +280,27 @@ def _parser():
     get.add_argument("--revision", type=int)
     lint = wiki_commands.add_parser("lint")
     lint.add_argument("--page-id")
+    work = wiki_commands.add_parser("work", help="Recover Wiki processing status and committed write receipts offline")
+    work.add_argument("--kind", choices=("capture", "research", "page"))
+    work.add_argument("--status", choices=("archived", "pending", "compiled", "needs_review"))
+    work.add_argument("--research-id")
+    work.add_argument("--page-id")
+    work.add_argument("--capture-id")
+    work.add_argument("--offset", type=int, default=0)
+    work.add_argument("--limit", type=int, default=20)
+    refresh = wiki_commands.add_parser("refresh", help="Capture cited webpages for review without rewriting the Wiki")
+    refresh.add_argument("page_id")
+    refresh.add_argument("--expected-revision", type=int)
+    refresh.add_argument("--provider", choices=Settings.PROVIDERS)
+    refresh.add_argument("--max-characters", type=int)
+    refresh.add_argument("--offset", type=int, default=0)
+    refresh.add_argument("--limit", type=int, default=8)
     for name in ("list", "search"):
         view = wiki_commands.add_parser(name)
         if name == "search":
             view.add_argument("query")
+        else:
+            view.add_argument("--source-url", help="Filter direct citations and linked dependents")
         view.add_argument("--offset", type=int, default=0)
         view.add_argument("--limit", type=int, default=20)
     evaluation = commands.add_parser("evaluate", help="Compute research metrics from explicit benchmark outputs and judgments")
@@ -396,7 +419,13 @@ def main(argv=None):
             elif args.wiki_command == "get":
                 result = store.get(args.page_id, args.revision)
             elif args.wiki_command == "list":
-                result = store.list(args.offset, args.limit)
+                result = store.list(args.offset, args.limit, args.source_url)
+            elif args.wiki_command == "work":
+                result = store.work(args.kind, args.status, args.research_id, args.page_id,
+                                    args.capture_id, args.offset, args.limit)
+            elif args.wiki_command == "refresh":
+                result = store.refresh(args.page_id, provider=args.provider, max_characters=args.max_characters,
+                                       expected_revision=args.expected_revision, offset=args.offset, limit=args.limit)
             elif args.wiki_command == "search":
                 result = store.search(args.query, args.offset, args.limit)
             else:
@@ -445,10 +474,22 @@ def main(argv=None):
             if args.command == "providers":
                 result = engine.probe(args.provider) if args.probe else engine.describe(args.provider)
             elif args.command == "fetch-web":
-                result = engine.fetch(args.urls, args.provider, archive=args.archive, max_characters=args.max_characters)
-                if not args.raw:
-                    from archive import SourceArchive
-                    result = SourceArchive.compact_fetch(result)
+                from archive import SourceArchive
+                if not 100 <= args.max_total_characters <= 800000:
+                    raise ValueError("max_total_characters must be between 100 and 800000")
+                if args.capture_id is not None:
+                    if args.raw or args.provider is not None or args.archive is not None or args.timeout is not None:
+                        raise ValueError("capture_id reads a saved extract; omit raw, provider, archive and timeout")
+                    result = SourceArchive(settings.load()["archive"]["directory"]).read_capture(
+                        args.capture_id, args.urls, max_characters=settings.load()["fetch"]["max_characters"]
+                            if args.max_characters is None else args.max_characters,
+                        max_total_characters=args.max_total_characters, offset=args.offset)
+                else:
+                    if args.offset:
+                        raise ValueError("offset requires capture_id so continued reads use the same saved evidence")
+                    result = engine.fetch(args.urls, args.provider, archive=args.archive, max_characters=args.max_characters)
+                    if not args.raw:
+                        result = SourceArchive.compact_fetch(result, max_total_characters=args.max_total_characters)
             else:
                 payload = _read_json(args.input) if args.input else {
                     "targets": [{"target": q, "query": q} for q in (args.target or [])],
@@ -490,9 +531,11 @@ def main(argv=None):
                                                   item_types=args.item_type or None, count_only=args.count_only,
                                                   compact=args.compact)
                         else:
+                            from context_output import page_context
                             result = index.context(args.source, section=args.section, group_id=args.group,
                                                    item_id=args.item)
-                        result["source"] = sources.status(args.source)["source"]
+                            result = page_context(result, args.collection, args.offset, args.limit)
+                        result["source"] = sources.source_status(args.source)
                     result["refresh"] = refresh
                     result["stored_snapshot_only"] = args.no_refresh
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -503,6 +546,8 @@ def main(argv=None):
         if args.command == "fetch-web" and result.get("status") == "error":
             return 1
         if args.command == "research" and result.get("status") == "error":
+            return 1
+        if args.command == "wiki" and args.wiki_command == "refresh" and result.get("status") == "error":
             return 1
         return 0
     except KeyboardInterrupt:

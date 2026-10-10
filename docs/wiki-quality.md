@@ -46,15 +46,21 @@ Cross-links have the form `{"page_id": "existing-page", "relation": "The host's 
 
 | Method | Result |
 | --- | --- |
-| `write(page_id, page, change_note, expected_revision=0)` | Revision metadata and absolute artifact paths |
+| `write(page_id, page, change_note, expected_revision=0)` | Revision metadata, absolute artifact paths and committed `work_receipt` |
 | `get(page_id, revision=None)` | Authored page, evidence snapshot, update record and current provenance validation |
-| `list(offset=0, limit=20)` | Paginated current page metadata |
+| `list(offset=0, limit=20, source_url=None)` | Paginated current page metadata; optionally direct citations and linked dependents of a URL |
+| `refresh(page_id, expected_revision=None, offset=0, limit=8)` | New captures and affected pages for review; leaves Wiki revisions unchanged |
+| `work(kind=None, status=None, research_id=None, page_id=None, capture_id=None, offset=0, limit=20)` | Recoverable work states, pending claims, current publication receipts and resume calls |
 | `lint(page_id=None)` | Source review, active-claim, citation, hash, link and history issues |
 | `search(query, offset=0, limit=10)` | Matching Wiki prose, revision dates and validation; stale pages excluded, `needs_review` warnings retained |
 
 Lint detects later rejection, withdrawal, source/claim changes and altered or missing artifacts. Historical text is preserved and identified as stale. Lint explicitly returns `semantic_support: "not_scored"`.
 
-Search checks titles, section headings and authored section text. It uses case-folded literal terms, including Chinese substrings, and simple occurrence ordering. Saving a provider extract alone does not make that extract searchable as organized Wiki knowledge. This is not embedding retrieval or semantic reranking; neither is selected without actual question-answering evaluation.
+`work` reconstructs `archived`, `pending`, `compiled` and `needs_review` from saved captures, research receipts and current committed revisions. It ignores uncommitted revision files and recovers a committed write after a lost response. A compiled capture has intact saved text cited by a current revision; the status does not mean every passage was synthesized or the origin is still current. Page work checks freshness separately. This is an explicit local audit, with no network fetch or automatic publication; ordinary answers need not enumerate all work.
+
+Search indexes titles, headings, authored text and optional `page.aliases` with Unicode character grams. It supports case-folded literal/spacing matching, explicit query aliases and simple occurrence ordering. Only matching candidates undergo evidence validation; `lint` remains the complete audit. A failed derived index falls back to revision scans and cannot undo a committed write.
+
+Integrity and freshness are distinct: new source extracts, expired/unknown capture dates, failed refreshes and linked-page changes require review. Direct webpage claims track their cited bookmarks and related canvas context; local-document and inference claims retain whole-input dependencies. Capture age defaults to 30 days via `wiki.max_source_age_days`. Identical new captures can renew age without altering history; changed text must be reviewed before `write`. Source observations cover the configured archive root and tasks in the same research root. `origin_current_verified:false` remains explicit because provider retrieval can be cached. There is no background webpage monitor, embedding retrieval or semantic reranker.
 
 New records use research-task-relative evidence paths. `get` resolves verified references at current research locations, including legacy records containing absolute paths, without rewriting immutable revisions. Identity, claim, quote and artifact hashes remain mandatory. Move the Wiki and cited research state/inventory/evidence together; preserve their relative layout for Markdown links and configure local research paths at the destination. Wiki Markdown alone is not a complete portable knowledge base.
 

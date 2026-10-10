@@ -498,8 +498,14 @@ class SourceManager:
         result = self.index.status(source_id)
         if source_id is None:
             result["source_schema_version"] = 1
-            result["sources"] = [self.status(row["source_id"]) for row in result["sources"]]
+            for row in result["sources"]:
+                row["source"] = self.source_status(row["source_id"])
             return result
+        result["source"] = self.source_status(source_id)
+        return result
+
+    def source_status(self, source_id):
+        """Read lifecycle state without recounting items or loading section bodies."""
         record = self._record(source_id)
         visible = {key: value for key, value in record.items() if key not in ("observed_hashes", "pending_fingerprint", "pending_since")}
         checked = record.get("checked_at")
@@ -510,8 +516,7 @@ class SourceManager:
         visible["snapshot_exists"] = bool(record.get("snapshot_path") and Path(record["snapshot_path"]).is_dir())
         visible["aliases"] = [row[0] for row in self.connection.execute(
             "SELECT input_path FROM source_aliases WHERE source_id=? ORDER BY input_path", (source_id,))]
-        result["source"] = visible
-        return result
+        return visible
 
     def history(self, source_id, limit=20, offset=0):
         record = self._record(source_id)

@@ -1,5 +1,7 @@
 # `bookmark-research` 命令与跨平台安装计划
 
+> 本文保留原始计划和阶段验收。当前统一采用 npm 分发；四宿主的最新安装检查和未完成范围见 [2026-10-11 升级核对](upgrade-status-2026-10-11.md)。
+
 日期：2026-09-24。目标：像 `claude`、`codex` 一样，在终端输入 `bookmark-research` 即可安装、配置、检查和更新插件；macOS、Linux、Windows 原生均可用。
 
 ## 决策
@@ -35,7 +37,7 @@ bookmark-research doctor          检查 Python 与 SQLite FTS5
 
 | 位置 | 问题 | 改法 |
 | --- | --- | --- |
-| `src/tui.py` | 用 `termios` 读按键 | Windows 用 `msvcrt.getwch()`，方向键前缀 `\xe0`/`\x00`；启用 VT 输��。无法读键时退回纯文本模式。 |
+| `src/tui.py` | 用 `termios` 读按键 | Windows 用 `msvcrt.getwch()`，方向键前缀 `\xe0`/`\x00`；启用 VT 输出。无法读键时退回纯文本模式。 |
 | `src/onboarding.py` | 从 `/dev/tty` 打开终端 | Windows 用 `CONIN$`/`CONOUT$`。 |
 | `scripts/host_install.py` | `fcntl` 安装锁 | Windows 用 `msvcrt.locking`（与 `src/settings.py` 相同做法）。 |
 | MCP 启动命令 | 写死 `python3` | 导出与安装时写入实际解析到的 Python（`python3` → `python` → `py -3`）；Codex 仓库清单保持 `python3`，Windows 上由安装器改写本地导出。 |

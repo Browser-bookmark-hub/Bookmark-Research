@@ -13,6 +13,8 @@ Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<roo
 | `fetch_web` / `search_web` | `fetch-web` / `search-web` |
 | `search_archive` | `search-archive` |
 | `research_start` / `research_fetch` | `research start` / `research fetch` |
+| `wiki_refresh` / `wiki_list` | `wiki refresh` / `wiki list --source-url URL` |
+| `wiki_work` | `wiki work --research-id ID` / `wiki work --kind page --status needs_review` |
 
 ```sh
 python3 <root>/src/cli.py doctor
@@ -32,7 +34,9 @@ python3 <root>/src/cli.py context my-canvas --item actual-bookmark-id
 
 Without `--item`, `context` returns section headers, canvas nodes and relationships; `items:[]` does not mean an empty section. Its counts cover sections, not an item's subtree. Find a folder with `search --item-type folder`, then use `search --folder <folder-id>`; add `--item-type folder --item-type bookmark` for both kinds, including empty folders. Paginate complete lists and distinguish synthetic roots. Item context adds ancestor metadata and layout when needed. A repeated `--section` label may select several cards; use a unique ID for one card.
 
-For shorter result pages, add `search --compact` (MCP: `compact:true`). `result_refs` and `targets[].result_refs` each select their own ordered page from `rows`; the row table includes target-only entries and does not define totals. `_compact.format` is `bookmark-search-v1`. Repeated aliases and raw fields equal to normalized values are removed; unknown/conflicting `raw_json` and `metadata` fields stay inline. Omit `--compact` (MCP: `compact:false`) for the original full-row format. `get_context` remains a full view.
+For shorter result pages, add `search --compact` (MCP: `compact:true`). `result_refs` and `targets[].result_refs` each select their own ordered page from `rows`; the row table includes target-only entries and does not define totals. `_compact.format` is `bookmark-search-v1`. Repeated aliases and raw fields equal to normalized values are removed; unknown/conflicting `raw_json` and `metadata` fields stay inline. Omit `--compact` (MCP: `compact:false`) for the original full-row format.
+
+Context defaults to 200 rows per collection. Use `context SOURCE --collection nodes --offset 200 --limit 200` with the same section/group/item scope to continue. The `pagination` object supplies separate totals and next offsets for sections, items, nodes, groups, edges, related_nodes and memberships. Counts and research inventories retain the complete scope.
 
 Database precedence: `--db` → `BOOKMARK_RESEARCH_DATA_DIR/index.sqlite3` → `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/index.sqlite3`. Point clients and CLI at the same path to share an index. Keep databases outside original synced packages and plugin code.
 
@@ -45,6 +49,8 @@ python3 <root>/src/cli.py providers --probe
 python3 <root>/src/cli.py search-web --target 'Example Company A official pricing' --target 'Example Company B official pricing' --limit 5
 python3 <root>/src/cli.py fetch-web https://example.com/company-a https://example.com/company-b
 python3 <root>/src/cli.py fetch-web https://example.com/company-a --no-archive --max-characters 30000
+python3 <root>/src/cli.py fetch-web https://example.com/company-a --max-total-characters 40000
+python3 <root>/src/cli.py fetch-web https://example.com/company-a --capture-id <returned-capture-id> --offset 12000
 python3 <root>/src/cli.py search-archive 'exact phrase or terms' --url example.com --limit 10
 python3 <root>/src/cli.py config show
 python3 <root>/src/cli.py config set --search-provider exa --archive true
@@ -146,6 +152,10 @@ python3 <root>/src/cli.py wiki write <page-id> --input /path/to/page-and-change-
 python3 <root>/src/cli.py wiki get <page-id>
 python3 <root>/src/cli.py wiki get <page-id> --revision 1
 python3 <root>/src/cli.py wiki list --offset 0 --limit 20
+python3 <root>/src/cli.py wiki list --source-url https://example.com/company-a --limit 20
+python3 <root>/src/cli.py wiki refresh <page-id> --expected-revision 1 --limit 8
+python3 <root>/src/cli.py wiki work --research-id <research-id>
+python3 <root>/src/cli.py wiki work --kind page --status needs_review --limit 20
 python3 <root>/src/cli.py wiki search 'research execution' --limit 10
 python3 <root>/src/cli.py wiki lint
 python3 <root>/src/cli.py evaluate --input /path/to/suite-runs-judgments.json

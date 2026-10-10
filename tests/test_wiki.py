@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -35,7 +36,7 @@ class WikiTests(unittest.TestCase):
     @staticmethod
     def fetched(urls, provider, archive, max_characters):
         return {"provider": provider, "urls": urls, "tool": "synthetic_fixture", "request_arguments": {"urls": urls},
-                "retrieved_at": "2026-09-11T00:00:00Z", "requested_max_characters": max_characters,
+                "retrieved_at": datetime.now(timezone.utc).isoformat(), "requested_max_characters": max_characters,
                 "usage": {"tool_calls": 1}, "result": {"structuredContent": {"results": [
                     {"url": url, "text": "Aurora supports reusable sessions.\nArchive-only token: UnorganizedNebula."}
                     for url in urls]}}}

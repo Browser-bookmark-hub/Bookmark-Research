@@ -83,7 +83,7 @@ class McpServerTests(unittest.TestCase):
             "research_service_prepare", "research_service_start", "research_service_status",
             "research_service_result", "research_service_cancel", "research_service_attach",
             "research_service_import", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
-            "wiki_lint", "wiki_acknowledge", "evaluate_research"})
+            "wiki_lint", "wiki_acknowledge", "wiki_refresh", "wiki_work", "evaluate_research"})
         self.assertTrue(all(tool["inputSchema"]["additionalProperties"] is False for tool in listing))
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server._providers)
@@ -166,6 +166,19 @@ class McpServerTests(unittest.TestCase):
         context = decode_tool(self.call("get_context", {
             "source_id": "fixture", "item_id": "temp-one", "refresh": False}))
         self.assertIn("raw_json", context["items"][0])
+
+    def test_local_queries_return_source_state_without_full_index_statistics(self):
+        self.ready()
+        self.sync()
+        self.server._source_watcher.close()
+        expected = decode_tool(self.call("index_status", {"source_id": "fixture"}))["source"]
+        with mock.patch.object(self.server._local(), "status", side_effect=AssertionError(
+                "Local queries must not repeat full index statistics")):
+            for name in ("search_bookmarks", "get_context"):
+                with self.subTest(tool=name):
+                    response = self.call(name, {"source_id": "fixture", "refresh": False})
+                    self.assertFalse(response["result"]["isError"], response)
+                    self.assertEqual(decode_tool(response)["source"], expected)
 
     def test_unknown_tools_methods_and_invalid_arguments_never_execute(self):
         self.ready()

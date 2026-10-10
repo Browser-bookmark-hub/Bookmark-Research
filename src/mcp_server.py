@@ -1,4 +1,4 @@
-"""Minimal, synchronous stdio MCP tools server; no third-party SDK required.
+"""Stdio MCP tools server with bounded network workers; no third-party SDK required.
 
 Each stdin/stdout message is one JSON-RPC object on one line. This server
 implements initialization, ping, tools/list and tools/call, not resources,
@@ -8,6 +8,7 @@ prompts, sampling, tasks, HTTP transports or arbitrary SQL/command execution.
 import json
 import math
 import sys
+import threading
 from pathlib import Path
 
 from release import release_version
@@ -17,6 +18,8 @@ from settings import Settings
 PROTOCOLS = ("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
 MAX_MESSAGE_CHARS = 256 * 1024
 MAX_RESULT_CHARS = 2 * 1024 * 1024
+NETWORK_WORKERS = 4
+MAX_PENDING_CALLS = 16
 PROVIDER_NAMES = Settings.PROVIDERS
 
 
@@ -53,6 +56,7 @@ SETTINGS_SCHEMA = _object_schema({
             "max_tool_calls": {"type": "integer", "minimum": 1, "maximum": 1000}}),
         "parallel": _object_schema({"processor": _text_schema(64)})}),
     "wiki": _object_schema({"directory": _text_schema(4096),
+        "max_source_age_days": {"type": "integer", "minimum": 1, "maximum": 3650},
         "after_research": {"type": "string", "enum": ["suggest", "auto", "off"]}}),
     "output": _object_schema({"mode": {"type": "string", "enum": ["central", "beside_input"]},
         "directory": _text_schema(4096)}),
@@ -96,6 +100,9 @@ TOOL_SCHEMAS = {
     "get_context": _object_schema({
         "source_id": IDENTIFIER, "section": IDENTIFIER, "group_id": IDENTIFIER,
         "item_id": IDENTIFIER, "refresh": {"type": "boolean", "default": True},
+        "collection": {"type": "string", "enum": ["sections", "items", "nodes", "groups", "edges", "related_nodes", "memberships"]},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 1000000000, "default": 0},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
     }, ["source_id"]),
     "index_status": _object_schema({"source_id": IDENTIFIER}),
     "search_web": _object_schema({
@@ -108,6 +115,11 @@ TOOL_SCHEMAS = {
         "provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
         "archive": {"type": "boolean"},
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
+        "max_total_characters": {"type": "integer", "minimum": 100, "maximum": 800000,
+                                 "description": "Total text budget across selected pages; defaults to 100000."},
+        "capture_id": _text_schema(128),
+        "offset": {"type": "integer", "minimum": 0, "maximum": 100000000,
+                   "description": "Continue an archived page using its capture_id; no new network request."},
         "raw": {"type": "boolean", "default": False,
                 "description": "Return full provider envelopes instead of one selected text per URL. Archives always retain actual responses when enabled."},
     }, ["urls"]),
@@ -135,10 +147,10 @@ TOOL_DESCRIPTIONS = {
     "source_remove": "Preview deletion of an imported source, index rows and managed snapshots; confirm=true performs it. Frozen research inventories remain, but item resolution stops and citing Wiki pages need review. For identical duplicates, prefer source_merge.",
     "source_merge": "Preview merging an identical source into into_source_id; confirm=true transfers path aliases and drops the duplicate. Synchronized content versions must match; synchronize legacy sources first.",
     "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
-    "get_context": "Read section headers, bookmark metadata, folder ancestry, geometric groups and directed edges. Copy anchors share their primary tree. Live inputs refresh by default.",
+    "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default.",
     "index_status": "Read source modes, snapshots, counts, input availability, pending changes and monitor errors. No refresh or web fetch; unchecked means a live directory needs a recent check.",
     "search_web": "Discover sources for public queries with saved primary providers concurrently, then fallbacks for unresolved queries. Explicit providers restrict the call. Results are discovery snippets; pages are not fetched.",
-    "fetch_web": "Read known URLs directly; pages holds selected text, attempt status and archive paths. Omit provider for saved fallback order; specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing.",
+    "fetch_web": "Read known URLs directly with per-page and total text budgets. Continue saved text using capture_id and offset without refetching. Omit provider for saved fallback order; specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing.",
     "search_providers": "Describe retrieval capabilities and per-operation auth. probe=true checks MCP catalogs, not successful retrieval. Jina Reader allows anonymous access; Jina Search needs a key. Configure credentials through CLI setup, never chat.",
     "search_archive": "Search saved page text across local archives and research tasks using literal terms. No network. Identical bodies are merged by hash; occurrences have their own pagination. Hash-mismatched bodies are skipped and counted; the index refreshes incrementally.",
 }
@@ -258,6 +270,7 @@ SERVICE_INPUT = {"research_id": RESEARCH_ID, "input": _text_schema(50000), "prov
     "options": SERVICE_OPTIONS}
 WIKI_PAGE = _object_schema({
     "title": _text_schema(300), "kind": {"type": "string", "enum": ["topic", "entity"]},
+    "aliases": _array_schema(_text_schema(100), 30),
     "sections": _array_schema(_object_schema({"heading": _text_schema(300), "text": _text_schema(12000),
         "claims": _array_schema(_object_schema({"research_id": RESEARCH_ID, "claim_id": RESEARCH_ID},
             ["research_id", "claim_id"]), 12, 1)}, ["heading", "text", "claims"]), 16, 1),
@@ -299,8 +312,20 @@ TOOL_SCHEMAS.update({
         ["page_id", "note"]),
     "wiki_get": _object_schema({"page_id": RESEARCH_ID, "revision": {"type": "integer", "minimum": 1, "maximum": 1000000}}, ["page_id"]),
     "wiki_list": _object_schema({"offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "source_url": _text_schema(8192)}),
+    "wiki_work": _object_schema({
+        "kind": {"type": "string", "enum": ["capture", "research", "page"]},
+        "status": {"type": "string", "enum": ["archived", "pending", "compiled", "needs_review"]},
+        "research_id": RESEARCH_ID, "page_id": RESEARCH_ID, "capture_id": _text_schema(128),
+        "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}}),
-    "wiki_search": _object_schema({"query": _text_schema(2000), "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
+    "wiki_refresh": _object_schema({"page_id": RESEARCH_ID,
+        "expected_revision": {"type": "integer", "minimum": 1, "maximum": 10001},
+        "provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
+        "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 8}}, ["page_id"]),
+    "wiki_search": _object_schema({"query": _text_schema(500), "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["query"]),
     "wiki_lint": _object_schema({"page_id": RESEARCH_ID}),
     "evaluate_research": _object_schema({"suite": OPEN_OBJECT, "runs": _array_schema(OPEN_OBJECT, 1000, 1),
@@ -318,10 +343,12 @@ TOOL_DESCRIPTIONS.update({
     "research_service_import": "Import a completed provider report as unreviewed secondary evidence. Original-URL coverage stays unchanged; read cited originals separately.",
     "wiki_write": "Write a topic/entity page backed by reviewed active claims, with an immutable revision. Updates need expected_revision. reviewed_input_version acknowledges review against that synced input version. Name the actual semantic reviewer. Stores outside source packages.",
     "wiki_acknowledge": "Write an unchanged Wiki revision acknowledging review against current input versions. expected_revision prevents overwrites; note records the review. Repair invalid evidence/links first; unavailable input still needs review. No network or semantic scoring.",
-    "wiki_get": "Read current or historical Wiki text with resolved evidence links. needs_review flags changed/unavailable bookmark input; it neither revises the page nor fetches current web content.",
-    "wiki_list": "List paginated Wiki pages and revision metadata offline.",
-    "wiki_search": "Find saved Wiki text with literal terms and pagination. Returns revision dates and validation; needs_review flags changed input. Invalid/retracted evidence is excluded. Use for prior knowledge missing from context.",
-    "wiki_lint": "Check Wiki hashes, active claims, source reviews and crosslinks. Mechanical integrity and declared semantic review are reported separately.",
+    "wiki_get": "Read Wiki text with evidence links and separate integrity/freshness checks. Newer snapshots, expired/failed captures and relevant bookmark or linked-page changes need review. Current does not guarantee the live origin is unchanged; no fetch occurs.",
+    "wiki_list": "List paginated Wiki pages offline. source_url filters direct citations and linked dependents for reviewing a changed webpage.",
+    "wiki_work": "Recover archived, pending, compiled and needs_review work from saved captures, research and committed Wiki revisions. Returns pending claims, page/revision receipts and resume calls. Prefer an ID or kind to scope the audit. Read-only; no fetching, automatic writing or new authorization.",
+    "wiki_refresh": "Fetch and archive up to 8 cited webpage URLs from one Wiki revision. Reports changed/unchanged/unverified captures and affected pages; follow continuation for more. Uses retrieval quota. Read saved captures and review new claims before wiki_write; authored text and bookmark packages stay unchanged.",
+    "wiki_search": "Find authored Wiki text using an incremental character index, literal/spacing matching and explicit aliases. Validates matching candidates; invalid/retracted evidence is excluded. Freshness warnings remain visible. No embeddings or network calls.",
+    "wiki_lint": "Audit all selected Wiki evidence, hashes, source freshness, crosslinks and history. Mechanical integrity and declared semantic review are reported separately; no network.",
     "evaluate_research": "Compute metrics from supplied benchmark runs, rubric and reviewer labels: coverage, answer F1, citation labels, report scores and measured cost/latency/variance. Missing judgments stay unknown. Runs no models or providers.",
 })
 
@@ -407,6 +434,9 @@ class StdioMcpServer:
         self._research_services = None
         self._wiki_store = None
         self._raw_library = None
+        self._initialization_lock = threading.RLock()
+        self._log_lock = threading.Lock()
+        self._cancel_pending = None
         self.settings = settings if settings is not None else Settings()
 
     def close(self):
@@ -436,37 +466,42 @@ class StdioMcpServer:
             self._source_watcher = SourceWatcher(self.db_path).start()
 
     def _web(self):
-        if self._providers is None:
-            from web_search import SearchProviders
-            self._providers = SearchProviders(settings=self.settings)
-        return self._providers
+        with self._initialization_lock:
+            if self._providers is None:
+                from web_search import SearchProviders
+                self._providers = SearchProviders(settings=self.settings)
+            return self._providers
 
     def _research(self):
-        if self._research_sessions is None:
-            from research import ResearchSessions
-            self._research_sessions = ResearchSessions(settings=self.settings, engine=self._web(), db_path=self.db_path)
-        return self._research_sessions
+        with self._initialization_lock:
+            if self._research_sessions is None:
+                from research import ResearchSessions
+                self._research_sessions = ResearchSessions(settings=self.settings, engine=self._web(), db_path=self.db_path)
+            return self._research_sessions
 
     def _log(self, message):
-        self.stderr.write("bookmark-research MCP: " + message + "\n")
-        self.stderr.flush()
+        with self._log_lock:
+            self.stderr.write("bookmark-research MCP: " + message + "\n")
+            self.stderr.flush()
 
     def _services(self):
-        if self._research_services is None:
-            from research_services import ResearchServices
-            self._research_services = ResearchServices(settings=self.settings, research_sessions=self._research())
-        return self._research_services
+        with self._initialization_lock:
+            if self._research_services is None:
+                from research_services import ResearchServices
+                self._research_services = ResearchServices(settings=self.settings, research_sessions=self._research())
+            return self._research_services
 
     def _wiki(self):
         from wiki import WikiStore
         # Settings can change under a long-lived stdio server, so a cached store
         # is rebound whenever the effective Wiki directory differs.
-        selected = WikiStore.selected_directory(self.settings)
-        if self._wiki_store is None or self._wiki_store.directory != Settings.external_path(
-                str(selected), "Wiki directory"):
-            self._wiki_store = WikiStore(directory=selected, settings=self.settings,
-                                         research_sessions=self._research())
-        return self._wiki_store
+        with self._initialization_lock:
+            selected = WikiStore.selected_directory(self.settings)
+            if self._wiki_store is None or self._wiki_store.directory != Settings.external_path(
+                    str(selected), "Wiki directory"):
+                self._wiki_store = WikiStore(directory=selected, settings=self.settings,
+                                             research_sessions=self._research())
+            return self._wiki_store
 
     def _raw(self):
         # Rebuilt per call so archive/output setting changes apply without restart.
@@ -490,7 +525,7 @@ class StdioMcpServer:
         if name in service_methods:
             return getattr(self._services(), service_methods[name])(**arguments)
         wiki_methods = {"wiki_write": "write", "wiki_get": "get", "wiki_list": "list", "wiki_search": "search",
-                        "wiki_lint": "lint", "wiki_acknowledge": "acknowledge"}
+                        "wiki_lint": "lint", "wiki_acknowledge": "acknowledge", "wiki_refresh": "refresh", "wiki_work": "work"}
         if name in wiki_methods:
             return getattr(self._wiki(), wiki_methods[name])(**arguments)
         if name == "research_route":
@@ -519,6 +554,8 @@ class StdioMcpServer:
         if name in ("search_bookmarks", "get_context"):
             options = dict(arguments)
             refresh = options.pop("refresh", True)
+            pagination = {key: options.pop(key, default) for key, default in (
+                ("collection", None), ("offset", 0), ("limit", 200))} if name == "get_context" else None
             index = self._local()
             update = self._sources().refresh(options["source_id"]) if refresh else None
             if update and update["state"] in ("error", "unavailable"):
@@ -526,7 +563,10 @@ class StdioMcpServer:
             method = index.search if name == "search_bookmarks" else index.context
             with index.read_snapshot():
                 result = method(**options)
-                result["source"] = self._sources().status(options["source_id"])["source"]
+                if pagination is not None:
+                    from context_output import page_context
+                    result = page_context(result, **pagination)
+                result["source"] = self._sources().source_status(options["source_id"])
             result["refresh"] = {"performed": bool(refresh and result["source"]["mode"] == "live"),
                 "index_updated": bool(update and update.get("performed")),
                 "requested": refresh, "mode": "checked_package" if refresh and result["source"]["mode"] == "live" else "saved_snapshot", "sync": update}
@@ -541,8 +581,20 @@ class StdioMcpServer:
             from archive import SourceArchive
             options = dict(arguments)
             raw = options.pop("raw", False)
+            capture_id = options.pop("capture_id", None)
+            offset = options.pop("offset", 0)
+            total = options.pop("max_total_characters", 100000)
+            if capture_id is not None:
+                if raw or "provider" in options or "archive" in options:
+                    raise ValueError("capture_id reads a saved extract; omit raw, provider and archive")
+                return SourceArchive(self.settings.load()["archive"]["directory"]).read_capture(
+                    capture_id, options["urls"],
+                    max_characters=options.get("max_characters", self.settings.load()["fetch"]["max_characters"]),
+                    max_total_characters=total, offset=offset)
+            if offset:
+                raise ValueError("offset requires capture_id so continued reads use the same saved evidence")
             result = self._web().fetch(**options)
-            return result if raw else SourceArchive.compact_fetch(result)
+            return result if raw else SourceArchive.compact_fetch(result, max_total_characters=total)
         if name == "search_archive":
             return self._raw().search(**arguments)
         if name == "search_providers":
@@ -560,6 +612,30 @@ class StdioMcpServer:
         if self.protocol in ("2025-06-18", "2025-11-25"):
             result["structuredContent"] = value if isinstance(value, dict) else {"data": value}
         return result
+
+    def background_call(self, message):
+        """Only tools without the transport thread's SQLite handle can run here."""
+        if (not self.ready or message.get("jsonrpc") != "2.0" or message.get("method") != "tools/call"
+                or set(message) - {"jsonrpc", "id", "method", "params"}):
+            return False
+        try:
+            params = _params(message.get("params", {}), ("name", "arguments"), ("name",))
+            name, arguments = params["name"], params.get("arguments", {})
+            _validate(_text_schema(128), name, "name")
+            if name not in TOOL_SCHEMAS:
+                return False
+            _validate(TOOL_SCHEMAS[name], arguments)
+        except RpcError:
+            return False
+        if name == "fetch_web":
+            return "capture_id" not in arguments
+        if name == "search_providers":
+            return arguments.get("probe", False)
+        if name == "research_readiness":
+            return not arguments.get("offline", False)
+        return name in {"search_web", "research_search", "research_fetch", "wiki_refresh",
+                        "research_service_start", "research_service_status", "research_service_result",
+                        "research_service_cancel", "research_service_attach", "research_service_import"}
 
     def handle(self, message):
         """Return a response object, or None for a valid notification."""
@@ -581,6 +657,13 @@ class StdioMcpServer:
                         raise RpcError(-32600, "Initialize before notifications/initialized")
                     self.ready = True
                     self._start_watcher()
+                elif method == "notifications/cancelled":
+                    _params(params, ("requestId", "reason"), ("requestId",))
+                    _validate({"type": ["integer", "string"]}, params["requestId"], "requestId")
+                    if "reason" in params:
+                        _validate(_text_schema(1000), params["reason"], "reason")
+                    if self._cancel_pending is not None:
+                        self._cancel_pending(params["requestId"])
                 elif method in ("initialize", "tools/call", "tools/list", "ping"):
                     # These are request methods. Never execute a tool sent as
                     # a notification: it has no response/error channel.
@@ -627,7 +710,7 @@ class StdioMcpServer:
                 _validate(TOOL_SCHEMAS[name], arguments)
                 try:
                     value = self._call(name, arguments)
-                    failed = ((name in ("fetch_web", "research_search", "research_fetch") and value.get("status") == "error")
+                    failed = ((name in ("fetch_web", "research_search", "research_fetch", "wiki_refresh") and value.get("status") == "error")
                               or (name == "search_web" and value.get("successful_provider_count") == 0))
                     result = self._tool_result(value, is_error=failed)
                 except Exception as exc:
@@ -666,30 +749,32 @@ def serve(db_path, stdin=None, stdout=None, stderr=None, settings=None):
         outgoing.write(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n")
         outgoing.flush()
 
+    from mcp_dispatch import StdioRequestQueue
+    queue = StdioRequestQueue(server, emit, workers=NETWORK_WORKERS, max_pending=MAX_PENDING_CALLS)
+    server._cancel_pending = queue.cancel
+    interrupted = False
     try:
         while True:
             line = incoming.readline(MAX_MESSAGE_CHARS + 1)
             if not line:
                 break
             if len(line) > MAX_MESSAGE_CHARS:
-                emit(_error(None, -32700, "JSON-RPC message exceeds size limit; connection closed"))
+                queue.emit(_error(None, -32700, "JSON-RPC message exceeds size limit; connection closed"))
+                interrupted = True
                 break
             if not line.strip():
                 continue
             try:
                 request = json.loads(line, object_pairs_hook=_unique_object, parse_constant=_nonfinite)
             except (ValueError, RecursionError):
-                emit(_error(None, -32700, "Parse error: invalid JSON"))
+                queue.emit(_error(None, -32700, "Parse error: invalid JSON"))
                 continue
-            try:
-                response = server.handle(request)
-            except Exception as exc:
-                server._log("Request handler failed (%s)" % type(exc).__name__)
-                request_id = request.get("id") if isinstance(request, dict) else None
-                response = _error(request_id, -32603, "Internal server error")
-            if response is not None:
-                emit(response)
+            queue.submit(request)
+            if queue.output_closed:
+                interrupted = True
+                break
     except (BrokenPipeError, KeyboardInterrupt):
-        pass
+        interrupted = True
     finally:
+        queue.close(cancel_pending=interrupted)
         server.close()

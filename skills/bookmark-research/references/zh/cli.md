@@ -13,6 +13,8 @@
 | `fetch_web`／`search_web` | `fetch-web`／`search-web` |
 | `search_archive` | `search-archive` |
 | `research_start`／`research_fetch` | `research start`／`research fetch` |
+| `wiki_refresh`／`wiki_list` | `wiki refresh`／`wiki list --source-url URL` |
+| `wiki_work` | `wiki work --research-id ID`／`wiki work --kind page --status needs_review` |
 
 ```sh
 python3 <root>/src/cli.py doctor
@@ -32,7 +34,9 @@ python3 <root>/src/cli.py context my-canvas --item actual-bookmark-id
 
 `context` 不传 `--item` 时返回栏目头、画布节点和关系；`items:[]` 不代表空栏目，counts 是栏目总数而非条目子树计数。用 `search --item-type folder` 找文件夹，再用 `search --folder <文件夹ID>`；加 `--item-type folder --item-type bookmark` 可返回两种条目，包括空文件夹。完整列表需分页，并区分合成根容器。需要祖先元数据或布局时才用条目 context。`--section` 的重复 label 可能选择多张卡片，单张卡片应传唯一 ID。
 
-需要较短的结果页时加 `search --compact`（MCP：`compact:true`）。`result_refs` 和 `targets[].result_refs` 分别从 `rows` 选择有序页面；行表还含各 target 独有的行，不能据此计算总数。`_compact.format` 为 `bookmark-search-v1`。重复别名和与标准值相等的原始字段被省略，未知／冲突的 `raw_json`、`metadata` 字段留在行内。省略 `--compact`（MCP：`compact:false`）返回原有完整行格式；`get_context` 仍返回完整视图。
+需要较短的结果页时加 `search --compact`（MCP：`compact:true`）。`result_refs` 和 `targets[].result_refs` 分别从 `rows` 选择有序页面；行表还含各 target 独有的行，不能据此计算总数。`_compact.format` 为 `bookmark-search-v1`。重复别名和与标准值相等的原始字段被省略，未知／冲突的 `raw_json`、`metadata` 字段留在行内。省略 `--compact`（MCP：`compact:false`）返回原有完整行格式。
+
+context 默认每个集合返回 200 行。用 `context 来源ID --collection nodes --offset 200 --limit 200` 继续，并保持相同 section／group／item 范围。`pagination` 分别给出 sections、items、nodes、groups、edges、related_nodes、memberships 的总数和 next_offset；统计与研究清单仍覆盖完整范围。
 
 数据库优先级：`--db` → `BOOKMARK_RESEARCH_DATA_DIR/index.sqlite3` → `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/index.sqlite3`。CLI 与各客户端设相同路径即可共用一个索引。数据库不能放在原始同步包或插件代码目录内。
 
@@ -45,6 +49,8 @@ python3 <root>/src/cli.py providers --probe
 python3 <root>/src/cli.py search-web --target '示例公司甲 官方价格' --target '示例公司乙 官方价格' --limit 5
 python3 <root>/src/cli.py fetch-web https://example.com/company-a https://example.com/company-b
 python3 <root>/src/cli.py fetch-web https://example.com/company-a --no-archive --max-characters 30000
+python3 <root>/src/cli.py fetch-web https://example.com/company-a --max-total-characters 40000
+python3 <root>/src/cli.py fetch-web https://example.com/company-a --capture-id <返回的capture-id> --offset 12000
 python3 <root>/src/cli.py search-archive '精确短语或词' --url example.com --limit 10
 python3 <root>/src/cli.py config show
 python3 <root>/src/cli.py config set --search-provider exa --archive true
@@ -146,6 +152,10 @@ python3 <root>/src/cli.py wiki write <page-id> --input /path/to/page-and-change-
 python3 <root>/src/cli.py wiki get <page-id>
 python3 <root>/src/cli.py wiki get <page-id> --revision 1
 python3 <root>/src/cli.py wiki list --offset 0 --limit 20
+python3 <root>/src/cli.py wiki list --source-url https://example.com/company-a --limit 20
+python3 <root>/src/cli.py wiki refresh <page-id> --expected-revision 1 --limit 8
+python3 <root>/src/cli.py wiki work --research-id <research-id>
+python3 <root>/src/cli.py wiki work --kind page --status needs_review --limit 20
 python3 <root>/src/cli.py wiki search '研究执行' --limit 10
 python3 <root>/src/cli.py wiki lint
 python3 <root>/src/cli.py evaluate --input /path/to/suite-runs-judgments.json

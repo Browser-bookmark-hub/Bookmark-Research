@@ -12,12 +12,16 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 import uuid
 from contextlib import ExitStack, contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from research import ResearchSessions
 from settings import Settings
+from wiki_search import WikiSearchIndex
+from source_versions import SourceVersions
 
 
 class WikiStore:
@@ -92,9 +96,15 @@ class WikiStore:
         return value
 
     def _page(self, page):
-        if not isinstance(page, dict) or set(page) != {"title", "kind", "sections", "links", "review"}:
-            raise ValueError("page needs title, kind, sections, links and review only")
+        required = {"title", "kind", "sections", "links", "review"}
+        if not isinstance(page, dict) or not required <= set(page) or set(page) - required - {"aliases"}:
+            raise ValueError("page needs title, kind, sections, links and review; aliases is optional")
         value = copy.deepcopy(page)
+        if "aliases" in value:
+            if not isinstance(value["aliases"], list) or len(value["aliases"]) > 30:
+                raise ValueError("Wiki aliases must contain at most 30 names")
+            value["aliases"] = list(dict.fromkeys(self._text(alias, "Wiki alias", 100, single_line=True)
+                                                for alias in value["aliases"]))
         value["title"] = self._text(value["title"], "Wiki title", 300, single_line=True)
         if value["kind"] not in ("topic", "entity"):
             raise ValueError("Wiki kind must be topic or entity")
@@ -202,9 +212,21 @@ class WikiStore:
         for research_id in sorted({saved["research_id"] for saved in record["evidence"]}):
             if research_id not in cache:
                 continue
-            key = ("source_freshness", research_id)
+            evidence = [saved for saved in record["evidence"] if saved["research_id"] == research_id]
+            citations = [citation for saved in evidence for citation in saved["citations"]]
+            # Inferences and local/aggregate evidence retain the complete scope.
+            # Direct webpage claims can use their explicit bookmark dependencies.
+            scoped = not any(saved.get("inference") for saved in evidence) and all(
+                citation.get("bookmark_refs") and
+                (citation.get("provenance") or {}).get("kind") not in ("local_document", "external_report")
+                for citation in citations)
+            refs = [ref for citation in citations for ref in citation.get("bookmark_refs", [])] if scoped else None
+            ref_key = tuple(sorted({tuple(ref[name] for name in ("source_id", "section_id", "item_id"))
+                                    for ref in refs})) if refs else None
+            key = ("source_freshness", research_id, ref_key)
             if key not in cache:
-                cache[key] = self.research.source_freshness(state=cache[research_id][1])
+                cache[key] = self.research.source_freshness(state=cache[research_id][1], bookmark_refs=refs,
+                                                          snapshot_cache=cache)
             freshness = cache[key]
             if freshness.get("state") == "unknown":
                 issues.append({"severity": "warning", "code": "source_input_unavailable", "research_id": research_id,
@@ -233,8 +255,85 @@ class WikiStore:
             elif latest["revision"] != link["revision"]:
                 issues.append({"severity": "warning", "code": "link_has_newer_revision", "target_page_id": link["page_id"],
                                "linked_revision": link["revision"], "current_revision": latest["revision"]})
+            else:
+                key = ("linked_validation", link["page_id"], latest["revision"])
+                if key not in cache:
+                    cache[key] = None  # Break cycles in legacy/manual records.
+                    try:
+                        target = self._revision(latest)
+                        cache[key] = self._validation(self._issues(target, index, cache))
+                    except (OSError, ValueError, KeyError, TypeError):
+                        cache[key] = {"status": "stale"}
+                if cache[key] and cache[key]["status"] != "current":
+                    issues.append({"severity": "warning", "code": "linked_page_needs_review",
+                                   "target_page_id": link["page_id"], "target_status": cache[key]["status"]})
             if not self._path(link["markdown_file"]).is_file():
                 issues.append({"severity": "error", "code": "missing_link_artifact", "target_page_id": link["page_id"]})
+        issues.extend(self._web_issues(record, cache))
+        return issues
+
+    def _web_issues(self, record, cache):
+        issues = []
+        settings = self.settings.load()
+        age_limit = settings["wiki"]["max_source_age_days"]
+        now = datetime.now(timezone.utc)
+        stores = [self.research._source_versions(),
+                  SourceVersions(Path(settings["archive"]["directory"]) / "source-versions.sqlite3")]
+        stores = list({str(store.path): store for store in stores}.values())
+        seen = set()
+        for evidence in record["evidence"]:
+            research_id = evidence["research_id"]
+            state = cache.get(research_id, (None, {}))[1]
+            if state.get("source_version_tracking", {}).get("status") == "unavailable":
+                issues.append({"severity": "warning", "code": "source_version_index_unavailable",
+                               "research_id": research_id})
+            for citation in evidence["citations"]:
+                if (citation.get("provenance") or {}).get("kind") == "local_document":
+                    continue
+                identity = (research_id, citation["source_id"])
+                if identity in seen:
+                    continue
+                seen.add(identity)
+                stamp = SourceVersions.timestamp(citation.get("retrieved_at"))
+                detail = {"url": citation["url"], "research_id": research_id, "source_id": citation["source_id"]}
+                observations = []
+                for store in stores if (citation.get("provenance") or {}).get("kind") != "external_report" else []:
+                    key = ("web_version", str(store.path), identity, citation["source_sha256"], record["updated_at"])
+                    try:
+                        if key not in cache:
+                            cache[key] = store.inspect(citation["url"], citation["source_sha256"],
+                                citation.get("retrieved_at"), record["updated_at"], research_id, citation["source_id"])
+                        observation = cache[key]
+                    except (OSError, ValueError, sqlite3.Error):
+                        issues.append({**detail, "severity": "warning", "code": "source_version_index_unavailable"})
+                        continue
+                    observations.append(observation)
+                def observed_order(observation):
+                    latest = observation["latest"]
+                    earliest = datetime.min.replace(tzinfo=timezone.utc)
+                    return (SourceVersions.timestamp(latest.get("acquired_at")) or
+                            SourceVersions.timestamp(latest["observed_at"]) or earliest,
+                            SourceVersions.timestamp(latest["observed_at"]) or earliest, latest["seq"])
+                latest = max((row for row in observations if row.get("latest")), key=observed_order, default=None)
+                if latest and latest["newer"]:
+                    issues.append({**detail, "severity": "warning", "code": "newer_source_snapshot",
+                                   "new_source": latest["newer"],
+                                   "message": "Newer extracted content is available. Review the affected claims before revising this page."})
+                if latest and latest["latest"]["sha256"] == citation["source_sha256"]:
+                    same_capture = SourceVersions.timestamp(latest["latest"].get("acquired_at"))
+                    if same_capture and (same_capture - now).total_seconds() <= 300:
+                        stamp = max(stamp, same_capture) if stamp else same_capture
+                if stamp is None or (stamp - now).total_seconds() > 300:
+                    issues.append({**detail, "severity": "warning", "code": "source_capture_time_unknown"})
+                elif (now - stamp).total_seconds() > age_limit * 86400:
+                    issues.append({**detail, "severity": "warning", "code": "source_capture_expired",
+                                   "last_matching_capture_at": stamp.isoformat(), "max_age_days": age_limit})
+                attempt = max((row["last_attempt"] for row in observations if row["last_attempt"]),
+                              key=lambda row: row["attempted_at"], default=None)
+                if attempt and attempt["status"] != "ok" and (
+                        stamp is None or SourceVersions.timestamp(attempt["attempted_at"]) >= stamp):
+                    issues.append({**detail, "severity": "warning", "code": "source_refresh_failed",
+                                   "last_attempt": attempt})
         return issues
 
     @contextmanager
@@ -346,17 +445,41 @@ class WikiStore:
             markdown = self._markdown(record, self._path(stem + ".md"))
             pointer = {"revision": revision, "record_file": stem + ".json", "sha256": hashlib.sha256(raw).hexdigest(),
                        "markdown_file": stem + ".md", "markdown_sha256": hashlib.sha256(markdown.encode()).hexdigest(),
-                       "title": page["title"], "kind": page["kind"], "updated_at": stamp}
+                       "title": page["title"], "kind": page["kind"], "updated_at": stamp,
+                       "summary": self._line(page["sections"][0]["text"], 120), "claim_count": len(evidence)}
             ResearchSessions._write(self._path(pointer["record_file"]), raw.decode("utf-8"))
             ResearchSessions._write(self._path(pointer["markdown_file"]), markdown)
             index["pages"][page_id] = pointer
+            # Backfill legacy catalog summaries once; future writes need no
+            # unrelated revision/evidence reads to render the human catalog.
+            for other in index["pages"].values():
+                if "summary" not in other:
+                    try:
+                        old = self._revision(other)
+                        other.update(summary=self._line(old["page"]["sections"][0]["text"], 120),
+                                     claim_count=len(old["evidence"]))
+                    except (OSError, ValueError, KeyError, TypeError, IndexError):
+                        other.update(summary="Revision unreadable; run wiki_lint.", claim_count="?")
             ResearchSessions._write(self._path("index.json"), index)
             # Derived, human-readable views; index.json and revisions stay authoritative.
             ResearchSessions._write(self._path("index.md"), self._catalog(index))
-            ResearchSessions._write(self._path("log.md"), self._log_text() + self._log_entry(page_id, pointer, change_note, references))
+            log = self._path("log.md")
+            with log.open("a", encoding="utf-8") as stream:
+                if stream.tell() == 0:
+                    stream.write("# Wiki log\n\nAppend-only timeline of Wiki writes.\n")
+                stream.write(self._log_entry(page_id, pointer, change_note, references))
+                stream.flush()
+                os.fsync(stream.fileno())
+            search_index = "indexed"
+            try:
+                WikiSearchIndex(self._path("search.sqlite3")).update(page_id, pointer, record)
+            except (OSError, ValueError, sqlite3.Error):
+                search_index = "unavailable"
+        from wiki_work import WikiWork
         return {"page_id": page_id, **pointer, "status": "written", "directory": str(self.directory),
                 "artifacts": self._artifacts(pointer), "semantic_review": "caller_declared",
-                "acknowledged": acknowledged,
+                "acknowledged": acknowledged, "search_index": search_index,
+                "work_receipt": WikiWork.receipt(record, pointer),
                 "catalog": {key: str(self._path(key)) for key in ("index.md", "log.md")}}
 
     def acknowledge(self, page_id, note, expected_revision=None):
@@ -392,9 +515,12 @@ class WikiStore:
             lines.extend(["## %s (%s)" % (heading, len(rows)), ""])
             for page_id, pointer in rows:
                 try:
-                    record = self._revision(pointer)
-                    summary = self._line(record["page"]["sections"][0]["text"], 120)
-                    claims = str(len(record["evidence"]))
+                    if "summary" in pointer:
+                        summary, claims = pointer["summary"], str(pointer["claim_count"])
+                    else:
+                        record = self._revision(pointer)
+                        summary = self._line(record["page"]["sections"][0]["text"], 120)
+                        claims = str(len(record["evidence"]))
                 except (OSError, ValueError, KeyError, TypeError, IndexError):
                     summary, claims = "Revision unreadable; run wiki_lint.", "?"
                 lines.append("- [%s](%s) `%s` · r%s · %s · %s claims — %s" % (
@@ -433,9 +559,18 @@ class WikiStore:
 
     @staticmethod
     def _validation(issues):
+        web_codes = {"newer_source_snapshot", "source_capture_expired", "source_capture_time_unknown",
+                     "source_version_index_unavailable", "source_refresh_failed"}
+        review_codes = web_codes | {"source_input_changed", "source_input_unavailable", "link_has_newer_revision",
+                                    "linked_page_needs_review"}
         return {"status": "stale" if any(item["severity"] == "error" for item in issues) else
-                          "needs_review" if any(item["code"] in ("source_input_changed", "source_input_unavailable")
+                          "needs_review" if any(item["code"] in review_codes
                                                 for item in issues) else "current",
+                "integrity": "invalid" if any(item["severity"] == "error" for item in issues) else "valid",
+                "freshness": {"status": "needs_review" if any(item["code"] in web_codes for item in issues)
+                              else "within_capture_age_policy",
+                              "origin_current_verified": False,
+                              "basis": "Saved capture age and known versions; this is not a live origin guarantee."},
                 "issues": issues, "semantic_review": "caller_declared; not evaluated by lint"}
 
     def get(self, page_id, revision=None):
@@ -456,12 +591,133 @@ class WikiStore:
             pointer = record["previous"]
         raise ValueError("Unknown Wiki page or revision")
 
-    def list(self, offset=0, limit=20):
+    def _affected(self, index, urls):
+        try:
+            return WikiSearchIndex(self._path("search.sqlite3")).affected(index, self._revision, urls)
+        except (OSError, ValueError, sqlite3.Error):
+            from archive import SourceArchive
+            direct, incoming, invalid = set(), {}, []
+            for page_id, pointer in index["pages"].items():
+                try:
+                    record = self._revision(pointer)
+                    if any(SourceArchive._key(citation["url"]) in urls for evidence in record["evidence"]
+                           for citation in evidence["citations"]
+                           if (citation.get("provenance") or {}).get("kind") not in ("local_document", "external_report")):
+                        direct.add(page_id)
+                    for link in record["resolved_links"]:
+                        incoming.setdefault(link["page_id"], set()).add(page_id)
+                except (OSError, ValueError, KeyError, TypeError):
+                    invalid.append(page_id)
+            affected, pending = set(direct), list(direct)
+            while pending:
+                for page_id in incoming.get(pending.pop(), ()):
+                    if page_id not in affected:
+                        affected.add(page_id)
+                        pending.append(page_id)
+            return {"direct_page_ids": sorted(direct), "page_ids": sorted(affected), "unreadable_page_ids": invalid,
+                    "search_index": "unavailable; using revision scan"}
+
+    def work(self, kind=None, status=None, research_id=None, page_id=None, capture_id=None, offset=0, limit=20):
+        from wiki_work import WikiWork
+        return WikiWork(self).list(kind, status, research_id, page_id, capture_id, offset, limit)
+
+    def refresh(self, page_id, provider=None, max_characters=None, offset=0, limit=8, expected_revision=None):
+        """Capture cited pages for review; never rewrite claims or Wiki history."""
+        from archive import SourceArchive
+        ResearchSessions._integer(offset, "offset", 0, 10000000)
+        ResearchSessions._integer(limit, "limit", 1, ResearchSessions.FETCH_BATCH_SIZE)
+        if expected_revision is not None:
+            ResearchSessions._integer(expected_revision, "expected_revision", 1, 10001)
+        if provider is not None and provider not in Settings.PROVIDERS:
+            raise ValueError("Unknown fetch provider")
+        settings = self.settings.load()
+        maximum = settings["fetch"]["max_characters"] if max_characters is None else max_characters
+        ResearchSessions._integer(maximum, "max_characters", 100, 100000)
+        record = self.get(page_id)
+        if expected_revision is not None and record["revision"] != expected_revision:
+            raise ValueError("Wiki revision changed; read the current page before refreshing")
+        cited = {}
+        for evidence in record["evidence"]:
+            for citation in evidence["citations"]:
+                if (citation.get("provenance") or {}).get("kind") in ("local_document", "external_report"):
+                    continue
+                cited.setdefault(SourceArchive._key(citation["url"]), set()).add(citation["source_sha256"])
+        urls = sorted(cited)
+        selected = urls[offset:offset + limit]
+        result = {"page_id": record["page_id"], "revision": record["revision"], "offset": offset,
+                  "total_urls": len(urls), "next_offset": offset + limit if offset + limit < len(urls) else None,
+                  "status": "not_applicable", "checks": [], "origin_current_verified": False,
+                  "work": {"tool": "wiki_work", "arguments": {"page_id": record["page_id"]}},
+                  "next_action": "Read each saved capture, import changed evidence into research, review sources and claims, "
+                                 "then wiki_write with expected_revision. Refresh does not rewrite authored knowledge."}
+        if not selected:
+            return result
+        store = SourceArchive(settings["archive"]["directory"])
+        try:
+            fetched = self.research._web().fetch(selected, provider=provider, archive=True, max_characters=maximum)
+            attempts = fetched.get("attempts", [fetched])
+            for attempt in attempts:
+                if isinstance(attempt.get("result"), dict) and attempt.get("archive", {}).get("status") != "saved":
+                    try:
+                        attempt["archive"] = store.save(attempt)
+                    except (OSError, ValueError) as error:
+                        attempt["archive"] = {"status": "error", "error": str(error)[:1000]}
+            compact = SourceArchive.compact_fetch(fetched, max_characters=maximum)
+            captured = {SourceArchive._key(page["url"]): page for page in compact.get("pages", [])}
+        except (OSError, ValueError) as error:
+            captured = {}
+            result["error"] = str(error)[:1000]
+        trackers = {str(tracker.path): tracker for tracker in (
+            SourceVersions(store.directory / "source-versions.sqlite3"), self.research._source_versions())}
+        for url in selected:
+            page = captured.get(url, {})
+            saved = bool(page.get("page_body_archived") and page.get("sha256") and page.get("text") is not None)
+            status = ("unchanged" if cited[url] == {page["sha256"]} else "changed") if saved else "unverified"
+            check = {"url": url, "status": status, "previous_sha256": sorted(cited[url]),
+                     "sha256": page.get("sha256"), "capture_id": page.get("capture_id"),
+                     "extraction_status": page.get("extraction_status", "request_failed")}
+            if saved:
+                check["read_capture"] = {"urls": [url], "capture_id": page["capture_id"], "offset": 0,
+                                         "max_characters": maximum}
+            tracked = False
+            for tracker in trackers.values():
+                try:
+                    tracker.record_check(url, "ok" if saved else check["extraction_status"])
+                    tracked = True
+                except (OSError, ValueError, sqlite3.Error):
+                    continue
+            check["check_recorded"] = tracked
+            result["checks"].append(check)
+        count = sum(check["status"] != "unverified" for check in result["checks"])
+        result["status"] = "ok" if count == len(selected) else "partial" if count else "error"
+        current = self._index()
+        affected = self._affected(current, set(selected))
+        result["affected"] = {"total": len(affected["page_ids"]), "page_ids": affected["page_ids"][:100],
+                              "truncated": len(affected["page_ids"]) > 100,
+                              "unreadable_page_ids": affected["unreadable_page_ids"][:100],
+                              "pagination": "wiki_list(source_url=..., offset=..., limit=...) includes linked dependents"}
+        result["current_revision"] = current["pages"].get(record["page_id"], {}).get("revision")
+        result["validation"] = self.get(record["page_id"])["validation"]
+        if result["next_offset"] is not None:
+            result["continuation"] = {"page_id": record["page_id"], "expected_revision": record["revision"],
+                                      "offset": result["next_offset"], "limit": limit, "max_characters": maximum,
+                                      **({"provider": provider} if provider is not None else {})}
+        return result
+
+    def list(self, offset=0, limit=20, source_url=None):
         ResearchSessions._integer(offset, "offset", 0, 10000000)
         ResearchSessions._integer(limit, "limit", 1, 100)
-        rows = sorted(self._index()["pages"].items())
+        index = self._index()
+        affected = None
+        if source_url is not None:
+            from archive import SourceArchive
+            affected = self._affected(index, {SourceArchive._key(source_url)})
+        rows = sorted((key, value) for key, value in index["pages"].items()
+                      if affected is None or key in affected["page_ids"])
         return {"directory": str(self.directory), "pages": [{"page_id": key, **value} for key, value in rows[offset:offset + limit]],
-                "total": len(rows), "next_offset": offset + limit if offset + limit < len(rows) else None}
+                "total": len(rows), "next_offset": offset + limit if offset + limit < len(rows) else None,
+                **({"source_url": source_url, "includes_linked_dependents": True,
+                    "unreadable_page_ids": affected["unreadable_page_ids"][:100]} if affected is not None else {})}
 
     def lint(self, page_id=None):
         index = self._index()
@@ -493,33 +749,44 @@ class WikiStore:
         query = self._text(query, "Wiki query", 500)
         ResearchSessions._integer(offset, "offset", 0, 10000000)
         ResearchSessions._integer(limit, "limit", 1, 100)
-        terms = list(dict.fromkeys(query.casefold().split()))
+        groups = WikiSearchIndex.terms(query)
         index, matches, excluded, cache = self._index(), [], [], {}
-        for page_id, pointer in index["pages"].items():
+        search_index = "indexed"
+        try:
+            candidates, invalid = WikiSearchIndex(self._path("search.sqlite3")).candidates(index, self._revision, groups)
+        except (OSError, ValueError, sqlite3.Error):
+            # The index is disposable. A damaged/unwritable cache must not make
+            # committed knowledge inaccessible or skip evidence validation.
+            search_index, candidates, invalid = "unavailable; using revision scan", [], []
+            for page_id, pointer in index["pages"].items():
+                try:
+                    candidates.append(WikiSearchIndex.row(page_id, pointer, self._revision(pointer)))
+                except (OSError, ValueError, KeyError, TypeError):
+                    invalid.append(page_id)
+        excluded.extend(invalid)
+        checked = 0
+        for candidate in candidates:
+            match = WikiSearchIndex.match(candidate, query, groups)
+            if match is None:
+                continue
+            page_id = candidate["page_id"]
+            pointer = index["pages"][page_id]
             try:
                 record = self._revision(pointer)
+                match = WikiSearchIndex.match(WikiSearchIndex.row(page_id, pointer, record), query, groups)
+                if match is None:
+                    continue
+                checked += 1
                 validation = self._validation(self._issues(record, index, cache))
                 if validation["status"] == "stale":
                     excluded.append(page_id)
                     continue
                 page = record["page"]
-                body = "\n\n".join(section["heading"] + "\n" + section["text"] for section in page["sections"])
-                text = (page["title"] + "\n" + body).casefold()
-                # CJK writers do not put spaces where an author did ("唯一URL" vs
-                # "唯一 URL"), so a whitespace-insensitive pass runs in addition
-                # to the literal one. It only widens matches when spacing differs.
-                squashed = re.sub(r"\s+", "", text)
-                squashed_terms = [re.sub(r"\s+", "", term) for term in terms]
-                squashed_match = all(term and term in squashed for term in squashed_terms)
-                if not (all(term in text for term in terms) or squashed_match):
-                    continue
-                rank = sum(min(text.count(term), 20) + (5 if term in page["title"].casefold() else 0) for term in terms)
-                positions = [body.casefold().find(term) for term in terms if term in body.casefold()]
-                begin = max(0, min(positions, default=0) - 60)
-                matches.append((rank, {"page_id": page_id, "revision": pointer["revision"], "title": page["title"],
-                                      "kind": page["kind"], "snippet": body[begin:begin + 500],
+                matches.append((match["rank"], {"page_id": page_id, "revision": pointer["revision"], "title": page["title"],
+                                      "kind": page["kind"], "snippet": match["snippet"],
                                       "updated_at": pointer["updated_at"], "validation": validation,
-                                      "whitespace_insensitive": bool(squashed_match and not all(term in text for term in terms)),
+                                      "whitespace_insensitive": match["whitespace_insensitive"],
+                                      "alias_expanded": match["alias_expanded"],
                                       "artifacts": self._artifacts(pointer)}))
             except (OSError, ValueError, KeyError, TypeError):
                 excluded.append(page_id)
@@ -527,8 +794,11 @@ class WikiStore:
         return {"query": query, "results": [row[1] for row in matches[offset:offset + limit]], "total": len(matches),
                 "next_offset": offset + limit if offset + limit < len(matches) else None,
                 "excluded_stale_pages": len(excluded), "excluded_page_ids": excluded[:100],
-                "method": "casefolded literal terms over authored Wiki text, plus a whitespace-insensitive pass so CJK "
-                          "queries match differently spaced text; no semantic ranking"}
+                "validation_scope": "matching_candidates", "candidates_found": len(candidates),
+                "pages_validated": checked,
+                "search_index": search_index,
+                "method": "indexed character grams, casefolded literal and whitespace-insensitive matching "
+                          "with explicit query/page aliases; no embedding-based semantic ranking"}
 
     def _markdown(self, record, location):
         page = record["page"]

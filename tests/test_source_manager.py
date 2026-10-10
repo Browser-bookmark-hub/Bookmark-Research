@@ -4,6 +4,7 @@ import hashlib
 import os
 import json
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -94,6 +95,38 @@ class SourceManagerTests(unittest.TestCase):
         self.assertEqual(again["skipped_files"], 4)
         self.assertEqual(self.revisions(), before)
         self.assertEqual(self.sources.history(first["source_id"])["total"], 1)
+
+    def test_source_status_keeps_live_metadata_without_reading_content_tables(self):
+        self.sources.sync(self.package, "study", mode="live")
+        expected = self.sources.status("study")["source"]
+        content_tables = {"items", "sections", "files", "nodes", "edges", "memberships"}
+
+        def state_only():
+            def authorize(action, table, *_):
+                if action == sqlite3.SQLITE_READ and table in content_tables:
+                    return sqlite3.SQLITE_DENY
+                return sqlite3.SQLITE_OK
+            self.index.connection.set_authorizer(authorize)
+            try:
+                return self.sources.source_status("study")
+            finally:
+                self.index.connection.set_authorizer(lambda *_: sqlite3.SQLITE_OK)
+
+        self.assertEqual(state_only(), expected)
+        self.now += 11
+        self.assertEqual(state_only()["state"], "unchecked")
+        self.change_note()
+        self.sources.refresh("study")
+        current = state_only()
+        self.assertEqual(current["state"], "current")
+        self.assertNotEqual(current["version_id"], expected["version_id"])
+        self.assertEqual(current["aliases"], expected["aliases"])
+        shutil.rmtree(self.package)
+        self.sources.refresh("study")
+        missing = state_only()
+        self.assertEqual(missing["state"], "unavailable")
+        self.assertFalse(missing["input_exists"])
+        self.assertTrue(missing["snapshot_exists"])
 
     def test_moved_export_reuses_explicit_identity_and_remembers_both_paths(self):
         first = self.sources.sync(self.package)

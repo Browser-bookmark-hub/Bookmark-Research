@@ -23,8 +23,11 @@ Answer ordinary questions directly with sufficient evidence. Reuse material alre
 | Discover or compare web evidence | `search_web`, then `fetch_web`; the host reasons over results and follows gaps. |
 | Conduct sustained research, resume it or review a complete URL collection | [Deep research](references/deep-research.md). |
 | Save or revise Wiki knowledge | The [Wiki writing section](references/wiki-and-evaluation.md#compile-research-into-a-wiki). |
+| Resume Wiki compilation or source review | `wiki_work` scoped to a task, capture or page; follow its pending claims, committed revisions and resume calls. |
 
 Local queries and Git history need no web readiness check. Counting a whole package remains local; surrounding cards do not expand research scope. For web work, honor explicit depth, then saved `research.depth`; `auto` follows the request.
+
+For saved-knowledge questions, read a known page directly. Otherwise search short, discriminative terms, preserving entity names and versions. If results are absent or insufficient, inspect directory summaries with `wiki_list` or try a few targeted alternatives: synonyms, aliases, and the source's original language. A literal miss does not prove the knowledge is absent. Read the matching pages, following relevant links for comparisons or multi-page questions; use `search_archive` for missing original evidence. Reuse sufficient context and stop expanding once the requested scope is supported. Retrieve from the web when local evidence is missing or needs a freshness check, honoring explicit requests for current information.
 
 ## Local evidence
 

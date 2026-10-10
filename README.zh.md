@@ -129,12 +129,14 @@ setup 还会问研究报告和证据放在哪里：统一目录（默认 `<数�
 | 层 | 组成 | 运行方式 | 需要配置 |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) 及 11 份方法参考，每份都有[中文版](skills/bookmark-research/references/zh/skill-guide.md) | 由宿主加载 | 不需要 |
-| 本地 MCP | `bookmark-research`，40 个工具（见下表；随能力增长） | 宿主启动的 Python 进程 | 安装器自动完成 |
+| 本地 MCP | `bookmark-research`，42 个工具（见下表；随能力增长） | 宿主启动的 Python 进程 | 安装器自动完成 |
 | 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取）、[Tavily](https://tavily.com)（备用搜索） | HTTPS，不启动本地进程 | 可选 API Key |
 | 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索） | HTTPS | 可选 `JINA_API_KEY` |
 | 可选的宿主 MCP | Exa Agent、Parallel Task MCP、Tavily Research | 需自行加到宿主里 | `bookmark-research setup` 会给出步骤 |
 
 本地 MCP 的工具：
+
+下表对应当前源码。`wiki_refresh` 和 `wiki_work` 已进入本地开发构建，尚未包含在已发布的 `0.5.0-beta.9` npm 包中。已实现与剩余事项见[升级核对记录](docs/upgrade-status-2026-10-11.md)。
 
 | 分类 | 工具 |
 | --- | --- |
@@ -143,7 +145,7 @@ setup 还会问研究报告和证据放在哪里：统一目录（默认 `<数�
 | 研究 | `research_readiness`、`research_start`、`research_status`、`research_search`、`research_fetch`、`research_source`、`research_record`、`research_inventory`、`research_coverage`、`research_import_evidence`、`research_finish`、`research_route` |
 | 专业研究服务（可选） | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach`、`_import` |
 | 设置 | `get_settings`、`update_settings` |
-| Wiki 与评测 | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search`、`wiki_lint`、`wiki_acknowledge`、`evaluate_research` |
+| Wiki 与评测 | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search`、`wiki_refresh`、`wiki_work`、`wiki_lint`、`wiki_acknowledge`、`evaluate_research` |
 
 ## 更多
 

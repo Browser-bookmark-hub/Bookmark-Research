@@ -286,7 +286,19 @@ class ResearchSessions:
 
     def _save(self, path, state):
         state["updated_at"] = self._now()
+        if state.get("sources"):
+            try:
+                self._source_versions().record(state["research_id"], state["sources"])
+                state["source_version_tracking"] = {"status": "indexed"}
+            except (OSError, ValueError, sqlite3.Error):
+                # The observations only invalidate old conclusions. A failed
+                # derived index must not discard a completed operation receipt.
+                state["source_version_tracking"] = {"status": "unavailable"}
         self._write(path / "state.json", state)
+
+    def _source_versions(self):
+        from source_versions import SourceVersions
+        return SourceVersions(self.directory / "source-versions.sqlite3")
 
     def _web(self):
         if self.engine is None:
@@ -358,6 +370,7 @@ class ResearchSessions:
         coverage = self._coverage(path, state)
         coverage["source_scope"] = self._scope_preview(path, state.get("source_scope"))
         return {"research_id": state["research_id"], "directory": str(path),
+                "wiki_work": {"tool": "wiki_work", "arguments": {"research_id": state["research_id"]}},
                 "work_directory": str(path / "work"),
                 "status": state["status"], "brief": state["brief"], "scope": state["scope"],
                 "source_ids": state["source_ids"], "providers": state["providers"],
@@ -667,7 +680,7 @@ class ResearchSessions:
         result["source_freshness"] = self.source_freshness(state=state)
         return result
 
-    def source_freshness(self, research_id=None, state=None):
+    def source_freshness(self, research_id=None, state=None, bookmark_refs=None, snapshot_cache=None):
         """Compare current indexed input to frozen scope; never rewrite evidence."""
         if state is None:
             _, state = self._load(research_id)
@@ -683,15 +696,38 @@ class ResearchSessions:
         try:
             from bookmark_index import BookmarkIndex
             from source_manager import SourceManager
-            with BookmarkIndex(self.db_path) as index:
-                manager = SourceManager(index)
-                with index.read_snapshot():
-                    current = index.input_version(ids)
-                    states = {source_id: manager.status(source_id)["source"]["state"] for source_id in ids}
+            cache = {} if snapshot_cache is None else snapshot_cache
+            key = ("input_snapshot", state["research_id"])
+            snapshot = cache.get(key)
+            if snapshot is None or (bookmark_refs and "inventory" not in snapshot):
+                with BookmarkIndex(self.db_path) as index:
+                    manager = SourceManager(index)
+                    with index.read_snapshot():
+                        snapshot = {"version": index.input_version(ids),
+                                    "states": {sid: manager.source_status(sid)["state"] for sid in ids}}
+                        if bookmark_refs:
+                            snapshot["inventory"] = index.inventory(ids) if snapshot["version"] != frozen else None
+                cache[key] = snapshot
+            current, states = snapshot["version"], snapshot["states"]
             changed = current != frozen
             result.update(current_input_version=current, state="changed" if changed else "unchanged",
                           requires_review=changed, source_states=states)
-        except (OSError, ValueError, sqlite3.Error) as exc:
+            if any(value not in ("current", "snapshot", "unchecked") for value in states.values()):
+                result.update(state="unknown", requires_review=None)
+            elif changed and bookmark_refs:
+                from bookmark_dependencies import scoped_input
+                frozen_key = ("frozen_inventory", state["research_id"])
+                if frozen_key not in cache:
+                    raw = self._artifact(self._path(state["research_id"]), "inventory.json").read_bytes()
+                    if hashlib.sha256(raw).hexdigest() != state.get("inventory_manifest_sha256"):
+                        raise ValueError("Frozen input inventory hash changed")
+                    cache[frozen_key] = json.loads(raw)
+                relevant = scoped_input(cache[frozen_key], bookmark_refs) != scoped_input(
+                    snapshot["inventory"], bookmark_refs)
+                result.update(state="changed" if relevant else "unchanged", requires_review=relevant,
+                              package_changed=True, comparison_scope="cited_bookmarks_and_context")
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
+            result.update(state="unknown", requires_review=None)
             result["error"] = str(exc)[:1000]
         return result
 
@@ -945,6 +981,7 @@ class ResearchSessions:
                           "provider": fetched["provider"], "retrieved_at": fetched["retrieved_at"],
                           "title": page["title"], "extraction_status": page["extraction_status"],
                           "evidence_kind": "page",
+                          "source_attribution_version": SourceArchive.ATTRIBUTION_VERSION,
                           "content_kind": page["content_kind"], "completeness": page["completeness"],
                           "possibly_truncated": page.get("possibly_truncated", False),
                           "published_at": page.get("provider_published_at"), "crawled_at": page.get("provider_crawled_at"),
@@ -1104,6 +1141,13 @@ class ResearchSessions:
         body = self._artifact(path, source["body_file"]).read_bytes()
         if hashlib.sha256(body).hexdigest() != source["sha256"]:
             raise ValueError("Saved source hash changed; fetch a new snapshot before citing it")
+        if (source.get("source_attribution_version") != SourceArchive.ATTRIBUTION_VERSION
+                and not source.get("provenance") and source.get("manifest_file")):
+            manifest_path = self._artifact(path, source["manifest_file"])
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            hashes = SourceArchive.legacy_hashes(manifest_path.parent, manifest)
+            if hashes is not None and hashes.get(SourceArchive._key(source["url"])) != source["sha256"]:
+                raise ValueError("Legacy extract has ambiguous source attribution; fetch a new capture")
         return body.decode("utf-8")
 
     def source(self, research_id, source_id, offset=0, limit=12000):
@@ -1530,7 +1574,8 @@ class ResearchSessions:
         else:
             instruction = ("Present the candidate Wiki pages to update, or a proposed new page, to the user together with "
                            "the eligible reviewed claims. Call wiki_write only after the user confirms.")
-        return {"policy": policy, "candidates": ranked, "eligible_claim_ids": eligible, "instruction": instruction}
+        return {"policy": policy, "candidates": ranked, "eligible_claim_ids": eligible, "instruction": instruction,
+                "work": {"tool": "wiki_work", "arguments": {"research_id": state["research_id"]}}}
 
     @staticmethod
     def _report(state, coverage=None):

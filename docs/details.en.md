@@ -182,6 +182,7 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | `index_status` | Inspect registered sources and index status |
 | `sync_package` | Import a package or synchronize changes |
 | `source_history` | List reusable source snapshots and recovery paths |
+| `source_remove` / `source_merge` | Preview or confirm removal and merging of registered sources |
 | `search_bookmarks` | Query bookmarks for multiple targets while retaining item context |
 | `get_context` | Read section, card, group, connection, and item-ancestor context |
 | `search_providers` | List configured web providers |
@@ -202,7 +203,9 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | `research_import_evidence` | Import actual host-read original text or explicitly secondary reports with provenance |
 | `research_route` | Recommend a route using current host observations and saved preferences |
 | `research_services` / `research_service_*` | Describe, prepare, start, observe, read, cancel, attach and import optional professional runs |
-| `wiki_write` / `wiki_get` / `wiki_list` / `wiki_search` / `wiki_lint` | Maintain reviewed knowledge and immutable evidence-linked revisions |
+| `wiki_write` / `wiki_get` / `wiki_list` / `wiki_search` / `wiki_lint` / `wiki_acknowledge` | Maintain reviewed knowledge, immutable evidence-linked revisions and input review acknowledgements |
+| `wiki_refresh` | Fetch cited URLs, record source observations and identify pages that need review |
+| `wiki_work` | Resume compilation and review using saved work states and committed publication receipts |
 | `evaluate_research` | Compute metrics from explicit tasks, outputs, measurements and reviewer labels |
 
 ### Web providers
