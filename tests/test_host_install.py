@@ -51,6 +51,9 @@ if host == 'claude':
                              'scope': args[args.index('--scope') + 1], 'enabled': True, 'installPath': str(cache)}]
     elif args[:2] == ['plugin', 'validate']:
         sys.exit(0)
+    elif args[:2] == ['plugin', 'enable']:
+        if state.get('plugins'):
+            state['plugins'][0]['enabled'] = True
     elif args[:3] != ['plugin', 'marketplace', 'update']:
         sys.exit('unexpected Claude command: ' + str(args))
     if args[:2] != ['plugin', 'list'] and args[:3] != ['plugin', 'marketplace', 'list']:
@@ -244,15 +247,19 @@ class HostInstallerTests(unittest.TestCase):
         self.assertTrue(Path(settings["packages"][0]).is_dir())
         self.assertTrue(self.manage("pi")["verified"])
 
-    def test_missing_or_changed_source_cannot_overwrite_existing_install(self):
+    def test_install_allows_overwriting_and_updating_source_and_ref(self):
         first = self.manage("pi")
-        with self.assertRaisesRegex(ValueError, "retains its source"):
-            self.manage("pi", source=ROOT)
+        updated = self.manage("pi", source=ROOT)
+        self.assertTrue(updated["verified"])
+        self.assertEqual(updated["source"]["sourceType"], "local")
         installed = Path(first["bundle_path"]) / "src/cli.py"
         installed.write_text("user edit\n")
         with self.assertRaisesRegex(RuntimeError, "differs"):
             self.manage("pi", "update")
         self.assertEqual(installed.read_text(), "user edit\n")
+        reinstalled = self.manage("pi")
+        self.assertTrue(reinstalled["verified"])
+        self.assertNotEqual(installed.read_text(), "user edit\n")
 
     def test_native_source_conflicts_stop_before_installation(self):
         other = self.base / "foreign-package"
@@ -323,8 +330,9 @@ class HostInstallerTests(unittest.TestCase):
             self.assertEqual(first["revision"], updated["revision"])
             self.assertFalse((Path(updated["bundle_path"]) / "src/later.py").exists())
             self.assertEqual(self.manage("pi", source=repository)["source"]["ref"], "v1")
-            with self.assertRaisesRegex(ValueError, "retains its source"):
-                self.manage("pi", source=repository, ref="main")
+            updated_ref = self.manage("pi", source=repository, ref="main")
+            self.assertEqual(updated_ref["source"]["ref"], "main")
+            self.assertTrue(updated_ref["verified"])
 
 
 class DshPrerequisiteTests(unittest.TestCase):

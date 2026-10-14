@@ -185,7 +185,7 @@ class HostClient:
                     commands.extend([["plugin", "marketplace", "update", NAME],
                                      ["plugin", "update", SELECTOR, "--scope", self.scope]])
                 if not registration["plugin"].get("enabled"):
-                    raise ValueError("The Claude plugin is disabled; enable it in Claude before reinstalling")
+                    commands.append(["plugin", "enable", SELECTOR, "--scope", self.scope])
             else:
                 commands.append(["plugin", "install", SELECTOR, "--scope", self.scope])
             return commands

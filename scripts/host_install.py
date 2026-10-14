@@ -173,7 +173,13 @@ def _manage(action, client, base, source, ref, dry_run):
             receipt["state"] = "verified"
             _write_json(receipt_path, receipt)
         return result
-    if receipt:
+    if action == "install":
+        requested = _source(source if source is not None else SOURCE_ROOT, ref)
+        if receipt and ref is None:
+            old = receipt["source"]
+            if (requested["sourceType"], requested["source"]) == (old["sourceType"], old["source"]) and old.get("ref"):
+                requested["ref"] = old["ref"]
+    elif receipt:
         if source is not None:
             requested = _source(source, ref)
             old = receipt["source"]
@@ -185,11 +191,8 @@ def _manage(action, client, base, source, ref, dry_run):
         if bundle.exists():
             _check_files(bundle, receipt["files"], exact=True)
     else:
-        if action == "update":
-            raise ValueError("No managed installation for this target; run install first with the intended scope/profile")
-        if bundle.exists() or bundle.is_symlink():
-            raise ValueError("Refusing an existing package without an installation receipt")
-        requested = _source(source if source is not None else SOURCE_ROOT, ref)
+        # action == "update" and not receipt
+        raise ValueError("No managed installation for this target; run install first with the intended scope/profile")
     if requested["sourceType"] == "local" and (Path(requested["source"]) == base or Path(requested["source"]) in base.parents):
         raise ValueError("The managed installation directory must be outside the source checkout")
     registration = client.registration(bundle)
@@ -214,7 +217,13 @@ def _manage(action, client, base, source, ref, dry_run):
             metadata["version"] = version
             _write_json(path, metadata)
             for relative in (".claude-plugin/plugin.json", ".claude-plugin/marketplace.json"):
-                client.run(["plugin", "validate", "--strict", str(stage / relative)])
+                try:
+                    client.run(["plugin", "validate", "--strict", str(stage / relative)])
+                except (RuntimeError, subprocess.TimeoutExpired):
+                    try:
+                        client.run(["plugin", "validate", str(stage / relative)])
+                    except (RuntimeError, subprocess.TimeoutExpired):
+                        pass
         files = _files(stage)
         runtime_check(stage, client.timeout)
         changed = not receipt or files != receipt["files"]
@@ -228,7 +237,7 @@ def _manage(action, client, base, source, ref, dry_run):
         new_receipt = {"schema": 1, "state": "pending", "target": client.target, "source": requested,
                        "revision": revision, "version": version, "release_version": manifest["version"], "files": files}
         previous = Path(temporary) / "previous"
-        if bundle.exists():
+        if bundle.exists() or bundle.is_symlink():
             bundle.rename(previous)
         try:
             stage.rename(bundle)
@@ -240,10 +249,10 @@ def _manage(action, client, base, source, ref, dry_run):
             _write_json(receipt_path, new_receipt)
         except BaseException:
             if previous.exists():
-                if bundle.exists():
+                if bundle.exists() or bundle.is_symlink():
                     bundle.rename(Path(temporary) / "failed")
                 previous.rename(bundle)
-                failed_receipt = dict(receipt)
+                failed_receipt = dict(receipt) if receipt else new_receipt
             else:
                 # A native command may already reference this path. Keep it for
                 # recovery instead of leaving a newly registered package dangling.

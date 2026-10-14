@@ -701,6 +701,8 @@ def main(argv=None):
                 if single:
                     raise
                 results.append({"host": target["host"], "error": str(error), "verified": False})
+                print(message("Warning: Failed to install into " + target["host"] + ": " + str(error),
+                              "警告：未能安装到 " + target["host"] + "：" + str(error)), file=sys.stderr)
         verified = [(target["host"], result) for target, result in zip(targets, results)
                     if args.action == "install" and result.get("verified") and "error" not in result]
         setup = None
