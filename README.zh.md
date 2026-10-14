@@ -2,6 +2,9 @@
 
 [English](README.md) · **中文**
 
+[![GitHub Bookmark-Canvas](https://img.shields.io/badge/GitHub-Bookmark--Canvas-181717?logo=github&logoColor=white)](https://github.com/Browser-bookmark-hub/Bookmark-Canvas)
+[![npm version](https://img.shields.io/npm/v/bookmark-research/beta?logo=npm)](https://www.npmjs.com/package/bookmark-research)
+
 用联网查证来研究你的书签。给它一份书签 URL 列表或 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，它会逐条核对链接、搜索和阅读网页，写出带引用、可以接着做的研究报告。
 
 支持 **Codex、Claude Code、Pi、DSH（DeepSeek Harness）**。
