@@ -38,7 +38,9 @@ class SettingsTests(unittest.TestCase):
         second = Settings(self.settings.path)
         second.update({"fetch": {"max_characters": 25000}})
         result = self.settings.load()
-        self.assertEqual(result["search"], {"providers": ["exa"], "fallback_providers": [], "limit_per_target": 5})
+        self.assertEqual(result["search"], {"providers": ["exa"], "fallback_providers": [], "limit_per_target": 5,
+                                            "strategy": "hedged", "grace_seconds": 2, "deadline_seconds": 10,
+                                            "cache_seconds": 0})
         self.assertFalse(result["archive"]["enabled"])
         self.assertEqual(result["fetch"]["max_characters"], 25000)
         stored = json.loads(self.settings.path.read_text())
@@ -119,6 +121,39 @@ Settings(config).update(json.loads(patch))
         self.assertEqual(saved["search"]["providers"], ["exa", "parallel", "tavily"])
         self.assertEqual(saved["fetch"]["provider"], "tavily")
         self.assertNotIn("TAVILY_API_KEY", self.settings.path.read_text())
+
+    def test_fetch_strategy_defaults_and_validation(self):
+        defaults = self.settings.load()["fetch"]
+        self.assertEqual((defaults["strategy"], defaults["grace_seconds"], defaults["deadline_seconds"]),
+                         ("staggered", 25, None))
+        for changes in ({"fetch": {"strategy": "race"}}, {"fetch": {"grace_seconds": 61}},
+                        {"fetch": {"deadline_seconds": "2"}}, {"fetch": {"grace_seconds": True}}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.settings.update(changes)
+        self.settings.update({"fetch": {"strategy": "hedged", "grace_seconds": 3.5, "deadline_seconds": 0}})
+        saved = self.settings.load()["fetch"]
+        self.assertEqual((saved["strategy"], saved["grace_seconds"], saved["deadline_seconds"]),
+                         ("hedged", 3.5, 0))
+
+    def test_cache_reuse_and_server_concurrency_settings_validate(self):
+        defaults = self.settings.load()
+        self.assertEqual(defaults["search"]["cache_seconds"], 0)
+        self.assertEqual(defaults["fetch"]["reuse_seconds"], 0)
+        self.assertEqual(defaults["server"], {"network_workers": 4, "max_pending_calls": 16})
+        for changes in ({"search": {"cache_seconds": -1}}, {"search": {"cache_seconds": 3601}},
+                        {"search": {"cache_seconds": True}}, {"search": {"cache_seconds": "60"}},
+                        {"fetch": {"reuse_seconds": -1}}, {"fetch": {"reuse_seconds": 86401}},
+                        {"server": {"network_workers": 0}}, {"server": {"network_workers": 17}},
+                        {"server": {"max_pending_calls": 0}}, {"server": {"max_pending_calls": 65}},
+                        {"server": {"network_workers": 8, "max_pending_calls": 4}}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.settings.update(changes)
+        self.assertFalse(self.settings.path.exists())
+        self.settings.update({"search": {"cache_seconds": 300}, "fetch": {"reuse_seconds": 3600},
+                              "server": {"network_workers": 8, "max_pending_calls": 32}})
+        saved = self.settings.load()
+        self.assertEqual((saved["search"]["cache_seconds"], saved["fetch"]["reuse_seconds"]), (300, 3600))
+        self.assertEqual(saved["server"], {"network_workers": 8, "max_pending_calls": 32})
 
     def test_old_configuration_inherits_research_defaults_and_new_overrides_persist(self):
         self.settings.path.parent.mkdir(parents=True)

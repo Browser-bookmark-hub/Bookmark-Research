@@ -137,7 +137,7 @@ class WikiFreshnessTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "revision changed"):
             self.wiki.refresh("price", expected_revision=2)
         with self.assertRaises(ValueError):
-            self.wiki.refresh("price", limit=9)
+            self.wiki.refresh("price", limit=17)
         self.assertEqual([], self.wiki.refresh("price", offset=8)["checks"])
         self.engine.fetch.assert_not_called()
 

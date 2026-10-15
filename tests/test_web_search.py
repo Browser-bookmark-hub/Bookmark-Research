@@ -171,7 +171,7 @@ class SearchProviderTests(unittest.TestCase):
 
     def test_invalid_input_is_rejected_before_contacting_services(self):
         with patch.object(self.engine, "_client", side_effect=AssertionError("unexpected network")):
-            for targets in ([], ["text"], [{"target": "A", "query": ""}],
+            for targets in ([], [123], [{"target": "A", "query": ""}],
                             [{"target": "A", "query": "q", "other": True}],
                             [{"target": "A", "query": "q"}] * 13):
                 with self.subTest(targets=targets), self.assertRaises(ValueError):
@@ -185,6 +185,59 @@ class SearchProviderTests(unittest.TestCase):
         for timeout in (True, "30", 0, 61):
             with self.assertRaises(ValueError):
                 SearchProviders(timeout=timeout)
+
+    def test_plain_string_targets_are_accepted_as_their_own_label(self):
+        value = Mock()
+        value.list_tools.return_value = [EXA_SEARCH]
+        value.call_tool.return_value = {"structuredContent": {"results": [
+            {"url": "https://a.example/page", "title": "A"}]}}
+        with patch.object(self.engine, "_client", return_value=value):
+            result = self.engine.search(["alpha query"], providers=["exa"])
+        self.assertEqual(result["targets"][0]["target"], "alpha query")
+        self.assertEqual(value.call_tool.call_args.args[1]["query"], "alpha query")
+
+    def test_repeated_identical_searches_use_the_short_ttl_cache_when_enabled(self):
+        self.settings.update({"search": {"cache_seconds": 120}})
+        value = Mock()
+        value.list_tools.return_value = [EXA_SEARCH]
+        value.call_tool.return_value = {"structuredContent": {"results": [
+            {"url": "https://a.example/page", "title": "A", "snippet": "first"}]}}
+        with patch.object(self.engine, "_client", return_value=value):
+            first = self.engine.search([{"target": "A", "query": "alpha"}], providers=["exa"])
+            second = self.engine.search([{"target": "A", "query": "alpha"}], providers=["exa"])
+            third = self.engine.search([{"target": "A", "query": "beta"}], providers=["exa"])
+        self.assertEqual(value.call_tool.call_count, 2)
+        self.assertNotIn("cached", first["batches"][0])
+        self.assertTrue(second["batches"][0]["cached"])
+        self.assertEqual(second["batches"][0]["results"], first["batches"][0]["results"])
+        self.assertEqual(second["batches"][0]["retrieved_at"], first["batches"][0]["retrieved_at"])
+        self.assertEqual(first["usage"]["tool_calls"], 1)
+        self.assertEqual(second["usage"]["tool_calls"], 0)
+        self.assertEqual(third["usage"]["tool_calls"], 1)
+
+    def test_search_cache_stays_off_without_the_setting(self):
+        value = Mock()
+        value.list_tools.return_value = [EXA_SEARCH]
+        value.call_tool.return_value = {"structuredContent": {"results": [
+            {"url": "https://a.example/page", "title": "A"}]}}
+        with patch.object(self.engine, "_client", return_value=value):
+            self.engine.search([{"target": "A", "query": "alpha"}], providers=["exa"])
+            second = self.engine.search([{"target": "A", "query": "alpha"}], providers=["exa"])
+        self.assertEqual(value.call_tool.call_count, 2)
+        self.assertNotIn("cached", second["batches"][0])
+
+    def test_cached_search_pairs_counts_only_fresh_entries_for_research_reservation(self):
+        self.settings.update({"search": {"cache_seconds": 120}})
+        value = Mock()
+        value.list_tools.return_value = [EXA_SEARCH]
+        value.call_tool.return_value = {"structuredContent": {"results": [
+            {"url": "https://a.example/page", "title": "A"}]}}
+        with patch.object(self.engine, "_client", return_value=value):
+            self.engine.search([{"target": "A", "query": "alpha"}], providers=["exa"])
+        self.assertEqual(self.engine.cached_search_pairs([{"target": "A", "query": "alpha"}], ["exa"], 5), 1)
+        self.assertEqual(self.engine.cached_search_pairs([{"target": "A", "query": "alpha"}], ["exa"], 3), 0)
+        self.assertEqual(self.engine.cached_search_pairs([{"target": "A", "query": "other"}], ["exa"], 5), 0)
+        self.assertEqual(self.engine.cached_search_pairs([{"target": "A", "query": "alpha"}], ["parallel"], 5), 0)
 
     def test_fetch_preserves_per_url_provider_errors_for_inspection(self):
         value = Mock()
@@ -493,6 +546,76 @@ class SearchProviderTests(unittest.TestCase):
         self.assertEqual(exa.call_tool.call_count, 1)
         self.assertEqual(parallel.call_tool.call_count, 2)
 
+    def test_fetch_staggered_overlaps_a_stalled_primary(self):
+        self.settings.update({"fetch": {"providers": ["exa", "parallel"], "strategy": "staggered",
+                                        "grace_seconds": 0.2}})
+        events = []
+        exa, parallel = Mock(), Mock()
+        exa.list_tools.return_value, parallel.list_tools.return_value = [EXA_FETCH], [PARALLEL_FETCH]
+
+        def stalled(tool, arguments):
+            events.append("exa-start")
+            time.sleep(0.6)
+            events.append("exa-end")
+            return {"structuredContent": {"results": [
+                {"url": url, "text": "Late primary text"} for url in arguments["urls"]]}}
+
+        exa.call_tool.side_effect = stalled
+        parallel.call_tool.side_effect = lambda tool, arguments: {"structuredContent": {"results": [
+            {"url": url, "text": "Fallback text"} for url in arguments["urls"]]}}
+        with patch.object(self.engine, "_client", side_effect={"exa": exa, "parallel": parallel}.__getitem__):
+            result = self.engine.fetch(["https://example.test/page"], archive=False)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["per_url"][0]["provider"], "parallel")
+        self.assertEqual(result["abandoned_providers"], ["exa"])
+        # The response returns without waiting for the abandoned attempt.
+        self.assertEqual(events, ["exa-start"])
+
+    def test_fetch_hedged_starts_every_provider_and_returns_after_the_first_good_batch(self):
+        self.settings.update({"fetch": {"providers": ["exa", "parallel"], "strategy": "hedged"}})
+        urls = ["https://example.test/one", "https://example.test/two"]
+        exa, parallel = Mock(), Mock()
+        exa.list_tools.return_value, parallel.list_tools.return_value = [EXA_FETCH], [PARALLEL_FETCH]
+        exa.call_tool.side_effect = lambda tool, arguments: {"structuredContent": {"results": [
+            {"url": url, "text": "Primary text"} for url in arguments["urls"]]}}
+        started, finished = threading.Event(), []
+
+        def stalled(tool, arguments):
+            started.set()
+            time.sleep(0.6)
+            finished.append(True)
+            return {"structuredContent": {"results": [
+                {"url": url, "text": "Fallback text"} for url in arguments["urls"]]}}
+
+        parallel.call_tool.side_effect = stalled
+        with patch.object(self.engine, "_client", side_effect={"exa": exa, "parallel": parallel}.__getitem__):
+            result = self.engine.fetch(urls, archive=False)
+            # The hedged run returned as soon as the first good batch resolved;
+            # the abandoned fallback is still in flight, and it must reach the
+            # patched client before this context closes.
+            self.assertEqual(finished, [])
+            self.assertTrue(started.wait(timeout=5))
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([row["provider"] for row in result["per_url"]], ["exa", "exa"])
+        self.assertEqual([attempt["provider"] for attempt in result["attempts"]], ["exa"])
+        self.assertEqual(result["abandoned_providers"], ["parallel"])
+        self.assertEqual(parallel.call_tool.call_args.args[1]["urls"], urls)
+
+    def test_fetch_breaker_skips_a_provider_after_repeated_unreadable_batches(self):
+        value = Mock()
+        value.list_tools.return_value = [EXA_FETCH]
+        value.call_tool.return_value = {"structuredContent": {"results": []}}
+        with patch.object(self.engine, "_client", return_value=value):
+            first = self.engine.fetch(["https://example.test/one"], provider="exa", archive=False)
+            second = self.engine.fetch(["https://example.test/two"], provider="exa", archive=False)
+            third = self.engine.fetch(["https://example.test/three"], provider="exa", archive=False)
+        self.assertEqual(first["per_url"][0]["extraction_status"], "unrecognized_or_not_returned")
+        self.assertEqual(second["status"], "unverified")
+        self.assertEqual(value.call_tool.call_count, 2)
+        self.assertEqual(third["error_kind"], "provider_stalled")
+        self.assertTrue(third["skipped_due_to_cooldown"])
+        self.assertEqual(value.call_tool.call_count, 2)
+
     def test_providers_run_concurrently_and_same_provider_calls_are_serial(self):
         self.settings.update({"search": {"fallback_providers": []}})
         barrier = threading.Barrier(2)
@@ -704,6 +827,154 @@ class SearchProviderTests(unittest.TestCase):
         self.assertEqual([row["provider"] for row in result["per_url"]], ["exa", "jina"])
         read.assert_called_once()
         self.assertEqual(read.call_args.args[0], "https://r.jina.ai/" + urls[1])
+
+    def _hedge_clients(self, delays, results=None):
+        clients = {}
+        for name, schema in (("exa", EXA_SEARCH), ("parallel", PARALLEL_SEARCH)):
+            value = Mock()
+            value.list_tools.return_value = [schema]
+            rows = (results or {}).get(name, [{"url": "https://example.test/" + name}])
+
+            def execute(tool, arguments, delay=delays.get(name, 0), rows=rows):
+                time.sleep(delay)
+                return {"structuredContent": {"results": rows}}
+
+            value.call_tool.side_effect = execute
+            clients[name] = value
+        return clients
+
+    def test_hedge_returns_after_grace_and_abandons_the_slow_provider(self):
+        self.settings.update({"search": {"fallback_providers": [], "grace_seconds": 0.15, "deadline_seconds": 5}})
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 0.6})
+        started = time.monotonic()
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual(result["routing"]["abandoned_providers"],
+                         [{"provider": "parallel", "reason": "grace_expired"}])
+        self.assertEqual([batch["provider"] for batch in result["batches"]], ["exa"])
+        self.assertEqual(result["targets"][0]["results"][0]["url"], "https://example.test/exa")
+        self.assertEqual(result["routing"]["hedge"], {"grace_seconds": 0.15, "deadline_seconds": 5})
+
+    def test_hedge_merges_a_provider_completing_within_the_grace_window(self):
+        self.settings.update({"search": {"fallback_providers": [], "grace_seconds": 0.5, "deadline_seconds": 5}})
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 0.15})
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        self.assertEqual(result["routing"]["abandoned_providers"], [])
+        self.assertEqual({row["url"] for row in result["targets"][0]["results"]},
+                         {"https://example.test/exa", "https://example.test/parallel"})
+
+    def test_hedge_waits_past_the_grace_window_for_unresolved_queries(self):
+        self.settings.update({"search": {"fallback_providers": [], "grace_seconds": 0.1, "deadline_seconds": 5}})
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 0.35},
+                                      results={"exa": [], "parallel": [{"url": "https://example.test/late"}]})
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        self.assertEqual(result["routing"]["abandoned_providers"], [])
+        self.assertEqual(result["targets"][0]["results"][0]["url"], "https://example.test/late")
+        self.assertEqual(result["unresolved_queries"], [])
+
+    def test_hedge_deadline_abandons_and_reports_unresolved_queries(self):
+        self.settings.update({"search": {"fallback_providers": [], "grace_seconds": 0.1, "deadline_seconds": 0.35}})
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 1.5}, results={"exa": []})
+        started = time.monotonic()
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 1.0)
+        self.assertEqual(result["routing"]["abandoned_providers"],
+                         [{"provider": "parallel", "reason": "deadline"}])
+        self.assertEqual(result["unresolved_queries"], [{"target": "A", "query": "q"}])
+
+    def test_hedge_null_bounds_and_explicit_false_await_all_providers(self):
+        self.settings.update({"search": {"fallback_providers": [], "grace_seconds": None, "deadline_seconds": None}})
+        self.assertIsNone(self.settings.load()["search"]["grace_seconds"])
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 0.3})
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        self.assertEqual(result["routing"]["abandoned_providers"], [])
+        self.assertEqual(len(result["batches"]), 2)
+        self.settings.update({"search": {"grace_seconds": 0.1, "deadline_seconds": 5}})
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 0.3})
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}], hedge=False)
+        self.assertEqual(result["routing"]["abandoned_providers"], [])
+        self.assertEqual(len(result["batches"]), 2)
+
+    def test_hedge_bounds_are_validated(self):
+        for changes in ({"grace_seconds": -1}, {"deadline_seconds": "soon"}, {"grace_seconds": 61}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, "search\\."):
+                self.settings.update({"search": changes})
+
+    def test_staggered_skips_later_providers_once_resolved(self):
+        self.settings.update({"search": {"fallback_providers": [], "strategy": "staggered",
+                                         "grace_seconds": 0.2, "deadline_seconds": 5}})
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 0.01})
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        self.assertEqual(result["routing"]["strategy"], "staggered")
+        self.assertEqual(result["routing"]["not_attempted_providers"], ["parallel"])
+        self.assertEqual(result["routing"]["abandoned_providers"], [])
+        clients["parallel"].call_tool.assert_not_called()
+        self.assertEqual(result["targets"][0]["results"][0]["url"], "https://example.test/exa")
+
+    def test_staggered_fires_the_next_provider_when_unresolved_past_the_delay(self):
+        self.settings.update({"search": {"fallback_providers": [], "strategy": "staggered",
+                                         "grace_seconds": 0.15, "deadline_seconds": 5}})
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 0.4},
+                                      results={"exa": [], "parallel": [{"url": "https://example.test/late"}]})
+        started = time.monotonic()
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        elapsed = time.monotonic() - started
+        self.assertGreater(elapsed, 0.35)
+        self.assertEqual(result["routing"]["not_attempted_providers"], [])
+        clients["parallel"].call_tool.assert_called_once()
+        self.assertEqual(result["targets"][0]["results"][0]["url"], "https://example.test/late")
+
+    def test_sequential_skips_later_providers_when_resolved(self):
+        self.settings.update({"search": {"fallback_providers": [], "strategy": "sequential"}})
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 0.01})
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        self.assertEqual(result["routing"]["strategy"], "sequential")
+        self.assertEqual(result["routing"]["not_attempted_providers"], ["parallel"])
+        self.assertEqual(result["routing"]["abandoned_providers"], [])
+        clients["parallel"].call_tool.assert_not_called()
+        self.assertEqual(result["targets"][0]["results"][0]["url"], "https://example.test/exa")
+
+    def test_sequential_sends_only_unresolved_queries_to_the_next_provider(self):
+        self.settings.update({"search": {"fallback_providers": [], "strategy": "sequential"}})
+        clients = {name: Mock() for name in ("exa", "parallel")}
+        for name, schema in (("exa", EXA_SEARCH), ("parallel", PARALLEL_SEARCH)):
+            clients[name].list_tools.return_value = [schema]
+        clients["exa"].call_tool.side_effect = lambda tool, arguments: {"structuredContent": {"results":
+            [{"url": "https://example.test/exa"}] if arguments["query"] == "resolved" else []}}
+        clients["parallel"].call_tool.side_effect = lambda tool, arguments: {"structuredContent": {"results":
+            [{"url": "https://example.test/parallel"}]}}
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "resolved"}, {"target": "B", "query": "missing"}])
+        self.assertEqual(clients["exa"].call_tool.call_count, 2)
+        clients["parallel"].call_tool.assert_called_once()
+        self.assertEqual(clients["parallel"].call_tool.call_args.args[1]["search_queries"], ["missing"])
+        self.assertEqual(result["routing"]["not_attempted_providers"], [])
+        self.assertEqual({row["url"] for row in result["targets"][1]["results"]}, {"https://example.test/parallel"})
+
+    def test_wait_all_strategy_awaits_every_provider(self):
+        self.settings.update({"search": {"fallback_providers": [], "strategy": "wait_all",
+                                         "grace_seconds": 0.1, "deadline_seconds": 5}})
+        clients = self._hedge_clients({"exa": 0.01, "parallel": 0.3})
+        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+            result = self.engine.search([{"target": "A", "query": "q"}])
+        self.assertEqual(result["routing"]["strategy"], "wait_all")
+        self.assertEqual(result["routing"]["abandoned_providers"], [])
+        self.assertEqual(len(result["batches"]), 2)
+
+    def test_strategy_is_validated(self):
+        with self.assertRaisesRegex(ValueError, "search\\.strategy"):
+            self.settings.update({"search": {"strategy": "fastest"}})
 
 
 if __name__ == "__main__":

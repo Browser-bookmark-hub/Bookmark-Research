@@ -14,7 +14,7 @@ import sqlite3
 import tempfile
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -29,7 +29,7 @@ class ResearchSessions:
 
     DEFAULT_BUDGET = {"max_search_calls": 16, "max_fetch_calls": 12, "max_rounds": 8}
     LIMITS = {"max_search_calls": 120, "max_fetch_calls": 80, "max_rounds": 40}
-    FETCH_BATCH_SIZE = 8
+    FETCH_BATCH_SIZE = 16
     RECORD_BATCH_SIZE = 50
     PROVIDERS = Settings.PROVIDERS
 
@@ -911,12 +911,24 @@ class ResearchSessions:
         names = self._providers(providers if providers is not None else state["providers"])
         self._integer(limit_per_target, "limit_per_target", 1, 20)
         parameters = {"targets": targets, "providers": names, "limit_per_target": limit_per_target}
+        # A short-TTL search cache serves repeated identical queries without a
+        # provider request, so those jobs are not reserved. An engine without
+        # the counter (alternate implementations, test doubles) reserves fully.
+        reserved_calls = len(targets) * len(names)
+        counter = getattr(self._web(), "cached_search_pairs", None)
+        if callable(counter):
+            cached = counter(targets, names, limit_per_target)
+            if type(cached) is int and 0 <= cached <= reserved_calls:
+                reserved_calls -= cached
         fallbacks = state.get("search_fallback_providers", []) if providers is None else []
         previous = next((row for row in state["operations"] if row["id"] == operation_id), None)
         if fallbacks and not (previous and previous.get("parameters") == parameters):
             parameters["fallback_providers"] = fallbacks
 
         def execute(path, current, operation):
+            engine = self._web()
+            counter = getattr(engine, "cached_search_pairs", None)
+
             def reserve(jobs):
                 # A fallback reserves more budget mid-request, so it re-reads the
                 # latest state under the lock instead of trusting the snapshot.
@@ -924,37 +936,104 @@ class ResearchSessions:
                     _, latest = self._load(research_id, path)
                     stored = self._pending_operation(latest, operation_id)
                     remaining = latest["budget"]["max_search_calls"] - latest["usage"]["search_calls"]
-                    chosen = jobs[:max(0, remaining)]
+                    free = set()
+                    if callable(counter):
+                        for job in jobs:
+                            name, target, query = job
+                            count = counter([{"target": target, "query": query}], [name], limit_per_target)
+                            if type(count) is int and count > 0:
+                                free.add(job)
+                    paid = [job for job in jobs if job not in free]
+                    chosen_paid = paid[:max(0, remaining)]
+                    allowed = free | set(chosen_paid)
+                    chosen = [job for job in jobs if job in allowed]
                     if chosen:
-                        latest["usage"]["search_calls"] += len(chosen)
-                        stored["reserved"]["search_calls"] = stored["reserved"].get("search_calls", 0) + len(chosen)
+                        if chosen_paid:
+                            latest["usage"]["search_calls"] += len(chosen_paid)
+                            stored["reserved"]["search_calls"] = stored["reserved"].get("search_calls", 0) + len(chosen_paid)
                         stored["fallback_attempts"] = [{"provider": name, "target": target, "query": query}
                                                        for name, target, query in chosen]
                         self._save(path, latest)
                 return chosen
 
-            result = self._web().search(**parameters, **({"reserve_fallback": reserve} if "fallback_providers" in parameters else {}))
+            result = engine.search(**parameters, hedge=False,
+                                   **({"reserve_fallback": reserve} if "fallback_providers" in parameters else {}))
             success = result.get("successful_provider_count", 0)
             failed = any(row.get("status") == "error" for row in result.get("batches", []))
             return {"status": "partial" if success and failed else "ok" if success else "error",
                     "result": result, "usage": result.get("usage", {})}
 
         return self._operation(research_id, operation_id, "search", parameters,
-                               {"search_calls": len(targets) * len(names), "rounds": 1}, execute)
+                               {"search_calls": reserved_calls, "rounds": 1}, execute)
 
-    def fetch(self, research_id, operation_id, question_id, urls, provider=None, max_characters=12000):
+    @staticmethod
+    def _reusable_sources(state, urls, reuse_seconds):
+        """Map requested URLs to the newest extracted source inside the window."""
+        now = datetime.now(timezone.utc)
+        window = timedelta(seconds=reuse_seconds)
+        newest = {}
+        for source in state["sources"]:
+            if source.get("extraction_status") != "extracted" or not source.get("body_file"):
+                continue
+            stamp = source.get("retrieved_at") or ""
+            if stamp.endswith("Z"):
+                stamp = stamp[:-1] + "+00:00"
+            try:
+                age = now - datetime.fromisoformat(stamp)
+            except ValueError:
+                continue
+            if age < timedelta(0) or age > window:
+                continue
+            key = source.get("canonical_url")
+            if not key:
+                try:
+                    key = SourceArchive._key(source["url"])
+                except (ValueError, UnicodeError, KeyError):
+                    continue
+            current = newest.get(key)
+            if current is None or source.get("retrieved_at", "") > current.get("retrieved_at", ""):
+                newest[key] = source
+        pairs = []
+        for url in urls:
+            source = newest.get(SourceArchive._key(url))
+            if source is not None:
+                pairs.append((url, source))
+        return pairs
+
+    def fetch(self, research_id, operation_id, question_id, urls, provider=None, max_characters=12000,
+              reuse_seconds=None):
         _, state = self._load(research_id)
         self._find(state["questions"], question_id, "question")
         names = self._providers([provider] if provider is not None else state.get("fetch_providers", state["providers"]))
         self._integer(max_characters, "max_characters", 100, 100000)
+        if reuse_seconds is None:
+            reuse_seconds = self.settings.load()["fetch"]["reuse_seconds"]
+        self._integer(reuse_seconds, "reuse_seconds", 0, 86400)
         if not isinstance(urls, list) or not 1 <= len(urls) <= self.FETCH_BATCH_SIZE:
             raise ValueError("urls must contain 1 to %s HTTP(S) URLs" % self.FETCH_BATCH_SIZE)
         for url in urls:
             self._text(url, "URL", 8192)
             SourceArchive._key(url)
         urls = list(dict.fromkeys(urls))
+        # URLs with extracted text saved inside the reuse window skip the
+        # network entirely; their existing sources are returned as reused
+        # instead of a fresh snapshot, and they reserve no fetch budget.
+        reused_pairs = self._reusable_sources(state, urls, reuse_seconds) if reuse_seconds else []
+        reused_keys = {url for url, _ in reused_pairs}
+        fresh = [url for url in urls if url not in reused_keys]
+        reused_rows, seen_ids = [], set()
+        for _, source in reused_pairs:
+            if source["id"] not in seen_ids:
+                seen_ids.add(source["id"])
+                reused_rows.append({**copy.deepcopy(source), "reused": True})
+        reused_per_url = [{"url": url, "provider": "reused", "status": "ok", "reused": True,
+                           "source_id": source["id"]} for url, source in reused_pairs]
         parameters = {"question_id": question_id, "urls": urls, "provider": names[0],
                       "max_characters": max_characters}
+        if reuse_seconds:
+            # Zero (the default) is omitted so receipts predating this option
+            # replay with identical parameters.
+            parameters["reuse_seconds"] = reuse_seconds
         previous = next((row for row in state["operations"] if row["id"] == operation_id), None)
         # Legacy receipts predate fallback selection. Replaying one must never
         # submit additional requests merely because the plugin was upgraded.
@@ -1020,31 +1099,59 @@ class ResearchSessions:
                     if selected:
                         latest["usage"]["fetch_calls"] += reserved
                         stored["reserved"]["fetch_calls"] = stored["reserved"].get("fetch_calls", 0) + reserved
-                        stored["fallback_attempts"] = [{"provider": name, "urls": pending} for name in selected]
+                        # A staggered fetch can reserve providers one at a time,
+                        # so receipts append instead of replacing the group.
+                        stored["fallback_attempts"] = (stored.get("fallback_attempts") or []) + [
+                            {"provider": name, "urls": pending} for name in selected]
                         self._save(path, latest)
                 return selected
 
-            fetched = SearchProviders._fetch_waterfall(urls, names, lambda name, pending:
-                engine.fetch(pending, provider=name, archive=False, max_characters=max_characters), reserve)
+            fetch_settings = self.settings.load()["fetch"]
+            if fresh:
+                fetched = SearchProviders._fetch_waterfall(fresh, names, lambda name, pending:
+                    engine.fetch(pending, provider=name, archive=False, max_characters=max_characters), reserve,
+                    strategy=fetch_settings["strategy"], grace=fetch_settings["grace_seconds"],
+                    deadline=fetch_settings["deadline_seconds"])
+            else:
+                fetched = {"status": "ok", "attempts": [], "per_url": [], "unresolved_urls": [],
+                           "remaining_providers": [], "abandoned_providers": [],
+                           "usage": dict.fromkeys(SearchProviders.USAGE_FIELDS, 0)}
             captured = [capture(path, current, attempt) for attempt in fetched["attempts"]]
             sources = [source for result in captured for source in result.get("sources", [])]
-            payload = captured[0] if len(captured) == 1 else {
-                "status": fetched["status"], "sources": sources,
-                "next_action": "Read saved text with research_source and review its identity and meaning before citing it."}
+            if len(captured) == 1:
+                payload = captured[0]
+            else:
+                payload = {"status": fetched["status"], "sources": sources,
+                           "next_action": "Read saved text with research_source and review its identity and meaning before citing it."}
             archive_errors = [result for result in captured if result.get("error_kind") == "archive_error"]
             if archive_errors:
                 payload = {**payload, "status": "partial" if any(s["body_file"] for s in sources) else "error",
                            "error_kind": "archive_error", "archive_errors": archive_errors}
             else:
                 payload["status"] = fetched["status"]
-            return {**payload, "usage": fetched["usage"], "per_url": fetched["per_url"],
+            if reused_rows:
+                # Reused text never becomes a new snapshot: stored sources are
+                # returned as-is with their original ids and retrieval times,
+                # and the caller is told which URLs skipped the network.
+                if payload["status"] == "error" and not sources:
+                    payload["status"] = "partial" if fetched["attempts"] else "ok"
+                payload["reused_sources"] = reused_rows
+                payload["next_action"] = ("%s %d URL(s) reused saved text from this task instead of fetching again."
+                                          % (payload.get("next_action", ""), len(reused_rows))).strip()
+            per_url = {}
+            for row in reused_per_url:
+                per_url.setdefault(row["url"], row)
+            for row in fetched["per_url"]:
+                per_url.setdefault(row["url"], row)
+            return {**payload, "usage": fetched["usage"],
+                    "per_url": [per_url[url] for url in urls if url in per_url],
                     "unresolved_urls": fetched["unresolved_urls"], "remaining_providers": fetched["remaining_providers"],
                     "attempts": [{key: attempt[key] for key in
                                   ("provider", "urls", "status", "error_kind", "retryable", "skipped_due_to_cooldown")
                                   if key in attempt} for attempt in fetched["attempts"]]}
 
         return self._operation(research_id, operation_id, "fetch", parameters,
-                               {"fetch_calls": Settings.fetch_call_count(names[0], urls)}, execute)
+                               {"fetch_calls": Settings.fetch_call_count(names[0], fresh) if fresh else 0}, execute)
 
     def import_evidence(self, research_id, operation_id, question_id, url, text, provenance,
                         inventory_ids=None, title=""):
@@ -1150,15 +1257,31 @@ class ResearchSessions:
                 raise ValueError("Legacy extract has ambiguous source attribution; fetch a new capture")
         return body.decode("utf-8")
 
-    def source(self, research_id, source_id, offset=0, limit=12000):
+    def source(self, research_id, source_id=None, offset=0, limit=12000, source_ids=None):
         self._integer(offset, "offset", 0, 10000000)
         self._integer(limit, "limit", 1, 50000)
+        if (source_id is None) == (source_ids is None):
+            raise ValueError("Provide source_id or source_ids")
         path, state = self._load(research_id)
-        source = self._find(state["sources"], source_id, "source")
-        body = self._body(path, source)
-        return {"research_id": research_id, "source": source, "offset": offset,
-                "text": body[offset:offset + limit], "total_characters": len(body),
-                "next_offset": offset + limit if offset + limit < len(body) else None}
+
+        def read(identifier):
+            source = self._find(state["sources"], identifier, "source")
+            body = self._body(path, source)
+            return {"source": source, "offset": offset, "text": body[offset:offset + limit],
+                    "total_characters": len(body),
+                    "next_offset": offset + limit if offset + limit < len(body) else None}
+
+        if source_ids is not None:
+            if (not isinstance(source_ids, list) or not 1 <= len(source_ids) <= 8
+                    or any(not isinstance(value, str) or not value.strip() for value in source_ids)
+                    or len(set(source_ids)) != len(source_ids)):
+                raise ValueError("source_ids must contain 1 to 8 distinct source ids")
+            entries = [read(identifier) for identifier in source_ids]
+            return {"research_id": research_id, "count": len(entries), "sources": entries}
+        entry = read(source_id)
+        return {"research_id": research_id, "source": entry["source"], "offset": entry["offset"],
+                "text": entry["text"], "total_characters": entry["total_characters"],
+                "next_offset": entry["next_offset"]}
 
     def _citations(self, path, state, citations, allow_rejected=False):
         if not isinstance(citations, list) or not 1 <= len(citations) <= 12:

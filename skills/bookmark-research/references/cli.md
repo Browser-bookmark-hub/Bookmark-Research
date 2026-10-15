@@ -55,9 +55,10 @@ python3 <root>/src/cli.py search-archive 'exact phrase or terms' --url example.c
 python3 <root>/src/cli.py config show
 python3 <root>/src/cli.py config set --search-provider exa --archive true
 python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
+python3 <root>/src/cli.py config set --search-cache-seconds 120 --fetch-reuse-seconds 3600
 ```
 
-`config show` / `config set` correspond to MCP `get_settings` / `update_settings`. `config set --input /path/to/changes.json` (or `-` for stdin) merges partial settings. CLI flags override matching fields from that invocation's JSON. `fetch-web` archives by default; `--archive` / `--no-archive` affects one call. Set future defaults with `config set --archive true|false`. See [settings and archives](settings-and-archive.md).
+`config show` / `config set` correspond to MCP `get_settings` / `update_settings`. `config set --input /path/to/changes.json` (or `-` for stdin) merges partial settings. CLI flags override matching fields from that invocation's JSON. `fetch-web` archives by default; `--archive` / `--no-archive` affects one call. Set future defaults with `config set --archive true|false`. `--search-cache-seconds` and `--fetch-reuse-seconds` set the search-cache TTL and the saved-text reuse window (0 disables, the default); `--server-workers` and `--server-max-pending` set stdio server concurrency and apply after restart. See [settings and archives](settings-and-archive.md).
 
 `setup` guides preferences, hidden key entry and selected service checks. `--non-interactive --input FILE` is the agent path; `--skip-checks` prevents network checks. `readiness` uses saved cached/always/manual policy; `--refresh` forces checks, `--offline` prevents network, and `--test-retrieval` opts into sample search/read quota. Repeat `--provider` to restrict retrieval checks, `--service openai|parallel` to select a professional service, and `--tool` for actually observed host tools. `--host` accepts `codex`, `claude_code`, `pi`, `dsh`, `unknown`. Use readiness for unclear access, diagnostics or external service selection, reusing current results; no professional job starts. See the settings reference for status meanings and private credential storage.
 
@@ -79,7 +80,7 @@ Use `search-web --input /path/to/query.json` for stable target labels and repeat
 }
 ```
 
-Limits are 12 target/query pairs and 20 returned URLs per target. `fetch-web` accepts up to 8 URLs per call. Providers run concurrently; each provider's requests run sequentially and reuse its tool catalog within the process.
+Limits are 12 target/query pairs and 20 returned URLs per target. `fetch-web` accepts up to 16 URLs per call. Providers run concurrently; each provider's requests run sequentially and reuse its tool catalog within the process.
 
 To merge **actual results** from other host MCPs, normalize them to this shape and call `merge-results /path/to/batches.json`. Do not invent URLs, ranks or provider names from snippets.
 
@@ -117,6 +118,7 @@ python3 <root>/src/cli.py research coverage <research-id> --filter unreviewed --
 python3 <root>/src/cli.py research search <research-id> --input /path/to/search-step.json
 python3 <root>/src/cli.py research fetch <research-id> --input /path/to/fetch-step.json
 python3 <root>/src/cli.py research source <research-id> s1 --offset 0 --limit 12000
+python3 <root>/src/cli.py research source <research-id> --source-id s1 --source-id s2 --limit 8000
 python3 <root>/src/cli.py research import-evidence <research-id> --input /path/to/actual-evidence.json
 python3 <root>/src/cli.py research record <research-id> --input /path/to/entry.json
 python3 <root>/src/cli.py research finish <research-id> --summary 'Verified conclusions' --status completed

@@ -32,7 +32,7 @@ Exa Agent、Parallel Task 和 OpenAI Deep Research 是独立研究接口，认�
 
 ## 合并与核验
 
-`search_web` 默认并行调用 Exa + Parallel。输入 `targets:[{target,query}]`；`target` 为稳定目标标签，同一目标可以多次查询。按目标分别合并、去重、排序和限额；返回的 `batches` 与结果 `sources` 保留 provider、query、URL、排名及检索时间。排名分数只决定展示顺序。
+`search_web` 默认并行调用 Exa + Parallel。输入 `targets:[{target,query}]`；`target` 为稳定目标标签，同一目标可以多次查询；也可直接传纯查询字符串，等价于 `{target: s, query: s}`。按目标分别合并、去重、排序和限额；返回的 `batches` 与结果 `sources` 保留 provider、query、URL、排名及检索时间。排名分数只决定展示顺序。
 
 某个查询在第一轮仍无有效 HTTP(S) 结果时，自动并发调用 `search.fallback_providers`，默认为 Tavily + 有 key 的 Jina；已有一路成功的查询不重跑。单次明确传 `providers` 会关闭自动补充服务。备用服务缺 key 时不联网，列在 `routing.skipped_providers`。检查 `unresolved_queries` 和预算不足的 `remaining_attempts`；每个备用 provider／目标／query 调用前预留一次预算。新研究会话冻结备用列表；显式会话 providers 和旧会话不会静默加入其他服务。
 

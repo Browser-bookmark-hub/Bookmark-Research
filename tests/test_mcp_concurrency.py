@@ -111,6 +111,23 @@ class McpConcurrencyTests(unittest.TestCase):
         self.assertTrue(any(message["id"] == 1 and "result" in message for message in messages))
         self.assertIn("already started", self.stderr.getvalue())
 
+    def test_explicit_serve_arguments_set_queue_limits_without_patching_constants(self):
+        # The CLI reads server.network_workers / server.max_pending_calls and
+        # passes them to serve(); they must apply without touching the module
+        # defaults that tests and embedders rely on.
+        with patch.object(mcp_server.StdioMcpServer, "_web", return_value=self.engine):
+            mcp_server.serve(self.root / "index.sqlite3",
+                stdin=ScriptInput(self.handshake + [
+                    request(1, "fetch_web", {"urls": ["https://example.test/running"]}),
+                    request(2, "fetch_web", {"urls": ["https://example.test/queued"]}),
+                    request(3, "fetch_web", {"urls": ["https://example.test/overflow"]}),
+                    {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}},
+                ], 3, self.started),
+                stdout=self.output, stderr=self.stderr,
+                settings=Settings(self.root / "settings.json"), workers=1, max_pending=2)
+        errors = {message["id"]: message["error"]["code"] for message in self.output.messages if "error" in message}
+        self.assertEqual(errors.get(3), -32000)
+
     def test_normal_eof_drains_all_accepted_calls_and_preserves_id_types(self):
         self.release.set()
         identifiers = [1, "1", 2, "second", 3, "third"]

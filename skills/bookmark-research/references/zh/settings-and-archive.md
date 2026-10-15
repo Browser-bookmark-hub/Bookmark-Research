@@ -4,7 +4,7 @@
 
 用户可直接在对话中改配置，CLI 与 MCP 使用同一套实现。当前没有独立图形设置页。
 
-provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `search.providers` 指定（Exa + Parallel），无结果查询交给 `search.fallback_providers`（Tavily + 有 key 的 Jina）；设为空数组可关闭回退。读取先用 `fetch.provider`，再将未成功 URL 交给其余 `fetch.providers` 并发，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。密钥优先读取进程环境，其次读取私有凭据文件，公共访问仍受限额影响。
+provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `search.providers` 指定（Exa + Parallel），策略由 `search.strategy` 选择：`hedged`（默认）全并发，所有查询都有结果后最多再等 `search.grace_seconds`（默认 2）即返回；`staggered` 错峰，查询未全部解析才发下一家；`sequential` 按顺序逐家调用，只把未解析查询交给下一家；`wait_all` 等全部。首轮受 `search.deadline_seconds`（默认 10）约束，被放弃与未调用的 provider 分别记录在 `routing.abandoned_providers` 与 `routing.not_attempted_providers`；设为 null 可关闭对应限制。无结果查询交给 `search.fallback_providers`（Tavily + 有 key 的 Jina）；设为空数组可关闭回退。读取先用 `fetch.provider`，策略由 `fetch.strategy` 选择：`staggered`（默认）在当前提供商超过 `fetch.grace_seconds`（默认 25）仍未解决时并行下一家；`hedged` 全部并发；`sequential` 逐家等待；`grace_seconds` 设为 null 即回到逐家等待。被放弃的提供商记入 `abandoned_providers`；连续两次整批无可用正文的提供商会短暂跳过（`provider_stalled`）。其余 `fetch.providers` 对未成功 URL 并发兜底，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。密钥优先读取进程环境，其次读取私有凭据文件，公共访问仍受限额影响。
 
 ## 终端向导与就绪检查
 
@@ -51,8 +51,11 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 {
   "schema_version": 1,
   "timeout_seconds": 30,
-  "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5},
-  "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000},
+  "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5,
+    "strategy": "hedged", "grace_seconds": 2, "deadline_seconds": 10, "cache_seconds": 0},
+  "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000,
+    "strategy": "staggered", "grace_seconds": 25, "deadline_seconds": null, "reuse_seconds": 0},
+  "server": {"network_workers": 4, "max_pending_calls": 16},
   "archive": {"enabled": true, "directory": "/absolute/path/to/knowledge"},
   "research": {"depth": "auto", "prefer_host_workflows": true, "response_language": "auto",
     "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
@@ -66,6 +69,8 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 ```
 
 优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
+
+`search.cache_seconds`（0–3600，默认 0）让短时间内的相同搜索直接返回进程内缓存，不再调用提供商；这些批次标记 `cached:true`，保留原 `retrieved_at`，不消耗提供商额度。`fetch.reuse_seconds`（0–86400，默认 0）让 `research_fetch` 对窗口内已保存正文的 URL 直接返回 `reused_sources`（保留原 ID 与检索时间，不追加新快照），不再联网，也不占抓取预算。`server.network_workers`（1–16）与 `server.max_pending_calls`（1–64，且不小于 worker 数）设置 stdio 服务端并发，重启服务后生效。
 
 ## 研究结果位置与 Wiki 后续整理
 

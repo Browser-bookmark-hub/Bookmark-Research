@@ -423,8 +423,8 @@ class SourceArchive:
         """Read a stable archived extract without issuing another web request."""
         if not isinstance(capture_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", capture_id):
             raise ValueError("Invalid archive capture_id")
-        if not isinstance(urls, list) or not 1 <= len(urls) <= 8:
-            raise ValueError("urls must contain 1 to 8 archived URLs")
+        if not isinstance(urls, list) or not 1 <= len(urls) <= 16:
+            raise ValueError("urls must contain 1 to 16 archived URLs")
         requested = list(dict.fromkeys(urls))
         for url in requested:
             self._key(url)

@@ -32,7 +32,7 @@ Public queries contain only necessary public names, URLs and conditions, not ent
 
 ## Merging and verification
 
-`search_web` calls Exa + Parallel concurrently by default. Supply `targets:[{target,query}]`; `target` is a stable label and may have multiple queries. Merge, deduplicate, rank and limit results separately per target. Returned `batches` and result `sources` retain provider, query, URL, rank and retrieval time. Ranking scores control display order only.
+`search_web` calls Exa + Parallel concurrently by default. Supply `targets:[{target,query}]`; `target` is a stable label and may have multiple queries, and a plain query string is shorthand for `{target: s, query: s}`. Merge, deduplicate, rank and limit results separately per target. Returned `batches` and result `sources` retain provider, query, URL, rank and retrieval time. Ranking scores control display order only.
 
 For each query without a usable HTTP(S) result from the primary group, call `search.fallback_providers` concurrently (defaults: Tavily + keyed Jina). Queries already answered by either primary provider are not repeated. Explicit per-call `providers` disables automatic fallback. Missing fallback keys appear in `routing.skipped_providers` without a network request. Inspect `unresolved_queries` and budget-limited `remaining_attempts`; each fallback provider/target/query reserves one attempt before access. New research sessions freeze their fallback list; explicit session providers and older sessions do not silently acquire extra providers.
 

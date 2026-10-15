@@ -26,7 +26,7 @@
 ## 证据循环
 
 1. 已知 URL 用 `research_fetch`，缺少来源用 `research_search`；query 对应已有 `question_id`。服从服务限制，检查未解决的调用。
-2. fetch 返回元数据；用 `research_source` 阅读正文，并按相关性继续分页。核对页面身份、日期／版本和适用性，拒绝登录壳或无关页面；摘录可能不完整。先保存 `source_review`，再写 claim。
+2. fetch 返回元数据；用 `research_source` 阅读正文（一次一个来源，或一次最多 8 个 `source_ids`），并按相关性继续分页。核对页面身份、日期／版本和适用性，拒绝登录壳或无关页面；摘录可能不完整。先保存 `source_review`，再写 claim。
 3. claim 使用实际证据 ID 和已存正文的原句。原句／哈希只能验证存在，不能证明语义支持。推断标记 `inference:true`；综合答案保留条件和反证。多个服务返回同一页面不是独立来源。
 4. 原始输入用 `inventory_review` 关联同一原 URL 的已接受正文。替代页面或外部报告可支持回答，但不能算读过原始 URL；失败或合理排除保留具体理由。
 5. 已有充分依据时写 `answer` 并关联本题 claim ID。选择补查或结束时用 `research_coverage`，按相关差集继续，无需重复读取全部未变记录。解决矛盾或保留缺口。
@@ -67,12 +67,12 @@
 | 计数 | 单位 | 默认／上限 |
 | --- | --- | --- |
 | `search_calls` | 去重后的 provider + question + query 尝试 | 16／120 |
-| `fetch_calls` | 按服务尝试；Exa／Parallel／Tavily 每批最多 8 URL，Jina 每个 URL 一次 | 无输入时 12，否则首次容量加 12 次补查，硬上限 80 |
+| `fetch_calls` | 按服务尝试；Exa／Parallel／Tavily 每批最多 16 URL，Jina 每个 URL 一次 | 无输入时 12，否则首次容量加 12 次补查，硬上限 80 |
 | `rounds` | 一批 `research_search` | 8／40 |
 
 搜索最多 12 query，每题最多返回 20 URL；2 query × 2 服务消耗 4 search calls 和 1 round。3 URL 的 Exa → Parallel + Jina 回退消耗 1 + 1 + 3 fetch calls。
 
-未指定 `max_fetch_calls` 时默认 `min(80,max(12,ceil(URL数/8)+12))`，Jina 优先时把批次项换成 URL 数。`initial_fetch_plan` 给出容量和缺口；预算不足也保留原始范围，显式预算不扩大。读已存来源、写记录和报告不消耗检索额度，预算可为 0；宿主／服务之外的消耗另记。
+未指定 `max_fetch_calls` 时默认 `min(80,max(12,ceil(URL数/16)+12))`，Jina 优先时把批次项换成 URL 数。`initial_fetch_plan` 给出容量和缺口；预算不足也保留原始范围，显式预算不扩大。读已存来源、写记录和报告不消耗检索额度，预算可为 0；宿主／服务之外的消耗另记。`research_fetch` 每次可批 16 个 URL、`research_source` 一次可读 8 个来源；宿主回合慢时，少一次往返收益最大。
 
 每个联网步骤用稳定 `operation_id`；参数相同重放原结果，参数改变报错。认证／网络失败和结果未知仍保留预算预留。不要仅为查看结果扩大预算或重新提交。
 

@@ -50,7 +50,7 @@ class FixtureProvider:
     def __init__(self, fixture):
         self.fixture = fixture
 
-    def search(self, targets, providers, limit_per_target):
+    def search(self, targets, providers, limit_per_target, hedge=False):
         batches = [{"provider": provider, "target": target["target"], "query": target["query"],
                     "status": "ok", "retrieved_at": "2026-09-10T00:00:00Z", "results": [
                         {"url": url, "title": self.fixture["pages"][url].get("title", "Unavailable fixture"),

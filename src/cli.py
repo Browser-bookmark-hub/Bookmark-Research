@@ -120,9 +120,17 @@ def _parser():
     configure.add_argument("--archive-dir")
     configure.add_argument("--search-provider", action="append", choices=Settings.PROVIDERS)
     configure.add_argument("--search-fallback-provider", action="append", choices=Settings.PROVIDERS)
+    configure.add_argument("--search-strategy", choices=("hedged", "staggered", "sequential", "wait_all"))
+    configure.add_argument("--fetch-strategy", choices=("sequential", "staggered", "hedged"))
     configure.add_argument("--fetch-provider", choices=Settings.PROVIDERS)
     configure.add_argument("--fetch-fallback-provider", action="append", choices=Settings.PROVIDERS)
     configure.add_argument("--max-characters", type=int)
+    configure.add_argument("--search-cache-seconds", type=int,
+                           help="Serve repeated identical searches from a short-TTL cache; 0 disables (default)")
+    configure.add_argument("--fetch-reuse-seconds", type=int,
+                           help="Return saved text for URLs already fetched within this window; 0 disables (default)")
+    configure.add_argument("--server-workers", type=int, help="Concurrent network requests (1-16, default 4; restart to apply)")
+    configure.add_argument("--server-max-pending", type=int, help="Queued network calls (1-64, default 16; restart to apply)")
     sync = commands.add_parser("sync", help="Import a directory, ZIP, or single card; keep a reusable snapshot")
     sync.add_argument("package")
     sync.add_argument("--source-id")
@@ -219,7 +227,9 @@ def _parser():
         step.add_argument("--input", required=True, help="Action JSON or '-' for stdin; research_id comes from the positional argument")
     source = research_commands.add_parser("source", help="Read and verify saved source text")
     source.add_argument("research_id")
-    source.add_argument("source_id")
+    source.add_argument("source_id", nargs="?")
+    source.add_argument("--source-id", action="append", dest="source_ids", metavar="SOURCE_ID",
+                        help="Repeat to read up to 8 sources in one call")
     source.add_argument("--offset", type=int, default=0)
     source.add_argument("--limit", type=int, default=12000)
     finish = research_commands.add_parser("finish", help="Validate evidence and write report.md plus sources.json")
@@ -317,7 +327,16 @@ def main(argv=None):
         settings = Settings(args.config)
         if args.command == "serve":
             from mcp_server import serve
-            serve(str(_database(args.db)), settings=settings)
+            # Concurrency is read once at startup; an unreadable settings file
+            # falls back to the conservative defaults instead of failing to serve.
+            concurrency = {}
+            try:
+                server_section = settings.load()["server"]
+                concurrency = {"workers": server_section["network_workers"],
+                               "max_pending": server_section["max_pending_calls"]}
+            except (ValueError, OSError) as error:
+                sys.stderr.write("bookmark-research: using default server concurrency (%s)\n" % error)
+            serve(str(_database(args.db)), settings=settings, **concurrency)
             return 0
         if args.command == "watch":
             from source_watcher import SourceWatcher
@@ -384,7 +403,7 @@ def main(argv=None):
                     raise ValueError("Research input must be an object")
                 allowed = {"start": {"brief", "questions", "budget", "providers", "scope", "source_ids", "bookmark_refs", "scope_mode", "inventory_ids", "urls", "output_directory"},
                            "search": {"operation_id", "queries", "providers", "limit_per_target"},
-                           "fetch": {"operation_id", "question_id", "urls", "provider", "max_characters"}}
+                           "fetch": {"operation_id", "question_id", "urls", "provider", "max_characters", "reuse_seconds"}}
                 required = {"start": {"brief", "questions"}, "search": {"operation_id", "queries"},
                             "fetch": {"operation_id", "question_id", "urls"}}
                 if action != "record" and (set(payload) - allowed[action] or required[action] - set(payload)):
@@ -404,7 +423,13 @@ def main(argv=None):
             elif action == "status":
                 result = sessions.status(args.research_id, args.section, args.offset, args.limit)
             elif action == "source":
-                result = sessions.source(args.research_id, args.source_id, args.offset, args.limit)
+                if args.source_ids:
+                    result = sessions.source(args.research_id, source_ids=args.source_ids,
+                                             offset=args.offset, limit=args.limit)
+                elif args.source_id:
+                    result = sessions.source(args.research_id, args.source_id, args.offset, args.limit)
+                else:
+                    raise ValueError("Provide source_id or --source-id")
             else:
                 result = sessions.finish(args.research_id, args.summary, args.status, args.limitation)
         elif args.command == "wiki":
@@ -445,9 +470,15 @@ def main(argv=None):
                         ("archive", "directory", args.archive_dir),
                         ("search", "providers", args.search_provider),
                         ("search", "fallback_providers", args.search_fallback_provider),
+                        ("search", "strategy", args.search_strategy),
+                        ("fetch", "strategy", args.fetch_strategy),
                         ("fetch", "provider", args.fetch_provider),
                         ("fetch", "providers", args.fetch_fallback_provider),
-                        ("fetch", "max_characters", args.max_characters)):
+                        ("fetch", "max_characters", args.max_characters),
+                        ("search", "cache_seconds", args.search_cache_seconds),
+                        ("fetch", "reuse_seconds", args.fetch_reuse_seconds),
+                        ("server", "network_workers", args.server_workers),
+                        ("server", "max_pending_calls", args.server_max_pending)):
                     if value is not None:
                         if not isinstance(changes.get(section, {}), dict):
                             raise ValueError("Settings section must be an object: " + section)

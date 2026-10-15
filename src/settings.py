@@ -55,8 +55,14 @@ class Settings:
     def defaults(cls):
         return {"schema_version": 1, "timeout_seconds": 30,
                 "search": {"providers": ["exa", "parallel"],
-                           "fallback_providers": ["tavily", "jina"], "limit_per_target": 5},
-                "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000},
+                           "fallback_providers": ["tavily", "jina"], "limit_per_target": 5,
+                           "strategy": "hedged", "grace_seconds": 2, "deadline_seconds": 10,
+                           "cache_seconds": 0},
+                "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000,
+                          "strategy": "staggered", "grace_seconds": 25, "deadline_seconds": None,
+                          "reuse_seconds": 0},
+                # Stdio server concurrency; read at startup, so changes need a restart.
+                "server": {"network_workers": 4, "max_pending_calls": 16},
                 "archive": {"enabled": True, "directory": str(cls.data_directory() / "knowledge")},
                 "research": {"depth": "auto", "prefer_host_workflows": True, "response_language": "auto",
                              "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
@@ -86,7 +92,7 @@ class Settings:
         defaults = cls.defaults()
         if set(value) - set(defaults):
             raise ValueError("Unknown settings fields; credentials belong in the environment or private credential file")
-        for section in ("search", "fetch", "archive", "research", "readiness", "professional_research", "wiki", "output"):
+        for section in ("search", "fetch", "server", "archive", "research", "readiness", "professional_research", "wiki", "output"):
             if not isinstance(value.get(section), dict) or set(value[section]) != set(defaults[section]):
                 raise ValueError("Invalid settings fields in " + section)
         for label, number, minimum, maximum in (
@@ -96,9 +102,28 @@ class Settings:
                 ("fetch.max_characters", value["fetch"]["max_characters"], 100, 100000),
                 ("wiki.max_source_age_days", value["wiki"]["max_source_age_days"], 1, 3650),
                 ("readiness.ttl_seconds", value["readiness"]["ttl_seconds"], 60, 86400),
-                ("readiness.timeout_seconds", value["readiness"]["timeout_seconds"], 1, 30)):
+                ("readiness.timeout_seconds", value["readiness"]["timeout_seconds"], 1, 30),
+                ("search.cache_seconds", value["search"]["cache_seconds"], 0, 3600),
+                ("fetch.reuse_seconds", value["fetch"]["reuse_seconds"], 0, 86400),
+                ("server.network_workers", value["server"]["network_workers"], 1, 16),
+                ("server.max_pending_calls", value["server"]["max_pending_calls"], 1, 64)):
             if type(number) is not int or not minimum <= number <= maximum:
                 raise ValueError("%s must be an integer between %s and %s" % (label, minimum, maximum))
+        if value["server"]["max_pending_calls"] < value["server"]["network_workers"]:
+            raise ValueError("server.max_pending_calls must be at least server.network_workers")
+        for label, number, minimum, maximum in (
+                ("search.grace_seconds", value["search"]["grace_seconds"], 0, 60),
+                ("search.deadline_seconds", value["search"]["deadline_seconds"], 0, 60),
+                ("fetch.grace_seconds", value["fetch"]["grace_seconds"], 0, 60),
+                ("fetch.deadline_seconds", value["fetch"]["deadline_seconds"], 0, 60)):
+            # Hedge timing accepts fractional seconds; null disables the bound.
+            if number is not None and (isinstance(number, bool) or not isinstance(number, (int, float))
+                                       or not minimum <= number <= maximum):
+                raise ValueError("%s must be null or a number between %s and %s" % (label, minimum, maximum))
+        if value["search"]["strategy"] not in ("hedged", "staggered", "sequential", "wait_all"):
+            raise ValueError("search.strategy must be hedged, staggered, sequential or wait_all")
+        if value["fetch"]["strategy"] not in ("sequential", "staggered", "hedged"):
+            raise ValueError("fetch.strategy must be sequential, staggered or hedged")
         for section, field, minimum in (("search", "providers", 1), ("fetch", "providers", 1),
                                         ("search", "fallback_providers", 0)):
             providers = value[section][field]

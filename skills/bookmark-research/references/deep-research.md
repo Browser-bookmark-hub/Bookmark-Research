@@ -26,7 +26,7 @@ Create answerable questions, scope, language and retrieval budgets with `researc
 ## Evidence cycle
 
 1. Fetch known URLs with `research_fetch`; discover missing sources with `research_search`, mapping queries to existing `question_id` values. Honor provider restrictions and inspect unresolved attempts.
-2. Fetch returns metadata. Read saved text through `research_source`, continuing pagination for relevant passages. Check page identity, date/version and applicability; reject login shells or unrelated pages. An extract may be partial. Save `source_review` before claims.
+2. Fetch returns metadata. Read saved text through `research_source` (one source, or up to eight `source_ids` per call), continuing pagination for relevant passages. Check page identity, date/version and applicability; reject login shells or unrelated pages. An extract may be partial. Save `source_review` before claims.
 3. Record claims with exact saved quotations and actual evidence IDs. Quote/hash checks establish presence, not semantic support. Mark inferences with `inference:true`; preserve conditions and counterevidence in the final answer. Multiple providers returning one page are not independent sources.
 4. For original input, record `inventory_review` against accepted text from the matching original URL. A replacement page or external report may answer a question without satisfying original-URL coverage. Record specific blocks or justified exclusions when necessary.
 5. Record supported `answer` entries using that question's claim IDs. Check `research_coverage` when choosing follow-up work or finishing; fetch the relevant differences rather than rereading every unchanged record. Resolve conflicts or retain gaps.
@@ -67,12 +67,12 @@ Budgets bound plugin retrieval attempts, not money or model tokens:
 | Counter | Unit | Default / maximum |
 | --- | --- | --- |
 | `search_calls` | A deduplicated provider + question + query attempt | 16 / 120 |
-| `fetch_calls` | Provider attempt: Exa/Parallel/Tavily batch up to 8 URLs; Jina counts each URL | 12 without input; otherwise initial capacity plus 12 follow-ups, capped at 80 |
+| `fetch_calls` | Provider attempt: Exa/Parallel/Tavily batch up to 16 URLs; Jina counts each URL | 12 without input; otherwise initial capacity plus 12 follow-ups, capped at 80 |
 | `rounds` | One `research_search` batch | 8 / 40 |
 
 Search accepts at most 12 queries and returns at most 20 URLs per question. Two queries across two providers cost four search calls and one round. A three-URL Exa → Parallel + Jina fallback costs 1 + 1 + 3 fetch calls.
 
-Without explicit `max_fetch_calls`, the default is `min(80,max(12,ceil(URL_count/8)+12))`; replace the batch term with `URL_count` when Jina is first. `initial_fetch_plan` reports capacity and shortfall. Preserve explicit budgets and full scope even when capacity is insufficient. Saved-source reads, records and reports use no retrieval allowance; budgets may be zero. Host/provider usage outside these calls must be recorded separately.
+Without explicit `max_fetch_calls`, the default is `min(80,max(12,ceil(URL_count/16)+12))`; replace the batch term with `URL_count` when Jina is first. `initial_fetch_plan` reports capacity and shortfall. Preserve explicit budgets and full scope even when capacity is insufficient. Saved-source reads, records and reports use no retrieval allowance; budgets may be zero. Host/provider usage outside these calls must be recorded separately. Batch `research_fetch` up to 16 URLs and `research_source` up to eight `source_ids` per call: fewer round trips matter most when host turns are slow.
 
 Give each network step a stable `operation_id`. Identical parameters replay saved results; changed parameters fail. Reservations persist through auth/network failures and unknown outcomes. Do not enlarge budgets or resubmit solely to inspect a result.
 

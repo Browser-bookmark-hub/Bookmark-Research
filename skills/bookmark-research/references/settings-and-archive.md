@@ -4,7 +4,7 @@
 
 Users can change settings in conversation. CLI and MCP share one implementation; there is no separate graphical settings page.
 
-Providers are `exa`, `parallel`, `tavily` and `jina`. Search starts with `search.providers` (Exa + Parallel), then `search.fallback_providers` (Tavily + keyed Jina) for unresolved queries; `[]` disables fallback. Reading uses `fetch.provider` first, then other `fetch.providers` concurrently for unresolved URLs (Exa → Parallel + Jina). Jina Reader supports anonymous access; Search requires `JINA_API_KEY`. Tavily uses `TAVILY_API_KEY` or a keyless header. Credentials come from the process environment, then the private credential file; service quotas still apply.
+Providers are `exa`, `parallel`, `tavily` and `jina`. Search starts with `search.providers` (Exa + Parallel) under `search.strategy`: `hedged` (default) runs them concurrently and returns once every query is resolved plus `search.grace_seconds` (default 2); `staggered` starts each next provider only while queries remain unresolved; `sequential` consults providers in order for unresolved queries only; `wait_all` awaits every provider. `search.deadline_seconds` (default 10) caps the primary stage, and dropped or uncalled providers are listed in `routing.abandoned_providers` and `routing.not_attempted_providers`; `null` disables a bound. Then `search.fallback_providers` (Tavily + keyed Jina) runs for unresolved queries; `[]` disables fallback. Reading starts with `fetch.provider` under `fetch.strategy`: `staggered` (default) overlaps the next provider once the current one stalls past `fetch.grace_seconds` (default 25); `hedged` starts every provider at once; `sequential` waits for each provider, and `grace_seconds: null` falls back to sequential. Abandoned providers are listed in `abandoned_providers`, and a provider that twice returns no usable page text is briefly skipped (`provider_stalled`). Other `fetch.providers` cover unresolved URLs concurrently (Exa → Parallel + Jina). Jina Reader supports anonymous access; Search requires `JINA_API_KEY`. Tavily uses `TAVILY_API_KEY` or a keyless header. Credentials come from the process environment, then the private credential file; service quotas still apply.
 
 ## Terminal setup and readiness
 
@@ -51,8 +51,11 @@ The effective configuration shape is below. Replace example `directory` values w
 {
   "schema_version": 1,
   "timeout_seconds": 30,
-  "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5},
-  "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000},
+  "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5,
+    "strategy": "hedged", "grace_seconds": 2, "deadline_seconds": 10, "cache_seconds": 0},
+  "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000,
+    "strategy": "staggered", "grace_seconds": 25, "deadline_seconds": null, "reuse_seconds": 0},
+  "server": {"network_workers": 4, "max_pending_calls": 16},
   "archive": {"enabled": true, "directory": "/absolute/path/to/knowledge"},
   "research": {"depth": "auto", "prefer_host_workflows": true, "response_language": "auto",
     "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
@@ -66,6 +69,8 @@ The effective configuration shape is below. Replace example `directory` values w
 ```
 
 Precedence is per-call arguments → saved preferences → built-in defaults. `fetch_web.archive=false` disables saving for one call; `update_settings` changes the future default. `max_characters` ranges from 100 to 100000 and is forwarded only when the provider supports the corresponding limit. Archives record actual request parameters. `character_limit_applied:false` means the provider has no length parameter supported by this adapter. A larger limit does not guarantee a complete page.
+
+`search.cache_seconds` (0–3600, default 0) serves a repeated identical search from a short-lived in-process cache instead of calling providers again; those batches are marked `cached:true`, keep the original `retrieved_at`, and consume no provider quota. `fetch.reuse_seconds` (0–86400, default 0) makes `research_fetch` return extracted text saved within that window as `reused_sources` (original ids and retrieval times, no new snapshot) instead of fetching again; reused URLs reserve no fetch budget. `server.network_workers` (1–16) and `server.max_pending_calls` (1–64, at least the worker count) set stdio server concurrency and apply after the server restarts.
 
 ## Research output and Wiki follow-up
 

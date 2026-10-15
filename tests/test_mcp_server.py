@@ -201,6 +201,9 @@ class McpServerTests(unittest.TestCase):
             ("search_web", {"targets": [{"target": "公司"}]}),
             ("search_web", {"targets": [{"target": "公司", "query": "公司官网", "command": "bad"}]}),
             ("search_web", {"targets": [{"target": "公司", "query": "公司官网"}] * 13}),
+            ("search_web", {"targets": [123]}),
+            ("update_settings", {"changes": {"server": {"network_workers": 17}}}),
+            ("update_settings", {"changes": {"fetch": {"reuse_seconds": 86401}}}),
             ("fetch_web", {"urls": []}),
             ("search_providers", {"providers": ["exa", "exa"]}),
             ("search_providers", {"providers": ["arbitrary-server"]}),
@@ -270,8 +273,10 @@ class McpServerTests(unittest.TestCase):
         self.assertFalse(self.settings.path.exists())
 
         changed = self.call("update_settings", {"changes": {
-            "search": {"providers": ["exa"]}, "archive": {"directory": str(self.base / "knowledge")},
-            "fetch": {"max_characters": 20000}}})
+            "search": {"providers": ["exa"], "cache_seconds": 60},
+            "archive": {"directory": str(self.base / "knowledge")},
+            "fetch": {"max_characters": 20000, "reuse_seconds": 900},
+            "server": {"network_workers": 2, "max_pending_calls": 4}}})
         self.assertFalse(changed["result"]["isError"], changed)
         client = mock.Mock()
         client.list_tools.return_value = [{"name": "web_fetch_exa", "inputSchema": {
@@ -336,8 +341,10 @@ class McpServerTests(unittest.TestCase):
             with self.subTest(accepted_targets=count):
                 result = self.call("search_web", {"targets": targets[:count]})
                 self.assertFalse(result["result"]["isError"])
-        urls = ["https://example.test/%s" % number for number in range(8)]
-        for count in (1, 8):
+        # Plain strings are shorthand targets accepted alongside objects.
+        self.assertFalse(self.call("search_web", {"targets": ["plain query string"]})["result"]["isError"])
+        urls = ["https://example.test/%s" % number for number in range(16)]
+        for count in (1, 16):
             with self.subTest(accepted_urls=count):
                 result = self.call("fetch_web", {"urls": urls[:count]})
                 self.assertFalse(result["result"]["isError"])
@@ -346,15 +353,16 @@ class McpServerTests(unittest.TestCase):
             ("search_web", {"targets": targets + [{"target": "thirteenth", "query": "website"}]}),
             ("search_web", {"targets": [{"target": "公" * 201, "query": "website"}]}),
             ("search_web", {"targets": [{"target": "company", "query": "查" * 2001}]}),
+            ("search_web", {"targets": ["查" * 2001]}),
             ("fetch_web", {"urls": []}),
-            ("fetch_web", {"urls": urls + ["https://example.test/ninth"]}),
+            ("fetch_web", {"urls": urls + ["https://example.test/extra"]}),
         ]
         for name, arguments in invalid:
             with self.subTest(rejected_tool=name, argument_count=len(next(iter(arguments.values())))):
                 self.assertEqual(self.call(name, arguments)["error"]["code"], -32602)
         # Invalid calls fail at the advertised protocol boundary, before a
         # provider can perform network work or return a less useful tool error.
-        self.assertEqual(provider.search.call_count, 2)
+        self.assertEqual(provider.search.call_count, 3)
         self.assertEqual(provider.fetch.call_count, 2)
 
     def test_research_lifecycle_through_advertised_mcp_tools(self):

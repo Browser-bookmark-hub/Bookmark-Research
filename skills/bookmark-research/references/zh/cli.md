@@ -55,9 +55,10 @@ python3 <root>/src/cli.py search-archive '精确短语或词' --url example.com 
 python3 <root>/src/cli.py config show
 python3 <root>/src/cli.py config set --search-provider exa --archive true
 python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
+python3 <root>/src/cli.py config set --search-cache-seconds 120 --fetch-reuse-seconds 3600
 ```
 
-`config show` / `config set` 对应 MCP `get_settings` / `update_settings`。`config set --input /path/to/changes.json`（或 `-` 从 stdin）支持合并部分配置。CLI 标志覆盖同次 JSON 输入中的对应字段。`fetch-web` 默认归档，`--archive` / `--no-archive` 只覆盖本次；后续调用的默认值用 `config set --archive true|false`。其他配置与目录优先级见 [配置与归档](settings-and-archive.md)。
+`config show` / `config set` 对应 MCP `get_settings` / `update_settings`。`config set --input /path/to/changes.json`（或 `-` 从 stdin）支持合并部分配置。CLI 标志覆盖同次 JSON 输入中的对应字段。`fetch-web` 默认归档，`--archive` / `--no-archive` 只覆盖本次；后续调用的默认值用 `config set --archive true|false`。`--search-cache-seconds` 与 `--fetch-reuse-seconds` 分别设置搜索缓存时长与已存正文复用窗口（0 为关闭，也是默认值）；`--server-workers` 与 `--server-max-pending` 设置 stdio 服务端并发，重启后生效。其他配置与目录优先级见 [配置与归档](settings-and-archive.md)。
 
 `setup` 引导偏好、隐藏密钥输入和服务检查；Agent 使用 `--non-interactive --input FILE`，`--skip-checks` 阻止联网检查。`readiness` 遵循 cached／always／manual 偏好；`--refresh` 强制检查，`--offline` 不联网，`--test-retrieval` 选择执行使用额度的样例搜索／读取。重复 `--provider` 限定检索服务，`--service openai|parallel` 选择专业服务，`--tool` 传入实际观察到的宿主工具；`--host` 为 `codex`、`claude_code`、`pi`、`dsh` 或 `unknown`。访问不明、诊断失败或选择外部服务时使用 readiness 并复用当前结果，不启动专业任务。状态含义与凭据保存见配置参考。
 
@@ -79,7 +80,7 @@ python3 <root>/src/cli.py config set --archive-dir /absolute/path/to/knowledge
 }
 ```
 
-上限为 12 个 target/query 对、每目标 20 个返回 URL；`fetch-web` 每次最多 8 个 URL。provider 之间并行，同一 provider 的会话按序处理并复用工具目录。
+上限为 12 个 target/query 对、每目标 20 个返回 URL；`fetch-web` 每次最多 16 个 URL。provider 之间并行，同一 provider 的会话按序处理并复用工具目录。
 
 融合载体上其他 MCP 的**实际结果**：将结果规范成下面形状，调用 `merge-results /path/to/batches.json`。不要凭摘要补造 URL、排名或 provider 名。
 
@@ -117,6 +118,7 @@ python3 <root>/src/cli.py research coverage <research-id> --filter unreviewed --
 python3 <root>/src/cli.py research search <research-id> --input /path/to/search-step.json
 python3 <root>/src/cli.py research fetch <research-id> --input /path/to/fetch-step.json
 python3 <root>/src/cli.py research source <research-id> s1 --offset 0 --limit 12000
+python3 <root>/src/cli.py research source <research-id> --source-id s1 --source-id s2 --limit 8000
 python3 <root>/src/cli.py research import-evidence <research-id> --input /path/to/actual-evidence.json
 python3 <root>/src/cli.py research record <research-id> --input /path/to/entry.json
 python3 <root>/src/cli.py research finish <research-id> --summary '已核验的结论' --status completed

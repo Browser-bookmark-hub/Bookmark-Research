@@ -41,10 +41,20 @@ SETTINGS_SCHEMA = _object_schema({
     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60},
     "search": _object_schema({"providers": PROVIDERS,
         "fallback_providers": {**PROVIDERS, "minItems": 0},
-        "limit_per_target": {"type": "integer", "minimum": 1, "maximum": 20}}),
+        "limit_per_target": {"type": "integer", "minimum": 1, "maximum": 20},
+        "strategy": {"type": "string", "enum": ["hedged", "staggered", "sequential", "wait_all"]},
+        "grace_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
+        "deadline_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
+        "cache_seconds": {"type": "integer", "minimum": 0, "maximum": 3600}}),
     "fetch": _object_schema({"provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
         "providers": PROVIDERS,
-        "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000}}),
+        "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
+        "strategy": {"type": "string", "enum": ["sequential", "staggered", "hedged"]},
+        "grace_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
+        "deadline_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
+        "reuse_seconds": {"type": "integer", "minimum": 0, "maximum": 86400}}),
+    "server": _object_schema({"network_workers": {"type": "integer", "minimum": 1, "maximum": 16},
+        "max_pending_calls": {"type": "integer", "minimum": 1, "maximum": 64}}),
     "archive": _object_schema({"enabled": {"type": "boolean"}, "directory": _text_schema(4096)}),
     "research": _object_schema({"depth": {"type": "string", "enum": ["auto", "quick", "agentic", "deep"]},
         "prefer_host_workflows": {"type": "boolean"},
@@ -106,12 +116,14 @@ TOOL_SCHEMAS = {
     }, ["source_id"]),
     "index_status": _object_schema({"source_id": IDENTIFIER}),
     "search_web": _object_schema({
-        "targets": _array_schema(_object_schema({"target": _text_schema(200), "query": _text_schema(2000)}, ["target", "query"]), 12, 1),
+        "targets": _array_schema({"type": ["string", "object"], "minLength": 1, "maxLength": 2000,
+            "properties": {"target": _text_schema(200), "query": _text_schema(2000)},
+            "required": ["target", "query"], "additionalProperties": False}, 12, 1),
         "providers": PROVIDERS,
         "limit_per_target": {"type": "integer", "minimum": 1, "maximum": 20},
     }, ["targets"]),
     "fetch_web": _object_schema({
-        "urls": _array_schema(_text_schema(8192), 8, 1),
+        "urls": _array_schema(_text_schema(8192), 16, 1),
         "provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
         "archive": {"type": "boolean"},
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
@@ -149,8 +161,8 @@ TOOL_DESCRIPTIONS = {
     "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
     "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default.",
     "index_status": "Read source modes, snapshots, counts, input availability, pending changes and monitor errors. No refresh or web fetch; unchecked means a live directory needs a recent check.",
-    "search_web": "Discover sources for public queries with saved primary providers concurrently, then fallbacks for unresolved queries. Explicit providers restrict the call. Results are discovery snippets; pages are not fetched.",
-    "fetch_web": "Read known URLs directly with per-page and total text budgets. Continue saved text using capture_id and offset without refetching. Omit provider for saved fallback order; specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing.",
+    "search_web": "Discover sources for public queries with saved primary providers, then fallbacks for unresolved queries. search.strategy selects hedged (default), staggered, sequential or wait_all; search.grace_seconds and search.deadline_seconds bound the hedged and staggered runs, and dropped or uncalled providers are listed in routing. Explicit providers restrict the call. Targets accept target/query objects or plain query strings. Results are discovery snippets; pages are not fetched.",
+    "fetch_web": "Read known URLs directly (up to 16 per call) with per-page and total text budgets. Continue saved text using capture_id and offset without refetching. Omit provider for the saved fallback order (fetch.strategy overlaps a stalled provider); specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing.",
     "search_providers": "Describe retrieval capabilities and per-operation auth. probe=true checks MCP catalogs, not successful retrieval. Jina Reader allows anonymous access; Jina Search needs a key. Configure credentials through CLI setup, never chat.",
     "search_archive": "Search saved page text across local archives and research tasks using literal terms. No network. Identical bodies are merged by hash; occurrences have their own pagination. Hash-mismatched bodies are skipped and counted; the index refreshes incrementally.",
 }
@@ -208,15 +220,17 @@ TOOL_SCHEMAS.update({
     }, ["research_id", "operation_id", "queries"]),
     "research_fetch": _object_schema({
         "research_id": RESEARCH_ID, "operation_id": RESEARCH_ID, "question_id": RESEARCH_ID,
-        "urls": _array_schema(_text_schema(8192), 8, 1),
+        "urls": _array_schema(_text_schema(8192), 16, 1),
         "provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
+        "reuse_seconds": {"type": "integer", "minimum": 0, "maximum": 86400},
     }, ["research_id", "operation_id", "question_id", "urls"]),
     "research_source": _object_schema({
         "research_id": RESEARCH_ID, "source_id": RESEARCH_ID,
+        "source_ids": dict(_array_schema(RESEARCH_ID, 8, 1), uniqueItems=True),
         "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "limit": {"type": "integer", "minimum": 1, "maximum": 50000},
-    }, ["research_id", "source_id"]),
+    }, ["research_id"]),
     "research_record": _object_schema({"research_id": RESEARCH_ID, "entry": RESEARCH_ENTRY,
         "entries": _array_schema(RESEARCH_BATCH_ENTRY, 50, 1),
         "batch_id": {**RESEARCH_ID, "description": "Optional stable ID for safe batch retries; reuse only with identical entries."}},
@@ -246,8 +260,8 @@ TOOL_DESCRIPTIONS.update({
     "research_start": "Create a saved task with questions, budgets and frozen urls or indexed Canvas source_ids. Preserves all input instances; only an explicit subset uses scope_mode=subset. Without inputs, tracks questions only. Returns output path/fallback_reason and work_directory for scratch files. No network or worker starts.",
     "research_status": "List saved tasks or read progress and input freshness. Overview contains truncated previews; use section and pagination for full records. Changed input needs review; frozen evidence stays unchanged. No network; pending state does not prove a worker is running.",
     "research_search": "Search with task providers and fallbacks for unresolved queries, reserving provider/question/query attempts against budget. Explicit providers restrict the call. Identical operation_id and arguments replay saved results. Inspect unresolved_queries and remaining_attempts.",
-    "research_fetch": "Fetch URLs into task evidence with per-attempt budget accounting and fallback for unresolved URLs. Explicit provider restricts the call. Returns metadata; read text with research_source. Reuse operation_id to retrieve the saved outcome; inspect unresolved_urls and remaining_providers.",
-    "research_source": "Read saved extracted text by source ID, with pagination and SHA-256 verification. Extraction may be partial. No network.",
+    "research_fetch": "Fetch up to 16 URLs into task evidence with per-attempt budget accounting and fallback for unresolved URLs (fetch.strategy controls provider overlap; abandoned providers are disclosed). reuse_seconds returns text saved within that window as reused_sources without a new request and reserves no budget. Explicit provider restricts the call. Returns metadata; read text with research_source. Reuse operation_id to retrieve the saved outcome; inspect unresolved_urls and remaining_providers.",
+    "research_source": "Read saved extracted text by source ID, or up to 8 source_ids in one call, with pagination and SHA-256 verification. Extraction may be partial. No network.",
     "research_record": "Record evidence decisions; fields by kind are in deep-research.md#record-types. Supply entry or 1–50 entries, not both. Batches validate atomically and return ordered IDs; batch_id permits identical retries. Use returned IDs for dependent records. resume/external_run require entry. Quote matching checks presence, not meaning.",
     "research_inventory": "Read frozen original URLs, stable inventory IDs, duplicate instances and context. Follow next_offset to cover the requested scope.",
     "research_coverage": "Compare frozen input with accounted, usable-text, reviewed and answered coverage. Paginate missing/unread/unreviewed IDs as needed. A completed provider run does not establish original-source coverage.",
@@ -324,7 +338,7 @@ TOOL_SCHEMAS.update({
         "provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
         "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
-        "limit": {"type": "integer", "minimum": 1, "maximum": 8}}, ["page_id"]),
+        "limit": {"type": "integer", "minimum": 1, "maximum": 16}}, ["page_id"]),
     "wiki_search": _object_schema({"query": _text_schema(500), "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["query"]),
     "wiki_lint": _object_schema({"page_id": RESEARCH_ID}),
@@ -346,7 +360,7 @@ TOOL_DESCRIPTIONS.update({
     "wiki_get": "Read Wiki text with evidence links and separate integrity/freshness checks. Newer snapshots, expired/failed captures and relevant bookmark or linked-page changes need review. Current does not guarantee the live origin is unchanged; no fetch occurs.",
     "wiki_list": "List paginated Wiki pages offline. source_url filters direct citations and linked dependents for reviewing a changed webpage.",
     "wiki_work": "Recover archived, pending, compiled and needs_review work from saved captures, research and committed Wiki revisions. Returns pending claims, page/revision receipts and resume calls. Prefer an ID or kind to scope the audit. Read-only; no fetching, automatic writing or new authorization.",
-    "wiki_refresh": "Fetch and archive up to 8 cited webpage URLs from one Wiki revision. Reports changed/unchanged/unverified captures and affected pages; follow continuation for more. Uses retrieval quota. Read saved captures and review new claims before wiki_write; authored text and bookmark packages stay unchanged.",
+    "wiki_refresh": "Fetch and archive up to 16 cited webpage URLs from one Wiki revision. Reports changed/unchanged/unverified captures and affected pages; follow continuation for more. Uses retrieval quota. Read saved captures and review new claims before wiki_write; authored text and bookmark packages stay unchanged.",
     "wiki_search": "Find authored Wiki text using an incremental character index, literal/spacing matching and explicit aliases. Validates matching candidates; invalid/retracted evidence is excluded. Freshness warnings remain visible. No embeddings or network calls.",
     "wiki_lint": "Audit all selected Wiki evidence, hashes, source freshness, crosslinks and history. Mechanical integrity and declared semantic review are reported separately; no network.",
     "evaluate_research": "Compute metrics from supplied benchmark runs, rubric and reviewer labels: coverage, answer F1, citation labels, report scores and measured cost/latency/variance. Missing judgments stay unknown. Runs no models or providers.",
@@ -739,7 +753,7 @@ def _nonfinite(value):
     raise ValueError("Non-finite JSON value")
 
 
-def serve(db_path, stdin=None, stdout=None, stderr=None, settings=None):
+def serve(db_path, stdin=None, stdout=None, stderr=None, settings=None, workers=None, max_pending=None):
     """Serve line-delimited JSON-RPC until EOF; stdout contains protocol only."""
     incoming = stdin if stdin is not None else sys.stdin
     outgoing = stdout if stdout is not None else sys.stdout
@@ -750,7 +764,8 @@ def serve(db_path, stdin=None, stdout=None, stderr=None, settings=None):
         outgoing.flush()
 
     from mcp_dispatch import StdioRequestQueue
-    queue = StdioRequestQueue(server, emit, workers=NETWORK_WORKERS, max_pending=MAX_PENDING_CALLS)
+    queue = StdioRequestQueue(server, emit, workers=NETWORK_WORKERS if workers is None else workers,
+                              max_pending=MAX_PENDING_CALLS if max_pending is None else max_pending)
     server._cancel_pending = queue.cancel
     interrupted = False
     try:

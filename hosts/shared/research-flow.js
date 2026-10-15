@@ -107,7 +107,9 @@ for (let round = 0; round <= gapRounds && remaining.length; round += 1) {
     "Read exactly these inventory IDs: " + JSON.stringify(ids) + ".\n" +
     "Call research_inventory with these inventory_ids to recover original URLs and bookmark context. " +
     "Inspect existing reviews and evidence first. For needed URLs use research_fetch in " +
-    "batches of up to 8 URLs where applicable, respecting the existing initial_fetch_plan and budget. " +
+    "batches of up to 16 URLs where applicable, respecting the existing initial_fetch_plan and budget; " +
+    "pass reuse_seconds (for example 3600) so a URL an earlier reader already saved returns its existing " +
+    "text instead of being fetched again. " +
     "Read saved text with " +
     "research_source through relevant next_offset pages. Search only for specific evidence gaps. " +
     "Operation IDs must begin with " + JSON.stringify(input.run_key + "-r" + round + "-g" + index) + ". " +

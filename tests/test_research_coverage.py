@@ -134,8 +134,8 @@ class ResearchCoverageTests(unittest.TestCase):
         whole = self.sessions.start(**arguments)
         rows, offsets = self.all_rows(whole["research_id"])
         self.assertEqual(offsets, [0, 100, 200])
-        self.assertEqual(whole["initial_fetch_plan"]["minimum_required"], 26)
-        self.assertEqual(whole["budget"]["max_fetch_calls"], 38)
+        self.assertEqual(whole["initial_fetch_plan"]["minimum_required"], 13)
+        self.assertEqual(whole["budget"]["max_fetch_calls"], 25)
         selected = [rows[0]["id"], rows[-1]["id"]]
         subset = self.sessions.start(**arguments, scope_mode="subset", inventory_ids=selected,
                                      budget={"max_fetch_calls": 0})
@@ -279,17 +279,17 @@ class ResearchCoverageTests(unittest.TestCase):
         identifier = self.start(207, budget={"max_search_calls": 2})
         state = self.sessions.status(identifier)
         self.assertEqual(state["budget"]["max_search_calls"], 2)
-        self.assertEqual(state["budget"]["max_fetch_calls"], 38)
-        self.assertEqual(state["initial_fetch_plan"]["minimum_required"], 26)
+        self.assertEqual(state["budget"]["max_fetch_calls"], 25)
+        self.assertEqual(state["initial_fetch_plan"]["minimum_required"], 13)
         self.assertEqual(state["initial_fetch_plan"]["call_shortfall"], 0)
         urls = [row["original_url"] for row in self.all_rows(identifier)[0]]
         calls = 0
-        for start in range(0, len(urls), 12):
-            group = urls[start:start + 12]
-            for offset in range(0, len(group), 8):
-                self.sessions.fetch(identifier, "group-read-" + str(calls), "q1", group[offset:offset + 8])
+        for start in range(0, len(urls), 32):
+            group = urls[start:start + 32]
+            for offset in range(0, len(group), 16):
+                self.sessions.fetch(identifier, "group-read-" + str(calls), "q1", group[offset:offset + 16])
                 calls += 1
-        self.assertEqual(calls, 35)
+        self.assertEqual(calls, 13)
         self.assertEqual(self.sessions.status(identifier)["counts"]["sources"], 207)
         self.assertEqual(self.engine.fetch.call_count, calls)
         self.assertEqual(self.sessions.coverage(identifier)["metrics"]["substantive_review"]["count"], 0)
@@ -299,23 +299,23 @@ class ResearchCoverageTests(unittest.TestCase):
         state = self.sessions.status(identifier)
         self.assertEqual(state["budget"]["max_fetch_calls"], 12)
         self.assertEqual(state["initial_fetch_plan"]["budget_source"], "explicit")
-        self.assertEqual(state["initial_fetch_plan"]["minimum_required"], 26)
-        self.assertEqual(state["initial_fetch_plan"]["call_shortfall"], 14)
-        self.assertEqual(state["initial_fetch_plan"]["urls_beyond_capacity"], 111)
+        self.assertEqual(state["initial_fetch_plan"]["minimum_required"], 13)
+        self.assertEqual(state["initial_fetch_plan"]["call_shortfall"], 1)
+        self.assertEqual(state["initial_fetch_plan"]["urls_beyond_capacity"], 15)
         self.assertEqual(state["source_scope"]["selected_url_count"], 207)
         finished = self.sessions.finish(identifier, "Insufficient caller budget; scope retained.", status="incomplete")
         report = Path(finished["artifacts"]["report"]).read_text()
-        self.assertIn("minimum_required=26", report)
-        self.assertIn("call_shortfall=14", report)
+        self.assertIn("minimum_required=13", report)
+        self.assertIn("call_shortfall=1", report)
 
-    def test_hard_fetch_limit_reports_gap_and_keeps_all_641_inputs(self):
-        identifier = self.start(641)
+    def test_hard_fetch_limit_reports_gap_and_keeps_all_1281_inputs(self):
+        identifier = self.start(1281)
         state = self.sessions.status(identifier)
         self.assertEqual(state["budget"]["max_fetch_calls"], 80)
         self.assertEqual(state["initial_fetch_plan"]["minimum_required"], 81)
         self.assertEqual(state["initial_fetch_plan"]["call_shortfall"], 1)
         self.assertEqual(state["initial_fetch_plan"]["urls_beyond_capacity"], 1)
-        self.assertEqual(len(self.all_rows(identifier)[0]), 641)
+        self.assertEqual(len(self.all_rows(identifier)[0]), 1281)
         self.assertEqual(state["source_scope"]["omitted_inventory_ids"], [])
 
     def test_accounting_and_failed_fetches_do_not_satisfy_substantive_coverage(self):

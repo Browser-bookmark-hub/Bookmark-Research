@@ -29,7 +29,7 @@ class ResearchTests(unittest.TestCase):
                                          db_path=self.base / "index.sqlite3")
 
     @staticmethod
-    def search_response(targets, providers, limit_per_target):
+    def search_response(targets, providers, limit_per_target, hedge=False):
         return {"successful_provider_count": len(providers), "usage": {"tool_calls": len(targets) * len(providers)},
                 "batches": [{"provider": provider, "target": target["target"], "query": target["query"],
                              "status": "ok", "results": [{"url": "https://example.test/docs", "snippet": "Discovery only"}]}
@@ -167,6 +167,65 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual([call.kwargs["provider"] for call in self.engine.fetch.call_args_list], ["exa", "jina"])
         self.assertTrue(self.sessions.fetch(research_id, "bounded", "q1", urls)["replayed"])
         self.assertEqual(self.engine.fetch.call_count, 2)
+
+    def test_fetch_reuses_saved_text_inside_the_window_without_a_request(self):
+        from datetime import datetime, timezone
+        research_id = self.start(budget={"max_fetch_calls": 1})
+
+        def fetch(urls, provider, archive, max_characters):
+            result = self.fetch_response(urls, provider, archive, max_characters)
+            result["retrieved_at"] = datetime.now(timezone.utc).isoformat()
+            return result
+        self.engine.fetch.side_effect = fetch
+        first = self.fetch(research_id, "read-1")
+        self.assertEqual(first["status"], "ok")
+        self.assertNotIn("reused_sources", first)
+        second = self.fetch(research_id, "read-2", reuse_seconds=600)
+        self.assertEqual(self.engine.fetch.call_count, 1)
+        self.assertEqual(second["status"], "ok")
+        self.assertEqual([row["id"] for row in second["reused_sources"]], ["s1"])
+        self.assertTrue(second["reused_sources"][0]["reused"])
+        # Nothing new was committed, so the fresh-sources key stays absent,
+        # matching every other zero-source fetch.
+        self.assertEqual(second.get("sources", []), [])
+        self.assertEqual(second["usage"]["tool_calls"], 0)
+        self.assertEqual(second["per_url"], [{"url": "https://example.test/docs", "provider": "reused",
+                                              "status": "ok", "reused": True, "source_id": "s1"}])
+        self.assertEqual(self.sessions.status(research_id)["usage"]["fetch_calls"], 1)
+        # Reuse reserved no budget, so it succeeds even though the single fetch
+        # call is spent; the default zero window still refetches and is refused.
+        with self.assertRaisesRegex(ValueError, "budget exhausted"):
+            self.fetch(research_id, "read-3")
+        self.assertEqual(self.engine.fetch.call_count, 1)
+
+    def test_fetch_reuse_mixes_with_fresh_urls_and_discloses_both(self):
+        from datetime import datetime, timezone
+        research_id = self.start()
+
+        def fetch(urls, provider, archive, max_characters):
+            result = self.fetch_response(urls, provider, archive, max_characters)
+            result["retrieved_at"] = datetime.now(timezone.utc).isoformat()
+            return result
+        self.engine.fetch.side_effect = fetch
+        self.fetch(research_id, "read-1")
+        result = self.sessions.fetch(research_id, "read-mixed", "q1",
+                                     ["https://example.test/docs", "https://example.test/other"], reuse_seconds=600)
+        self.assertEqual(self.engine.fetch.call_args_list[-1].args[0], ["https://example.test/other"])
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual([row["id"] for row in result["reused_sources"]], ["s1"])
+        self.assertEqual(len(result["sources"]), 1)
+        self.assertEqual([row["url"] for row in result["per_url"]],
+                         ["https://example.test/docs", "https://example.test/other"])
+        self.assertEqual([row["provider"] for row in result["per_url"]], ["reused", "exa"])
+        self.assertEqual(self.sessions.status(research_id)["usage"]["fetch_calls"], 2)
+
+    def test_search_reserves_no_budget_for_cached_queries(self):
+        research_id = self.start()
+        self.engine.cached_search_pairs.return_value = 1
+        self.sessions.search(research_id, "search-cached", [{"question_id": "q1", "query": "public docs"}])
+        persisted = json.loads((self.sessions.directory / research_id / "state.json").read_text())
+        self.assertEqual(persisted["usage"]["search_calls"], 1)
+        self.assertEqual(persisted["operations"][0]["reserved"]["search_calls"], 1)
 
     def test_new_session_freezes_separate_fetch_defaults_and_old_session_keeps_its_providers(self):
         research_id = self.start(providers=None)
@@ -324,6 +383,24 @@ class ResearchTests(unittest.TestCase):
         self.assertIsNone(source["published_at"])
         self.assertTrue(self.fetch(research_id)["replayed"])
         self.assertEqual(self.engine.fetch.call_count, 1)
+
+    def test_source_reads_multiple_sources_in_one_call(self):
+        research_id = self.start()
+        fetched = self.sessions.fetch(research_id, "pair-read", "q1",
+                                      ["https://example.test/one", "https://example.test/two"])
+        sources = fetched["sources"]
+        self.assertEqual(len(sources), 2)
+        bulk = self.sessions.source(research_id, source_ids=[sources[0]["id"], sources[1]["id"]], limit=8)
+        self.assertEqual(bulk["count"], 2)
+        self.assertEqual([entry["source"]["id"] for entry in bulk["sources"]],
+                         [sources[0]["id"], sources[1]["id"]])
+        single = self.sessions.source(research_id, sources[0]["id"], limit=8)
+        self.assertEqual(bulk["sources"][0]["text"], single["text"])
+        self.assertEqual(bulk["sources"][0]["next_offset"], single["next_offset"])
+        with self.assertRaises(ValueError):
+            self.sessions.source(research_id, sources[0]["id"], source_ids=[sources[1]["id"]])
+        with self.assertRaises(ValueError):
+            self.sessions.source(research_id, source_ids=["s1", "s1"])
 
     def test_completed_receipt_recovers_sources_after_checkpoint_failure(self):
         research_id = self.start()

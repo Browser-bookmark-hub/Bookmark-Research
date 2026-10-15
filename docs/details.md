@@ -26,7 +26,7 @@
 | 场景 | 基础流程 | 检索与委派支持 |
 | --- | --- | --- |
 | URL 直读 | 当前模型读取已知页面并回答 | Exa 未读到的 URL 交给 Parallel + Jina Reader 并发读取；可配置 Tavily 提取。 |
-| Agentic Web Search | 当前宿主模型先规划 → 搜索／读文 → 判断证据 → 针对缺口补查 | Exa + Parallel 提供搜索结果；无有效网址的查询再交给 Tavily + 有 key 的 Jina。普通问题无需完整研究会话。 |
+| Agentic Web Search | 当前宿主模型先规划 → 搜索／读文 → 判断证据 → 针对缺口补查 | Exa + Parallel 按 `search.strategy` 提供搜索结果（默认并发对冲）；无有效网址的查询再交给 Tavily + 有 key 的 Jina。普通问题无需完整研究会话。 |
 | Deep Research | 在宿主研究循环上增加持续调查、按需协作、独立核验、覆盖检查与报告 | 优先利用宿主现有子代理／工作流；外部 Research MCP／API 可承担宿主判断后的子问题或用户明确指定的任务。 |
 
 四个基座共用这套方法：Codex 原生子代理、Claude 普通子代理或已启用团队、Pi 扩展、已配置的 DSH 子代理／工作流；具体差异与官方依据见 [宿主兼容说明](harness-compatibility.md)。整包脚本用于分组研究。保存的 API 偏好只排列外部服务，显式 provider 才直接指定服务；明确路线失败可继续换路，运行中、结果未知或已取消任务不自动重建。
@@ -63,7 +63,7 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 
 ## 搜索、配置与语言
 
-`search.providers` 为第一轮，`search.fallback_providers` 为无结果时的备用列表；设为空数组可关闭搜索回退。读取单独配置 `fetch.provider` 和 `fetch.providers`。调用时明确指定 provider／providers 则只用指定服务。已有配置若只设置过搜索 providers，会保留原来的服务范围；新研究冻结当时的选择，旧记录重放不会增加请求。瀑布流按轮补缺，同轮服务并发；已发出的请求仍需等待结束或超时。普通网页归档开启，深度研究始终保存任务证据。
+`search.providers` 为第一轮，`search.fallback_providers` 为无结果时的备用列表；设为空数组可关闭搜索回退。第一轮策略由 `search.strategy` 选择（默认 hedged 全并发对冲；staggered 错峰、sequential 顺序、wait_all 等全部），按 `search.grace_seconds`（默认 2）与 `search.deadline_seconds`（默认 10）约束：超限的 provider 被放弃或不再调用，分别记入 `routing.abandoned_providers` 与 `routing.not_attempted_providers`，被放弃的请求可能仍消耗额度；研究任务保持等待全部。读取单独配置 `fetch.provider` 和 `fetch.providers`，策略由 `fetch.strategy` 选择（默认 staggered：当前提供商停滞超过 `fetch.grace_seconds` 才并行下一家；hedged 全并发、sequential 逐家；被放弃者记入 `abandoned_providers`）。`fetch.reuse_seconds` 可在窗口内直接复用已存正文（返回 `reused_sources`，不联网、不占抓取预算），`search.cache_seconds` 让重复的相同搜索走短期缓存（批次标记 `cached:true`）。调用时明确指定 provider／providers 则只用指定服务。已有配置若只设置过搜索 providers，会保留原来的服务范围；新研究冻结当时的选择，旧记录重放不会增加请求。瀑布流按轮补缺，同轮服务并发；已发出的请求仍需等待结束或超时。普通网页归档开启，深度研究始终保存任务证据。
 
 可以读取公开 GitHub 仓库页面、README、文件和 issues；读取 README 不等于遍历整个代码仓库。代码审查按任务选择具体文件或宿主已有 GitHub 工具，插件未额外安装 GitHub MCP。
 
