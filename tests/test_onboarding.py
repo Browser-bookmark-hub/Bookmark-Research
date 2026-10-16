@@ -13,6 +13,7 @@ import warnings
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+import dsh_client
 from cli import main
 from credentials import Credentials
 from onboarding import Console, Onboarding
@@ -31,7 +32,9 @@ class SetupFixture(unittest.TestCase):
             **dict.fromkeys(Credentials.NAMES, ""),
             "BOOKMARK_RESEARCH_CONFIG": str(self.base / "config/settings.json"),
             "BOOKMARK_RESEARCH_CREDENTIALS": str(self.base / "config/credentials.json"),
-            "BOOKMARK_RESEARCH_DATA_DIR": str(self.base / "data")})
+            "BOOKMARK_RESEARCH_DATA_DIR": str(self.base / "data"),
+            # Profile discovery must not read this machine's real Harness home.
+            "DSH_HOME": str(self.base / "dsh-home")})
         environment.start()
         self.addCleanup(environment.stop)
         self.settings = Settings()
@@ -238,7 +241,10 @@ class OnboardingTests(SetupFixture):
         current = self.settings.load()
         self.assertTrue(current["professional_research"]["enabled"])
         self.assertIsNone(current["professional_research"]["provider"])
-        self.assertEqual(current["fetch"]["providers"], ["jina"])
+        # The single services question keeps the saved search list and derives reading from it.
+        self.assertEqual(current["search"]["providers"], ["exa", "parallel"])
+        self.assertEqual(current["fetch"]["provider"], "exa")
+        self.assertEqual(current["fetch"]["providers"], ["exa", "parallel"])
 
     def test_invalid_setup_input_does_not_change_settings(self):
         for preferences in ([], {}, {"OPENAI_API_KEY": "secret"}):
@@ -269,33 +275,30 @@ class OnboardingTests(SetupFixture):
         self.assertFalse(result["readiness"]["network_checked"])
         self.assertNotIn("hidden-key-in-store", output.getvalue() + json.dumps(result))
 
-    def test_output_location_and_wiki_follow_up_questions(self):
+    def test_storage_question_sets_archive_and_output_together(self):
         default_output = self.settings.load()["output"]["directory"]
-        # Prompts: depth, language, search, fallback, reader, extra readers, archive, archive dir, output, wiki,
-        # readiness, professional API.
-        defaults = Onboarding(self.settings, Console(io.StringIO("\n" * 12), io.StringIO()))._preferences()
-        self.assertEqual(defaults["output"], {"mode": "central"})
-        self.assertEqual(defaults["wiki"], {"after_research": "suggest"})
-        custom = self.base / "reports"
+        # Prompts: depth, language, services, storage, professional API.
+        defaults = Onboarding(self.settings, Console(io.StringIO("\n" * 5), io.StringIO()))._preferences()
+        for section in ("archive", "output", "wiki", "readiness"):
+            self.assertNotIn(section, defaults)
+        root = self.base / "store"
         output = io.StringIO()
-        answers = "\n" * 8 + "2\nrelative/path\n" + str(custom) + "\n3\n\n\n"
+        answers = "\n\n\n2\n" + str(root) + "\n\n"
         chosen = Onboarding(self.settings, Console(io.StringIO(answers), output))._preferences()
-        self.assertEqual(chosen["output"], {"mode": "central", "directory": str(custom.resolve())})
-        self.assertEqual(chosen["wiki"], {"after_research": "off"})
+        self.assertEqual(chosen["archive"], {"directory": str(root / "knowledge")})
+        self.assertEqual(chosen["output"], {"mode": "central", "directory": str(root / "research")})
         self.assertIn(default_output, output.getvalue())
         self.assertIn("new research tasks only", output.getvalue())
-        self.assertIn("absolute directory", output.getvalue())
-        beside = Onboarding(self.settings, Console(io.StringIO("\n" * 8 + "3\n2\n\n\n"), io.StringIO(), "zh"))._preferences()
+        beside = Onboarding(self.settings, Console(io.StringIO("\n\n\n3\n\n"), io.StringIO(), "zh"))._preferences()
         self.assertEqual(beside["output"], {"mode": "beside_input"})
-        self.assertEqual(beside["wiki"], {"after_research": "auto"})
-        self.settings.update({key: beside[key] for key in ("output", "wiki")})
-        current = self.settings.load()
-        self.assertEqual(current["output"], {"mode": "beside_input", "directory": default_output})
-        self.assertEqual(current["wiki"]["directory"], str(self.base / "data/wiki"))
-        self.assertEqual(current["wiki"]["after_research"], "auto")
-        self.assertNotIn("directory", json.loads(self.settings.path.read_text())["output"])
-        kept = Onboarding(self.settings, Console(io.StringIO("\n" * 12), io.StringIO()))._preferences()
-        self.assertEqual((kept["output"], kept["wiki"]), ({"mode": "beside_input"}, {"after_research": "auto"}))
+        self.assertNotIn("archive", beside)
+        # A saved custom location is reset only when the default folder is chosen.
+        self.settings.update({"archive": {"directory": str(root / "knowledge")},
+                              "output": {"mode": "beside_input", "directory": str(root / "research")}})
+        reset = Onboarding(self.settings, Console(io.StringIO("\n\n\n1\n\n"), io.StringIO()))._preferences()
+        defaults = Settings.defaults()
+        self.assertEqual(reset["archive"], {"directory": defaults["archive"]["directory"]})
+        self.assertEqual(reset["output"], {"mode": "central", "directory": defaults["output"]["directory"]})
 
     def test_noninteractive_cli_applies_json_preferences_and_returns_missing_steps(self):
         preferences = self.base / "preferences.json"
@@ -332,12 +335,45 @@ class InstallTargetTests(SetupFixture):
         path = mock.patch.dict(os.environ, {"PATH": str(self.bin)})
         path.start()
         self.addCleanup(path.stop)
+        # Host detection must not depend on whether this machine has the app.
+        self.discover_desktop()
 
     def tool(self, *names):
         for name in names:
             name += ".cmd" if os.name == "nt" else ""
             (self.bin / name).write_text("#!/bin/sh\n")
             (self.bin / name).chmod(0o755)
+
+    def discover_desktop(self, *paths):
+        """Point DSH Desktop discovery at given CLIs, empty by default."""
+        patcher = mock.patch.object(dsh_client, "desktop_candidates", lambda *arguments, **keywords: list(paths))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def desktop(self, pnpm=True):
+        """A DeepSeek Harness Desktop layout: bundled CLI beside its own pnpm."""
+        runtime = self.base / "DeepSeek Harness.app" / "Contents" / "Resources" / "runtime"
+        cli = runtime / "cli" / "bin" / ("dsh.cmd" if os.name == "nt" else "dsh")
+        cli.parent.mkdir(parents=True)
+        cli.write_text("#!/bin/sh\n")
+        cli.chmod(0o755)
+        if pnpm:
+            (runtime / "pnpm" / "bin").mkdir(parents=True)
+            (runtime / "pnpm" / "bin" / "pnpm.mjs").write_text("// Desktop's own pnpm\n")
+        self.discover_desktop(cli)
+        return cli
+
+    def profile(self, name, dependency=None, bundles=()):
+        """An initialized DSH profile under the fixture's own Harness home."""
+        directory = Path(os.environ["DSH_HOME"]) / "profiles" / name
+        directory.mkdir(parents=True, exist_ok=True)
+        value = {"name": "dsh-profile-" + name}
+        if dependency:
+            value["dependencies"] = {"bookmark-research": dependency}
+        if bundles:
+            value["dsh"] = {"profile": {"bundles": list(bundles)}}
+        (directory / "package.json").write_text(json.dumps(value))
+        return directory
 
     def args(self, **values):
         base = dict(host=None, scope=None, project=None, profile=None, codex="codex", claude=None, pi=None, dsh=None)
@@ -382,6 +418,75 @@ class InstallTargetTests(SetupFixture):
         self.assertEqual([row["host"] for row in targets], ["claude"])
         self.assertIn("needs pnpm", output.getvalue())
 
+    def test_desktop_cli_is_used_when_path_dsh_has_no_pnpm(self):
+        # A generic `dsh` on PATH cannot run `dsh plugin` without pnpm; the
+        # Desktop CLI carries its own, so it is selected and recorded for install.
+        self.tool("claude", "dsh")
+        cli = self.desktop()
+        output = io.StringIO()
+        args = self.args()
+        targets = Console(io.StringIO("\n\n\n\n"), output).install_targets(args)
+        self.assertEqual([row["host"] for row in targets], ["claude", "dsh"])
+        self.assertEqual(targets[1]["profile"], "desktop")
+        self.assertEqual(args.dsh, str(cli))
+        self.assertIn(str(cli), output.getvalue())
+        self.assertIn("DeepSeek Harness Desktop CLI", output.getvalue())
+
+    def test_desktop_only_installation_is_detected_without_a_path_cli(self):
+        self.desktop()
+        output = io.StringIO()
+        args = self.args()
+        targets = Console(io.StringIO("\n\n\n"), output).install_targets(args)
+        self.assertEqual([row["host"] for row in targets], ["dsh"])
+        self.assertEqual(targets[0]["profile"], "desktop")
+
+    def test_reserved_desktop_profile_requires_the_desktop_cli(self):
+        self.tool("dsh", "pnpm")
+        output = io.StringIO()
+        args = self.args(host=["dsh"])
+        targets = Console(io.StringIO("desktop\nweb\n\n"), output).install_targets(args)
+        self.assertEqual(targets[0]["profile"], "web")
+        self.assertIn("--dsh", output.getvalue())
+        self.assertIsNone(args.dsh)
+
+    def test_explicit_desktop_cli_accepts_the_reserved_profile(self):
+        cli = self.desktop()
+        output = io.StringIO()
+        args = self.args(host=["dsh"], dsh=str(cli))
+        targets = Console(io.StringIO("\n\n"), output).install_targets(args)
+        self.assertEqual(targets[0]["profile"], "desktop")
+        self.assertEqual(args.dsh, str(cli))
+        self.assertNotIn("--dsh", output.getvalue())
+
+    def test_initialized_profiles_are_listed_with_their_registration(self):
+        cli = self.desktop()
+        self.profile("desktop", dependency="0.5.0-beta.7", bundles=["@deepseek-ai/dsh-base", "bookmark-research"])
+        self.profile("web")
+        output = io.StringIO()
+        args = self.args(host=["dsh"], dsh=str(cli))
+        targets = Console(io.StringIO("2\n\n"), output).install_targets(args)
+        self.assertEqual(targets[0]["profile"], "web")
+        self.assertIn("0.5.0-beta.7", output.getvalue())
+        self.assertIn("no bookmark-research yet", output.getvalue())
+
+    def test_the_desktop_profile_is_the_default_for_the_desktop_cli(self):
+        cli = self.desktop()
+        self.profile("desktop")
+        self.profile("web")
+        args = self.args(host=["dsh"], dsh=str(cli))
+        targets = Console(io.StringIO("\n\n"), io.StringIO()).install_targets(args)
+        self.assertEqual(targets[0]["profile"], "desktop")
+
+    def test_a_generic_cli_is_not_offered_the_reserved_profile(self):
+        self.tool("dsh", "pnpm")
+        self.profile("desktop")
+        self.profile("web")
+        output = io.StringIO()
+        args = self.args(host=["dsh"])
+        targets = Console(io.StringIO("\n\n"), output).install_targets(args)
+        self.assertEqual(targets[0]["profile"], "web")
+        self.assertNotIn("desktop", output.getvalue().split("Install into which DSH profile?")[-1])
+
     def test_explicit_host_list_skips_host_prompt(self):
         args = self.args(host=["codex", "pi"], scope="user")
         output = io.StringIO()
@@ -404,8 +509,8 @@ class RecheckTests(SetupFixture):
         fixed = {"checks": [{"id": "retrieval:exa", "status": "retrieval_verified"}],
                  "host_integrations": {"host": "codex", "native_research_mcps": []}}
         output = io.StringIO()
-        # 14 preference/key/test prompts accept defaults, then re-enter yes, keep EXA preselected, secret, integrations.
-        console = Console(io.StringIO("\n" * 14 + "y\n\n\n"), output)
+        # 6 preference/key prompts accept defaults, then re-enter yes, keep EXA preselected, secret, integrations.
+        console = Console(io.StringIO("\n" * 6 + "y\n\n\n"), output)
         with mock.patch("onboarding.Readiness") as engine, mock.patch("getpass.getpass", return_value="new-exa-key"):
             engine.return_value.check.side_effect = [failed, fixed]
             result = Onboarding(self.settings, console).run()

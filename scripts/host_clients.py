@@ -5,8 +5,14 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 from export_bundle import NAME
+
+# The published package ships src/ beside scripts/, and the installed plugin runs
+# the same DSH discovery from src/ alone; keep one implementation of it.
+if str(Path(__file__).resolve().parents[1] / "src") not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 
 SELECTOR = NAME + "@" + NAME
@@ -21,28 +27,6 @@ def executable(binary):
             if found and Path(found).suffix:
                 break
     return found
-
-
-def bundled_pnpm(binary):
-    """The package manager a DSH CLI carries itself, if it ships one.
-
-    DeepSeek Harness Desktop runs `dsh plugin` with its own bundled pnpm, so that
-    carrier needs no `pnpm` on PATH. A generic CLI installs profile plugins by
-    forwarding to the pnpm it finds instead.
-    """
-    found = executable(binary)
-    if not found:
-        return None
-    try:
-        path = Path(found).resolve()
-    except OSError:
-        return None
-    # Desktop layout: <resources>/runtime/cli/bin/dsh beside <resources>/runtime/pnpm.
-    for parent in list(path.parents)[:5]:
-        candidate = parent / "pnpm" / "bin" / "pnpm.mjs"
-        if candidate.is_file():
-            return candidate
-    return None
 
 
 def read_json(path, default=None):
@@ -76,6 +60,12 @@ class HostClient:
                 raise ValueError("DSH uses --profile, not --scope or --project")
             if not profile or not all(c.isalnum() or c in "._-" for c in profile) or profile.startswith("."):
                 raise ValueError("DSH requires --profile NAME (letters, numbers, dots, underscores or hyphens)")
+            # The default name resolves to PATH first and then to an installed
+            # DeepSeek Harness Desktop, whose bundled CLI carries its own pnpm and
+            # is the only carrier that composes the reserved `desktop` profile.
+            from dsh_client import resolve
+            self.resolved = resolve(binary, profile=profile)
+            self.binary = self.resolved["binary"] or binary or "dsh"
             self.home = Path(os.environ.get("DSH_HOME", str(Path.home() / ".dsh"))).expanduser().resolve()
             self.settings = self.home / "profiles" / profile / "package.json"
         else:
@@ -103,7 +93,11 @@ class HostClient:
     def require(self):
         if not executable(self.binary):
             raise ValueError(self.host + " CLI was not found: " + self.binary)
-        if self.host == "dsh" and not shutil.which("pnpm") and bundled_pnpm(self.binary) is None:
+        if self.host == "dsh" and not self.resolved["usable"]:
+            if self.resolved["reason"] == "reserved":
+                raise ValueError("The DSH profile name desktop is composed only by the DeepSeek Harness Desktop CLI, and "
+                                 + self.binary + " is not it; pass the app's bundled CLI with --dsh (it carries its own pnpm), "
+                                 "or choose another profile name")
             # A generic dsh forwards `plugin` to pnpm; fail before creating a profile.
             raise ValueError("DSH installs profile plugins with pnpm, which was not found on PATH and is not bundled with "
                              + self.binary + "; install it (npm install -g pnpm, or corepack enable pnpm) and retry, "

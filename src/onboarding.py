@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 
 from credentials import Credentials
+from dsh_client import profiles as dsh_profiles
+from dsh_client import resolve as resolve_dsh
 from readiness import Readiness
 from settings import Settings
 from tui import Option, Prompter
@@ -23,6 +25,29 @@ def _profile_problem(value):
         return ("Use letters, numbers, dots, underscores or hyphens; do not start with a dot.",
                 "仅可使用字母、数字、点、下划线或连字符，且不能以点开头。")
     return None
+
+
+def _dsh_hint(client):
+    """Why DSH is unavailable, or which carrier the wizard selected for it."""
+    if client["usable"]:
+        if client["source"] == "desktop":
+            return ("DeepSeek Harness Desktop CLI", "DeepSeek Harness 桌面版 CLI")
+        return ("", None)
+    if client["reason"] == "pnpm":
+        return ("needs pnpm: npm install -g pnpm, or corepack enable pnpm; the DSH Desktop CLI carries its own",
+                "需要 pnpm：npm install -g pnpm 或 corepack enable pnpm；DSH 桌面版 CLI 自带 pnpm")
+    return ("needs the dsh CLI: pass --dsh PATH (DeepSeek Harness Desktop keeps one under its app resources)",
+            "需要 dsh CLI：请用 --dsh PATH 指定（DeepSeek Harness 桌面版的 CLI 位于其应用资源目录）")
+
+
+def _profile_hint(row):
+    """What an initialized DSH profile already holds for this plugin."""
+    if not row["initialized"]:
+        return ("package.json is missing or unreadable", "package.json 缺失或无法读取")
+    if row["dependency"]:
+        return ("bookmark-research " + row["dependency"] + (" · enabled" if row["enabled"] else " · not enabled"),
+                "已装 bookmark-research " + row["dependency"] + (" · 已启用" if row["enabled"] else " · 未启用"))
+    return ("no bookmark-research yet", "尚未安装 bookmark-research")
 
 
 def _directory_problem(value):
@@ -88,22 +113,29 @@ class Console(Prompter):
         requested = args.host
         if isinstance(requested, str):
             requested = [requested]
+        # Resolve the DSH carrier once, so the plan and the installation agree on
+        # which `dsh` runs: a generic CLI needs pnpm on PATH, while the DeepSeek
+        # Harness Desktop CLI bundles its own.
+        client = resolve_dsh(getattr(args, "dsh", None))
+        if client["source"] == "desktop":
+            args.dsh = client["binary"]
         if requested:
             hosts = list(dict.fromkeys(requested))
         else:
             found = {name: bool(shutil.which(getattr(args, name, None) or name)) for name, _, _ in HOSTS}
+            hints = {name: ("", None) if found[name] else ("CLI not found", "未找到 CLI") for name in found}
+            found["dsh"], hints["dsh"] = client["usable"], _dsh_hint(client)
             if not any(found.values()):
                 self.warn("No supported host CLI (codex, claude, pi, dsh) was found on PATH.",
                           "PATH 中未找到任何受支持的宿主 CLI（codex、claude、pi、dsh）。")
                 raise ValueError("No host CLI found; install Codex, Claude Code, Pi or DSH, "
                                  "or pass --codex/--claude/--pi/--dsh PATH to point at its executable")
-            hints = {name: ("", None) if found[name] else ("CLI not found", "未找到 CLI") for name in found}
-            if found["dsh"] and not shutil.which("pnpm"):
-                # dsh plugin forwards to pnpm; offering DSH without it only fails later.
-                found["dsh"], hints["dsh"] = False, ("needs pnpm: npm install -g pnpm", "需要 pnpm：npm install -g pnpm")
             hosts = self.multiselect("Install into which hosts?", "安装到哪些宿主？", [
                 Option(name, en, zh, *hints[name], disabled=not found[name]) for name, en, zh in HOSTS],
                 [name for name, _, _ in HOSTS if found[name]])
+        # A carrier that ships its own pnpm is the Desktop CLI, however it was found:
+        # only that CLI may manage the profile name Desktop reserves for itself.
+        desktop = client["bundled_pnpm"] is not None
         targets = []
         for host in hosts:
             label = next((en for name, en, _ in HOSTS if name == host), host)
@@ -121,8 +153,7 @@ class Console(Prompter):
                         label + ": project directory", label + "：项目目录", str(Path.cwd()), _directory_problem)
             elif host == "dsh":
                 # Never guess a DSH profile: it selects a distinct composed runtime.
-                target["profile"] = args.profile or self.input(
-                    "DSH profile name (for example web)", "DSH profile 名称（例如 web）", "", _profile_problem)
+                target["profile"] = args.profile or self.dsh_profile(desktop)
             targets.append(target)
         lines = []
         for target in targets:
@@ -130,11 +161,50 @@ class Console(Prompter):
             detail = ", ".join(key + "=" + target[key] for key in ("scope", "project", "profile") if target[key])
             lines.append((label + (": " + detail if detail else ""), label + ("：" + detail if detail else "")))
         self.note("Installation plan", "安装计划", lines)
+        if client["source"] == "desktop" and any(target["host"] == "dsh" for target in targets):
+            self.note("DSH CLI", "DSH CLI", [(client["binary"], client["binary"])])
         if not self.confirm("Install now?", "现在安装？", True):
             raise KeyboardInterrupt
         first = targets[0]
         args.host, args.scope, args.project, args.profile = first["host"], first["scope"], first["project"], first["profile"]
         return targets
+
+    def dsh_profile(self, desktop):
+        """Choose an initialized DSH profile, or name a new one.
+
+        `dsh plugin` initializes a profile on first use, so the profiles on disk
+        are the real targets; each is annotated with this plugin's recorded source
+        and whether its bundle list activates it. The reserved `desktop` profile
+        is composed only by the Desktop CLI, so another carrier never offers it.
+        """
+        check = self._profile(desktop)
+        question = ("DSH profile name (for example web)", "DSH profile 名称（例如 web）")
+        rows = dsh_profiles()
+        if not desktop:
+            rows = [row for row in rows if row["name"].casefold() != "desktop"]
+        if not rows:
+            return self.input(question[0], question[1], "desktop" if desktop else "", check)
+        options = [Option(row["name"], row["name"], row["name"], *_profile_hint(row)) for row in rows]
+        options.append(Option("", "Another profile name…", "其他 profile 名称…"))
+        default = "desktop" if any(row["name"] == "desktop" for row in rows) else None
+        chosen = self.select("Install into which DSH profile?", "安装到哪个 DSH profile？", options, default)
+        if chosen:
+            return chosen
+        return self.input(question[0], question[1], "desktop" if desktop else "", check)
+
+    @staticmethod
+    def _profile(desktop):
+        """Validate a DSH profile name, rejecting the reserved name for a generic CLI."""
+        def check(value):
+            problem = _profile_problem(value)
+            if problem:
+                return problem
+            if value.casefold() == "desktop" and not desktop:
+                return ("desktop is composed only by the DeepSeek Harness Desktop CLI: choose another profile name, "
+                        "or rerun with --dsh",
+                        "desktop 只能由 DeepSeek Harness 桌面版 CLI 组装：请换一个 profile 名称，或用 --dsh 重新运行")
+            return None
+        return check
 
     def install_target(self, args):
         return self.install_targets(args)[0]
@@ -161,40 +231,15 @@ class Onboarding:
         hints = {"exa": ("Exa search and reading", "Exa 搜索与阅读"), "parallel": ("Parallel search and extract", "Parallel 搜索与提取"),
                  "tavily": ("Tavily search and extract", "Tavily 搜索与提取"),
                  "jina": ("Jina Reader; search needs a key", "Jina Reader；搜索需要密钥")}
-        def options(names=Settings.PROVIDERS):
-            return [Option(name, name, name, *hints.get(name, ("", None))) for name in names]
-        providers = console.multiselect("Primary search providers (run concurrently)", "主要搜索服务（并发查询）",
-                                        options(), current["search"]["providers"])
-        fallbacks = console.multiselect("Fallback search providers (used when primaries return nothing)",
-                                        "备用搜索服务（主要服务无结果时使用）", options(),
-                                        current["search"]["fallback_providers"], required=False)
-        existing = Settings.fetch_providers(current)
-        primary = console.select("Primary page reader", "首选正文读取服务", options(), existing[0] if existing else None)
-        rest = [name for name in Settings.PROVIDERS if name != primary]
-        extra = console.multiselect("Fallback page readers", "备用正文读取服务", options(rest),
-                                    [name for name in existing if name != primary], required=False)
-        extra_ordered = [name for name in existing if name in extra] + [name for name in extra if name not in existing]
-        readers = [primary] + extra_ordered
-        archive = console.confirm("Archive ordinary page reads? Research task evidence is always retained.",
-                                  "自动归档普通网页读取？研究任务的证据始终保留。", current["archive"]["enabled"])
-        directory = current["archive"]["directory"]
-        if archive:
-            def check(value):
-                try:
-                    Settings.external_path(value, "Archive directory")
-                except ValueError:
-                    return ("Use an absolute directory outside plugins and canvas packages.", "请使用插件与画布包以外的绝对目录。")
-                return None
-            directory = console.input("Archive directory", "归档目录", directory, check)
-        output = self._output(current)
-        after = console.select("After research, update the Wiki?", "研究结束后整理进 Wiki？", [
-            Option("suggest", "Suggest", "建议", "suggest pages and ask first", "给出建议页面，先征求同意"),
-            Option("auto", "Automatic", "自动", "write reviewed claims without asking", "直接写入已审核的结论"),
-            Option("off", "Off", "关闭", "do not suggest Wiki updates", "不提示 Wiki 更新")], current["wiki"]["after_research"])
-        mode = console.select("Check availability before web research", "联网研究前的可用性检查", [
-            Option("cached", "Cached", "缓存", "refresh on first use, changes or expiry (15 minutes by default)", "首次、配置变化或过期时检查（默认 15 分钟）"),
-            Option("always", "Always", "总是", "check for every new research question", "每次开始研究问题时检查"),
-            Option("manual", "Manual", "手动", "only when explicitly requested", "仅手动检查")], current["readiness"]["mode"])
+        # One ordered list answers the former search, fallback-search and reader
+        # questions: selected providers run concurrently and also read pages,
+        # unselected providers stay as the fallback search tier.
+        options = [Option(name, name, name, *hints.get(name, ("", None))) for name in Settings.PROVIDERS]
+        primary = console.multiselect("Search and page-reading services (concurrent, in this order)",
+                                      "搜索与正文读取服务（并发执行，按此顺序）", options, current["search"]["providers"])
+        providers = list(primary)
+        fallbacks = [name for name in Settings.PROVIDERS if name not in providers]
+        storage = self._storage(current)
         config = current["professional_research"]
         service = console.select("Optional professional API (host-led research works without it)",
                                  "可选专业研究 API（宿主主导的研究不需要它）", [
@@ -216,35 +261,49 @@ class Onboarding:
         elif service == "parallel":
             console.say("Parallel processor remains " + config["parallel"]["processor"] + "; change it with config set if needed.",
                         "Parallel processor 沿用 " + config["parallel"]["processor"] + "；可通过 config set 修改。")
-        return {"research": {"depth": depth, "response_language": language}, "search": {"providers": providers, "fallback_providers": fallbacks},
-                "fetch": {"provider": readers[0], "providers": readers},
-                "archive": {"enabled": archive, "directory": directory}, "readiness": {"mode": mode}, "professional_research": services,
-                "output": output, "wiki": {"after_research": after}}
+        # Only changed values are returned, so an unchanged answer keeps the saved
+        # Wiki follow-up, readiness policy and archive toggle exactly as they were.
+        result = {"research": {"depth": depth, "response_language": language},
+                  "search": {"providers": providers, "fallback_providers": fallbacks},
+                  "fetch": {"provider": providers[0], "providers": providers},
+                  "professional_research": services}
+        result.update(storage)
+        return result
 
-    def _output(self, current):
-        """Ask where new research tasks go; an unchanged directory stays inherited from the data directory."""
-        console, saved = self.console, current["output"]
+    def _storage(self, current):
+        """Ask once where archives and research results live, and return only the changed keys."""
+        console, defaults = self.console, Settings.defaults()
+        archive_dir, output_dir = current["archive"]["directory"], current["output"]["directory"]
+        beside = current["output"]["mode"] == "beside_input"
         console.say("Location changes apply to new research tasks only; existing tasks stay where they are.",
                     "位置设置只影响新的研究任务；已有任务保留在原处。")
-        choice = console.select("Where should research reports and evidence go?", "研究报告和证据保存在哪里？", [
-            Option("central", "Central folder", "统一目录", saved["directory"], saved["directory"], hint_always=True),
-            Option("custom", "Central folder at a custom path", "统一目录（自定义路径）"),
-            Option("beside_input", "Beside the bookmark file or folder", "放在书签文件或文件夹旁边",
+        choice = console.select("Where should archives and research reports be stored?",
+                                "归档和研究报告保存在哪里？", [
+            Option("default", "Default data folder", "默认数据目录",
+                   archive_dir + " · " + output_dir, archive_dir + " · " + output_dir, hint_always=True),
+            Option("custom", "One custom folder for both (knowledge/ and research/)", "自定义统一目录（其下 knowledge/ 与 research/）"),
+            Option("beside_input", "Research reports beside the bookmark file or folder", "研究报告放在书签文件或文件夹旁边",
                    "falls back to the central folder when not possible", "无法放置时退回统一目录", hint_always=True)],
-            "beside_input" if saved["mode"] == "beside_input" else "central")
-        directory = saved["directory"]
+            "beside_input" if beside else "default")
         if choice == "custom":
             def check(value):
                 try:
-                    Settings.external_path(value, "Research output directory")
+                    Settings.external_path(value, "Storage directory")
                 except ValueError:
                     return ("Use an absolute directory outside plugins and canvas packages.", "请使用插件与画布包以外的绝对目录。")
                 return None
-            directory = str(Settings.external_path(
-                console.input("Research output directory", "研究结果目录", directory, check), "Research output directory"))
-        result = {"mode": "beside_input" if choice == "beside_input" else "central"}
-        if directory != saved["directory"]:
-            result["directory"] = directory
+            root = Settings.external_path(console.input("Storage directory", "存放目录",
+                                                        str(Path(archive_dir).parent), check), "Storage directory")
+            return {"archive": {"directory": str(root / "knowledge")},
+                    "output": {"mode": "central", "directory": str(root / "research")}}
+        if choice == "beside_input":
+            return {"output": {"mode": "beside_input"}} if not beside else {}
+        # Default folder: reset only a previously customised location.
+        result = {}
+        if archive_dir != defaults["archive"]["directory"]:
+            result["archive"] = {"directory": defaults["archive"]["directory"]}
+        if beside or output_dir != defaults["output"]["directory"]:
+            result["output"] = {"mode": "central", "directory": defaults["output"]["directory"]}
         return result
 
     def _keys(self, defaults=()):
@@ -359,10 +418,6 @@ class Onboarding:
             console.intro("Bookmark Research setup", "Bookmark Research 配置")
             self.settings.update(self._preferences())
             self._keys()
-            if checks and not test_retrieval:
-                test_retrieval = console.confirm(
-                    "Also test retrieval? Each provider gets one search and one example.com read; provider quota may be used.",
-                    "同时进行实际检索自检？每家服务一次搜索和一次 example.com 阅读，可能使用服务额度。", False)
         readiness = self._check(checks, test_retrieval, host, observed_tools)
         if console and checks:
             failed = [row for row in readiness["checks"] if row["status"] in self.FAILED]

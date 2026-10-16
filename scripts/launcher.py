@@ -23,6 +23,8 @@ USAGE = """usage: bookmark-research [--lang auto|en|zh] [COMMAND] [ARGS...]
 
 Other options are passed through, e.g. install claude dsh --profile web --non-interactive.
 API keys are never accepted as arguments: use setup or environment variables.
+`bookmark` is an alias for the same command: `bookmark` opens the menu and
+`bookmark research ...` equals `bookmark-research ...`.
 """
 
 

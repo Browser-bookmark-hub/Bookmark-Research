@@ -385,6 +385,52 @@ class DshPrerequisiteTests(unittest.TestCase):
         self.assertTrue(result["verified"])
         self.assertTrue([call for call in self.calls() if call[0] == "dsh"])
 
+    def test_reserved_profile_selects_the_desktop_carrier_over_path_dsh(self):
+        # A generic dsh with pnpm is usable for other profiles but cannot compose
+        # the reserved `desktop` one, so the Desktop carrier is selected instead.
+        runtime = self.base / "DeepSeek Harness.app/Contents/Resources/runtime"
+        binary = runtime / "cli" / "bin" / "dsh"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!" + sys.executable + "\n" + FAKE_CLIENT)
+        binary.chmod(0o755)
+        if os.name == "nt":
+            (binary.parent / "dsh.cmd").write_text('@"%s" "%s" %%*\r\n' % (sys.executable, binary))
+        (runtime / "pnpm" / "bin").mkdir(parents=True)
+        (runtime / "pnpm" / "bin" / "pnpm.mjs").write_text("// Desktop's own pnpm\n")
+        discovered = binary.parent / ("dsh.cmd" if os.name == "nt" else "dsh")
+        with mock.patch("dsh_client.desktop_candidates", lambda *a, **k: [discovered]):
+            result = self.manage("dsh", profile="desktop", binary=None)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["commands"][0][0], str(discovered))
+
+    def test_reserved_profile_without_the_desktop_cli_fails_with_guidance(self):
+        with mock.patch("dsh_client.desktop_candidates", lambda *a, **k: []):
+            with self.assertRaisesRegex(ValueError, "desktop is composed only"):
+                self.manage("dsh", profile="desktop", binary=None)
+        self.assertFalse((self.base / "dsh-config").exists())
+
+    def test_desktop_install_without_a_path_dsh_is_discovered(self):
+        # `--host dsh` without --dsh must still find a Desktop installation, whose
+        # CLI carries the pnpm that `dsh plugin` needs.
+        for name in ("dsh", "pnpm", "dsh.cmd", "pnpm.cmd"):
+            (self.bin / name).unlink(missing_ok=True)
+        runtime = self.base / "DeepSeek Harness.app/Contents/Resources/runtime"
+        binary = runtime / "cli" / "bin" / "dsh"
+        binary.parent.mkdir(parents=True)
+        binary.write_text("#!" + sys.executable + "\n" + FAKE_CLIENT)
+        binary.chmod(0o755)
+        if os.name == "nt":
+            (binary.parent / "dsh.cmd").write_text('@"%s" "%s" %%*\r\n' % (sys.executable, binary))
+        (runtime / "pnpm" / "bin").mkdir(parents=True)
+        (runtime / "pnpm" / "bin" / "pnpm.mjs").write_text("// Desktop's own pnpm\n")
+        discovered = binary.parent / ("dsh.cmd" if os.name == "nt" else "dsh")
+        with mock.patch.dict(os.environ, {"PATH": str(self.bin)}), \
+                mock.patch("dsh_client.desktop_candidates", lambda *a, **k: [discovered]):
+            result = self.manage("dsh", binary=None)
+        self.assertTrue(result["verified"])
+        self.assertEqual(result["commands"][0][0], str(discovered))
+        self.assertTrue([call for call in self.calls() if call[0] == "dsh"])
+
 
 class MultiHostInstallerTests(unittest.TestCase):
     setUp = HostInstallerTests.setUp

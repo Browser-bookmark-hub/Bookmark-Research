@@ -16,7 +16,7 @@ Reference material moved from the README: components, data model, research modes
 | **Host workflows** | [`hosts/`](../hosts/) and [`src/routing.py`](../src/routing.py) | Native Codex delegation, Claude workflow, Pi extension recipe and DSH workflow adapter |
 | **Professional research** | [`src/research_services.py`](../src/research_services.py) | Optional provider-owned background tasks, saved run IDs and secondary-report import |
 | **Wiki and evaluation** | [`src/wiki.py`](../src/wiki.py), [`src/evaluation.py`](../src/evaluation.py) | Reviewed knowledge, immutable revisions, source/link lint and metrics from explicit labels |
-| **Client integrations** | Native manifests, [`bin/bookmark-research.js`](../bin/bookmark-research.js), [`scripts/launcher.py`](../scripts/launcher.py), [`install.sh`](../install.sh), [`scripts/install.py`](../scripts/install.py) and [`scripts/export_bundle.py`](../scripts/export_bundle.py) | The `bookmark-research` command, guided installation and native install/update/verify for all four hosts |
+| **Client integrations** | Native manifests, [`bin/bookmark-research.js`](../bin/bookmark-research.js), [`scripts/launcher.py`](../scripts/launcher.py), [`install.sh`](../install.sh), [`scripts/install.py`](../scripts/install.py) and [`scripts/export_bundle.py`](../scripts/export_bundle.py) | The `bookmark-research` command (alias `bookmark`, or `bookmark research`), guided installation and native install/update/verify for all four hosts |
 
 The runtime requires Python 3.9+ and SQLite with FTS5; `doctor` checks these requirements. It uses the Python standard library and does not require a separate database service.
 

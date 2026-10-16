@@ -8,7 +8,7 @@ Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python
 
 ## `bookmark-research` 命令（推荐）
 
-`npm install -g bookmark-research` 之后在终端输入 `bookmark-research`，即可打开主菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态。也可以直接带子命令：`install [宿主…]`、`update`、`verify`、`setup`、`status`、`config show|set`、`doctor`。npm 是四个宿主共用的唯一正式发布包，包含 Python 安装器、运行时、Skill 和适配文件，因此仍需 Python 3.9+；Windows 原生、macOS、Linux 都可以用。发布版使用 `npx bookmark-research@latest install HOST`；未发布源码使用 Python 源码安装器。不带参数且不在终端中运行时（agent／CI），它只输出状态 JSON，不弹菜单。
+`npm install -g bookmark-research` 之后在终端输入 `bookmark-research`，即可打开主菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态；短别名 `bookmark` 与 `bookmark research` 等价（`bookmark` 单独输入即打开菜单，`bookmark research status` 等同 `bookmark-research status`）。也可以直接带子命令：`install [宿主…]`、`update`、`verify`、`setup`、`status`、`config show|set`、`doctor`。npm 是四个宿主共用的唯一正式发布包，包含 Python 安装器、运行时、Skill 和适配文件，因此仍需 Python 3.9+；Windows 原生、macOS、Linux 都可以用。发布版使用 `npx bookmark-research@latest install HOST`；未发布源码使用 Python 源码安装器。不带参数且不在终端中运行时（agent／CI），它只输出状态 JSON，不弹菜单。
 
 ## 一条命令引导安装
 
@@ -18,7 +18,7 @@ Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
 ```
 
-终端向导检测可用 CLI，可多选 Codex、Claude Code、Pi、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选；随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。npm 安装器会在原生登记前检查所选宿主。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
+终端向导检测可用 CLI，可多选 Codex、Claude Code、Pi、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选。DSH 在「PATH 中有可用的 `dsh`」或「找到自带 pnpm 的 DeepSeek Harness 桌面版」时都算检测到，因此桌面版自带 CLI 无需任何参数即可勾选；选中 DSH 后，向导会列出 `$DSH_HOME/profiles` 下已初始化的 profile，并标注本插件已登记的来源与是否已启用，也可另填新名称。随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。npm 安装器会在原生登记前检查所选宿主。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
 
 首次安装选择 `npm:bookmark-research`（`latest`）。四个宿主都从该发布包导出所需格式，再由原生命令登记与验证。安装记录保存 npm 包名和版本选择，不保存临时下载或 npx 缓存路径；更新会重新取得同一选择器指向的发布包。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
 
@@ -69,7 +69,7 @@ Codex 分支管理 `bookmark-research@bookmark-research`。已通过 `personal` 
 
 ## 向导与就绪检查
 
-安装成功后可依次设置研究深度、答复语言、主要／备用搜索服务、正文读取服务、归档目录、研究报告和证据的位置（统一目录、自定义统一目录，或放在书签文件／文件夹旁边、放不了时退回统一目录；只影响新任务）、研究结束后是否整理进 Wiki（建议并先询问、自动、关闭）、检查频率和可选专业 API。回车保留显示的偏好。API Key 掩码输入并立即检查，失败可重新输入；密钥单独保存为配置旁权限 `0600` 的 `credentials.json`，是本地明文文件；可用 `BOOKMARK_RESEARCH_CREDENTIALS` 指定位置。环境变量优先于保存的密钥，密钥不进入偏好 JSON、安装包、安装记录或就绪检查输出。ChatGPT／Codex 登录与 OpenAI API Key 分开。
+安装成功后只需回答少数问题：研究深度、答复语言、搜索与正文读取服务（一个有序多选列表；未选中的服务自动作为备用搜索层）、归档与研究结果的存放位置（默认数据目录、自定义统一目录，或研究报告放在书签文件／文件夹旁边、放不了时退回统一目录；只影响新任务），以及可选专业 API。Wiki 整理、联网前的可用性检查与连通性检查都按默认值自动启用（分别为「建议并先询问」「15 分钟缓存」和自动检查），可随时在后续 `setup` 或 `config set` 中修改。回车保留显示的偏好。API Key 掩码输入并立即检查，失败可重新输入；密钥单独保存为配置旁权限 `0600` 的 `credentials.json`，是本地明文文件；可用 `BOOKMARK_RESEARCH_CREDENTIALS` 指定位置。环境变量优先于保存的密钥，密钥不进入偏好 JSON、安装包、安装记录或就绪检查输出。ChatGPT／Codex 登录与 OpenAI API Key 分开。
 
 以后随时运行 `python3 <安装路径>/src/cli.py setup` 重开向导，完整命令（JSON 结果中的 `getting_started.setup_command`）会在安装结束时打印；在源码中可运行：
 
@@ -246,11 +246,10 @@ python3 scripts/install.py install --host dsh --profile web
 python3 scripts/install.py verify --host dsh --profile web
 ```
 
-`dsh plugin` 由 pnpm 执行：通用 CLI 需要 PATH 中的 pnpm（`npm install -g pnpm` 或 `corepack enable pnpm`），缺少时安装器在创建 profile 前停止；DSH 桌面版 CLI 自带 pnpm，无需另装。桌面版把 profile 名 `desktop` 保留给 Electron 载体，其启动器对该名字拒绝 boot／dump，因此用桌面版自带 CLI 安装，验证改为读取持久层而非 `--dump-config`：
+`dsh plugin` 由 pnpm 执行：通用 CLI 需要 PATH 中的 pnpm（`npm install -g pnpm` 或 `corepack enable pnpm`），缺少时安装器在创建 profile 前停止；DSH 桌面版 CLI 自带 pnpm，无需另装。安装器与终端向导会自行寻找可用 CLI，只有 dsh 与桌面版装在非常规位置时才需要 `--dsh`：先找 PATH 中的 `dsh`，再按桌面版安装布局查找——macOS 为 `/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh`（`~/Applications` 同样检查），Windows 为 `%LOCALAPPDATA%\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd` 及 `ProgramFiles` 下的同一布局，Linux 为社区打包的 `/opt/DeepSeek Harness/resources/runtime/cli/bin/dsh`。桌面版还能在 **Manage dsh Command…** 菜单里把该 CLI 登记为 `dsh`（macOS 写 `/usr/local/bin/dsh`，Windows 写入用户 PATH），Linux 没有这项登记，AppImage 也不会被探测到。PATH 中已有的 CLI 若无法执行 `dsh plugin`，会自动改用已安装的桌面版，并在安装计划中打印实际使用的 CLI。桌面版把 profile 名 `desktop` 保留给 Electron 载体，其启动器对该名字拒绝 boot／dump，npm CLI 也拒绝为它管理插件，因此该 profile 只能用桌面版自带 CLI 安装；向导会默认选中并预填 `desktop`。验证改为读取持久层而非 `--dump-config`：
 
 ```sh
-python3 scripts/install.py install --host dsh --profile desktop \
-  --dsh "<DSH 应用>/Contents/Resources/runtime/cli/bin/dsh"
+python3 scripts/install.py install --host dsh --profile desktop
 ```
 
 手动分发时使用 `export_bundle.py --format dsh`，再用上述原生命令安装稳定导出目录；不含该层的旧发布包或旧 Git ref 仍会按模块的旧契约生成等价层。保留的旧 `cordis.patch.yml` 仍含绝对路径，需单独配置 Skill 发现；移动后应重新生成。多组研究另需 workflow service、worker-thread engine 和 `workflow` tool。参见 [官方 MCP client 文档](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md)。

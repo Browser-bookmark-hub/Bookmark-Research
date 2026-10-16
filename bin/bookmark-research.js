@@ -22,8 +22,16 @@ if (!python) {
   process.exit(1);
 }
 
+// The same file is installed as `bookmark-research` and as the short alias
+// `bookmark`. A leading literal `research` is accepted in both spellings, so
+// `bookmark status`, `bookmark research status` and `bookmark-research status`
+// all run the same command, while `bookmark` or `bookmark research` alone
+// opens the menu.
+const args = process.argv.slice(2);
+if (args[0] === "research") args.shift();
+
 const [command, ...prefix] = python;
-const child = spawn(command, [...prefix, launcher, ...process.argv.slice(2)], { stdio: "inherit", windowsHide: true });
+const child = spawn(command, [...prefix, launcher, ...args], { stdio: "inherit", windowsHide: true });
 // The terminal delivers Ctrl+C to the whole process group; let Python handle it.
 process.on("SIGINT", () => {});
 child.on("exit", (code, signal) => process.exit(signal ? 130 : code ?? 1));

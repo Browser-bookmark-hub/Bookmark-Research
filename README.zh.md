@@ -19,19 +19,19 @@
 ## 环境要求
 
 - Python 3.9+，含 SQLite FTS5（可用 `bookmark-research doctor` 检查）
-- 至少一个宿主的 CLI：Codex、Claude Code、Pi 或 DSH（DSH 另需 `pnpm`）
+- 至少一个宿主的 CLI：Codex、Claude Code、Pi 或 DSH（DSH 另需 `pnpm`；若用 DeepSeek Harness 桌面版自带 CLI，则它自带 pnpm，无需另装）
 - 发布版安装需要 Node 18+ 和 npm（GitHub 便捷脚本也需要）
 - 安装和本地查书签都不需要 API Key
 
 ## 安装
 
-**当前测试版（`0.5.0-beta.13`）**，支持 macOS、Linux、Windows 交互安装：
+**当前测试版（`0.5.0-beta.14`）**，支持 macOS、Linux、Windows 交互安装：
 
 ```sh
-npx bookmark-research@0.5.0-beta.13 install
+npx bookmark-research@0.5.0-beta.14 install
 ```
 
-安装器会自动锁定当前版本并平滑升级各宿主，无需再手动指定 `--source`。老用户或新用户均可直接执行此命令无感覆盖升级；`@beta` 标签当前指向 `0.5.0-beta.13`。
+安装器会锁定当前运行的版本，无需再手动指定 `--source`。重跑该命令可就地升级已装的 Claude Code、Pi 或 DSH，偏好、Key 和数据都保留；`@beta` 标签当前指向 `0.5.0-beta.14`。Codex 会保留登记时的来源与版本，要换版本需先移除该登记（见下文 **更新**）。
 
 **默认渠道的交互安装：**
 
@@ -54,7 +54,7 @@ npx bookmark-research@latest install
 
 **四个宿主统一发布来源：** npm 包包含共享运行时、Skill 和宿主适配。安装器下载发布包，生成所选宿主格式，再调用宿主原生命令；更新记录 npm 来源，不依赖 npx 临时缓存。GitHub 提供源码和安装清单，未发布源码用 Python 安装器。见[发布约定与官方依据](docs/distribution.md)。
 
-**DSH 可直接安装发布包：** 发布包声明 `dsh.bundle.patch`，`dsh plugin --profile <名称> add bookmark-research@<版本>`（或 DSH 插件管理界面）无需先导出即可安装，Python 与 MCP 路径按安装位置解析。DeepSeek Harness 桌面版把 `desktop` profile 保留给自身载体，该 profile 请用桌面版自带 CLI 安装。详见[安装说明](docs/installation.md)。
+**DSH 可直接安装发布包：** 发布包声明 `dsh.bundle.patch`，`dsh plugin --profile <名称> add bookmark-research@<版本>`（或 DSH 插件管理界面）无需先导出即可安装，Python 与 MCP 路径按安装位置解析。DeepSeek Harness 桌面版把 `desktop` profile 保留给自身载体，该 profile 请用桌面版自带 CLI 安装；安装器与向导会在 macOS、Windows、Linux 上自行定位该 CLI，并在 PATH 中的 `dsh` 缺少 pnpm 时改用它。详见[安装说明](docs/installation.md)。
 
 **Windows：** Windows 上常常没有能用的 `python3`，所以安装器会把检测到的 Python 路径写进各宿主的 MCP 配置。Codex 请用 `bookmark-research install codex` 安装，不要直接把仓库加进 Codex。`bookmark-research status` 可以查看实际使用的 Python。
 
@@ -81,13 +81,17 @@ npx bookmark-research@latest install
 
 | 要做什么 | 命令 |
 | --- | --- |
-| 主菜单：配置、检查、安装、更新 | `bookmark-research` |
+| 主菜单：配置、检查、安装、更新 | `bookmark-research`（别名 `bookmark`，或 `bookmark research`） |
 | 修改偏好和 API Key | `bookmark-research setup` |
 | 查看已装宿主、偏好、保存位置、最近研究、Key 状态 | `bookmark-research status` |
 | 用脚本改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
 
 没有全局安装时，在前面加 `npx`，例如 `npx bookmark-research@latest setup`。
+
+**进入配置页。** 在终端里不带参数运行 `bookmark-research`（或别名 `bookmark`）即可打开菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态。`bookmark-research setup` 直接进入引导向导，加上 `--lang zh` 可让向导和菜单显示中文。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。
+
+**更新。** `bookmark-research update` 会按各自登记的来源刷新所有已安装宿主，并保留偏好、Key 和数据。重跑 `npx bookmark-research@latest install` 也会就地升级已装的 Claude Code、Pi 或 DSH。Codex 安装会保留登记时的来源与版本，要换版本需先移除该登记（`codex plugin marketplace remove bookmark-research`）再重新安装。
 
 **API Key 都是可选的。** 在 `bookmark-research setup` 里输入（隐藏显示，输完当场检查，保存在仅当前用户可读的本地文件），或者设置环境变量（优先于已保存的 Key）。Key 不接受对话、命令参数或 JSON 文件。
 
@@ -139,7 +143,7 @@ setup 还会问研究报告和证据放在哪里：统一目录（默认 `<数�
 
 本地 MCP 的工具：
 
-下表对应当前源码。`wiki_refresh` 和 `wiki_work` 已进入本地开发构建，尚未包含在已发布的 `0.5.0-beta.9` npm 包中。已实现与剩余事项见[升级核对记录](docs/upgrade-status-2026-10-11.md)。
+下表对应当前源码；`wiki_refresh` 和 `wiki_work` 自 `0.5.0-beta.10` 起已包含在每个发布包中。已实现与剩余事项见[升级核对记录](docs/upgrade-status-2026-10-11.md)。
 
 | 分类 | 工具 |
 | --- | --- |

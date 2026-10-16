@@ -140,6 +140,17 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(failed.returncode, 1)
         self.assertIn("Python 3.9+", failed.stderr)
 
+    @unittest.skipUnless(NODE, "Node.js unavailable")
+    def test_the_research_word_and_the_plain_command_reach_the_same_entry(self):
+        script = str(ROOT / "bin/bookmark-research.js")
+        environment = dict(os.environ, BOOKMARK_RESEARCH_PYTHON=sys.executable)
+        for arguments in ([], ["status"], ["research"], ["research", "status"]):
+            with self.subTest(arguments=arguments):
+                result = subprocess.run([NODE, script, *arguments], env=environment,
+                                        capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("hosts", json.loads(result.stdout))
+
 
 class WindowsKeyTests(unittest.TestCase):
     def test_msvcrt_scan_codes_map_to_navigation(self):

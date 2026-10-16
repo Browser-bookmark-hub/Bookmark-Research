@@ -637,7 +637,10 @@ def main(argv=None):
             "目标宿主：codex、claude、pi 或 dsh；可重复或用逗号指定多个。终端中引导选择，非交互时默认 codex"))
         command.add_argument("--codex", default="codex", help=message("Codex CLI executable, optionally an absolute path", "Codex CLI 程序名或绝对路径"))
         for host in ("claude", "pi", "dsh"):
-            command.add_argument("--" + host, help=message("Path to the " + host + " CLI", host + " CLI 路径"))
+            detail = (" (default: a usable dsh on PATH, then a DeepSeek Harness Desktop installation)",
+                      "（默认依次使用 PATH 中可用的 dsh 与 DeepSeek Harness 桌面版自带的 CLI）") if host == "dsh" else ("", "")
+            command.add_argument("--" + host, help=message("Path to the " + host + " CLI" + detail[0],
+                                                           host + " CLI 路径" + detail[1]))
         command.add_argument("--scope", choices=("user", "project", "local"), help=message(
             "Claude/Pi scope; default user (local is Claude-only)", "Claude/Pi 作用域，默认 user；local 仅限 Claude"))
         command.add_argument("--project", help=message("Project directory for project/local scope", "project/local 作用域对应的项目目录"))

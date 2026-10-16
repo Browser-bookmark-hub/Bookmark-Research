@@ -19,19 +19,19 @@ Works in **Codex, Claude Code, Pi and DSH (DeepSeek Harness)**.
 ## Requirements
 
 - Python 3.9+ with SQLite FTS5 (check with `bookmark-research doctor`)
-- The CLI of at least one client: Codex, Claude Code, Pi or DSH (DSH also needs `pnpm`)
+- The CLI of at least one client: Codex, Claude Code, Pi or DSH (DSH also needs `pnpm`, unless it is the DeepSeek Harness Desktop CLI, which carries its own)
 - Node 18+ and npm for release installation (including the GitHub convenience script)
 - No API key is needed to install or to query bookmarks locally
 
 ## Install
 
-**Current beta (`0.5.0-beta.13`)**, interactive on macOS, Linux and Windows:
+**Current beta (`0.5.0-beta.14`)**, interactive on macOS, Linux and Windows:
 
 ```sh
-npx bookmark-research@0.5.0-beta.13 install
+npx bookmark-research@0.5.0-beta.14 install
 ```
 
-The installer automatically pins the running package version and upgrades all selected hosts seamlessly without requiring `--source`. Existing and new users can upgrade directly with this command; `@beta` currently points to `0.5.0-beta.13`.
+The installer pins the running package version and needs no `--source`. Re-running it upgrades an existing Claude Code, Pi or DSH installation in place, keeping preferences, keys and data; `@beta` currently points to `0.5.0-beta.14`. A Codex installation keeps the source and version it registered with, so change its version by removing that registration first (see **Update** below).
 
 **Default-channel interactive installation:**
 
@@ -54,7 +54,7 @@ For a permanent `bookmark-research` command: `npm install -g bookmark-research`.
 
 **One release source for all four hosts:** npm contains the shared runtime, Skill and host adapters. The installer downloads the release, prepares the selected host format, then invokes the host’s native commands. Updates retain an npm selector rather than an npx cache path. GitHub hosts source and installation catalogs; unpublished source uses the Python installer. See [distribution policy and official references](docs/distribution.md).
 
-**DSH installs the release directly:** the published package declares `dsh.bundle.patch`, so `dsh plugin --profile <name> add bookmark-research@<version>` — or the DSH plugin manager — installs it with no export first, resolving Python and MCP paths from the installed package. DeepSeek Harness Desktop reserves the `desktop` profile for its own carrier, so install that one with the app's CLI. See the [installation guide](docs/installation.en.md).
+**DSH installs the release directly:** the published package declares `dsh.bundle.patch`, so `dsh plugin --profile <name> add bookmark-research@<version>` — or the DSH plugin manager — installs it with no export first, resolving Python and MCP paths from the installed package. DeepSeek Harness Desktop reserves the `desktop` profile for its own carrier, so install that one with the app's CLI; the installer and the wizard locate that bundled CLI themselves on macOS, Windows and Linux, and fall back to it when the `dsh` on PATH has no pnpm. See the [installation guide](docs/installation.en.md).
 
 **Windows:** the installer writes the detected Python path into each client's MCP config, because Windows often has no working `python3`. Install Codex with `bookmark-research install codex` rather than adding the repository to Codex directly. `bookmark-research status` shows the interpreter in use.
 
@@ -81,13 +81,17 @@ No reinstall is needed. Settings and keys apply to every installed client; start
 
 | Task | Command |
 | --- | --- |
-| Menu: configure, check, install, update | `bookmark-research` |
+| Menu: configure, check, install, update | `bookmark-research` (alias `bookmark`, or `bookmark research`) |
 | Preferences and API keys | `bookmark-research setup` |
 | Installed clients, preferences, storage locations, recent research, key status | `bookmark-research status` |
 | Script preferences | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | Update or verify all clients | `bookmark-research update` · `bookmark-research verify` |
 
 Use `npx bookmark-research@latest …` if the command is not installed globally.
+
+**Open the configuration page.** In a terminal, `bookmark-research` (or its alias `bookmark`) with no arguments opens the menu: change preferences and API keys, check services, install into another client, update, or print status. `bookmark-research setup` goes straight to the guided wizard, and adding `--lang zh` shows the wizard and menu in Chinese. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards.
+
+**Update.** `bookmark-research update` refreshes every installed client from its registered source and keeps preferences, keys and data. Re-running `npx bookmark-research@latest install` also upgrades an existing Claude Code, Pi or DSH installation in place. A Codex installation keeps the source and version it was registered with; to move it to another version, remove that registration first (`codex plugin marketplace remove bookmark-research`) and install again.
 
 **API keys are optional.** Enter them in `bookmark-research setup` (hidden input, checked immediately, saved in a private local file) or set environment variables, which take precedence. Keys are never accepted in chat, command arguments or JSON files.
 
@@ -139,7 +143,7 @@ A bundle of one Skill, one local MCP server, and the remote MCPs and services th
 
 Local MCP tools:
 
-This list describes the current source tree. `wiki_refresh` and `wiki_work` are available in local development builds and are not included in the published `0.5.0-beta.9` package. Implementation status and remaining work: [upgrade checklist](docs/upgrade-status-2026-10-11.md).
+This list describes the current source tree; `wiki_refresh` and `wiki_work` have shipped in every release since `0.5.0-beta.10`. Implementation status and remaining work: [upgrade checklist](docs/upgrade-status-2026-10-11.md).
 
 | Group | Tools |
 | --- | --- |
