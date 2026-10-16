@@ -175,9 +175,9 @@ def _manage(action, client, base, source, ref, dry_run):
         return result
     if action == "install":
         requested = _source(source if source is not None else SOURCE_ROOT, ref)
-        if receipt and ref is None:
+        if receipt and ref is None and requested["sourceType"] == "git":
             old = receipt["source"]
-            if (requested["sourceType"], requested["source"]) == (old["sourceType"], old["source"]) and old.get("ref"):
+            if old.get("sourceType") == "git" and requested["source"] == old["source"] and old.get("ref"):
                 requested["ref"] = old["ref"]
     elif receipt:
         if source is not None:

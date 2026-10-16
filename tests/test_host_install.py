@@ -205,6 +205,23 @@ class HostInstallerTests(unittest.TestCase):
         for call in registry.calls:
             self.assertFalse(Path(call[call.index("--pack-destination") + 1]).exists())
 
+    def test_npm_install_new_version_does_not_revert_to_old_receipt_version(self):
+        from test_npm_source import Registry
+        registry = Registry(self.source)
+        manifest_path = self.source / ".codex-plugin/plugin.json"
+        manifest = json.loads(manifest_path.read_text())
+        with registry.active():
+            manifest["version"] = "0.5.0-beta.10"
+            manifest_path.write_text(json.dumps(manifest))
+            first = self.manage("claude", source="npm:bookmark-research@0.5.0-beta.10")
+            self.assertEqual(first["source"]["ref"], "0.5.0-beta.10")
+
+            manifest["version"] = "0.5.0-beta.12"
+            manifest_path.write_text(json.dumps(manifest))
+            second = self.manage("claude", source="npm:bookmark-research@0.5.0-beta.12")
+            self.assertEqual(second["source"]["ref"], "0.5.0-beta.12")
+            self.assertEqual(second["release_version"], "0.5.0-beta.12")
+
     def test_dry_run_does_not_register_or_create_persistent_state(self):
         for host in ("claude", "pi", "dsh"):
             plan = self.manage(host, dry_run=True)

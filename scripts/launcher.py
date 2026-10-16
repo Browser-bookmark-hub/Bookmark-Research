@@ -104,8 +104,13 @@ def _install_action(action, arguments, language):
     import install
     hosts, rest = _split(arguments)
     if action == "install" and not any(arg == "--source" or arg.startswith("--source=") for arg in rest):
-        from npm_source import DEFAULT_SOURCE
-        rest = [*rest, "--source", DEFAULT_SOURCE]
+        from export_bundle import NAME, read_plugin_manifest
+        try:
+            version = read_plugin_manifest(ROOT).get("version")
+        except Exception:
+            version = None
+        source_val = ("npm:" + NAME + "@" + version) if version else ("npm:" + NAME)
+        rest = [*rest, "--source", source_val]
     if not hosts and action != "install" and "--host" not in rest:
         targets = installed_targets()
         if not targets:
