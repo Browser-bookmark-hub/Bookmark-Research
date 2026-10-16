@@ -182,14 +182,54 @@ class ArchiveTests(unittest.TestCase):
                 self.assertEqual([page["text"] for page in view["pages"]], bodies)
                 self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
 
-    def test_unclosed_code_fence_keeps_ambiguous_batch_raw(self):
+    def test_unclosed_code_fence_recovers_the_missing_requested_page(self):
         urls = ["https://example.test/a", "https://example.test/b"]
         raw = {"content": [{"type": "text", "text":
             "# A\nURL: " + urls[0] + "\n\n```markdown\nAn unfinished example.\n\n" +
             "# B\nURL: " + urls[1] + "\n\nUncertain page boundary."}]}
         saved = self.capture(raw, urls)
+        # The hidden header is exactly the missing requested page, so it is a
+        # record the provider truncated into an unbalanced fence, not an
+        # example: recover both pages instead of losing the whole batch.
+        self.assertEqual([page["extraction_status"] for page in saved["pages"]], ["extracted"] * 2)
+        self.assertIn("An unfinished example.", Path(saved["pages"][0]["body_path"]).read_text())
+        self.assertEqual(Path(saved["pages"][1]["body_path"]).read_text(), "Uncertain page boundary.")
+        self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
+
+    def test_unclosed_code_fence_with_unrequested_hidden_records_keeps_the_block_raw(self):
+        urls = ["https://example.test/a", "https://example.test/b"]
+        raw = {"content": [{"type": "text", "text":
+            "# A\nURL: " + urls[0] + "\n\n```markdown\nAn unfinished example.\n\n" +
+            "# Example\nURL: https://other.test/example\n\nExample body"}]}
+        saved = self.capture(raw, urls)
+        # The hidden record is not a missing requested page, so it could be a
+        # fenced example; nothing in the block is attributed.
         self.assertTrue(all(page["body_path"] is None for page in saved["pages"]))
         self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
+
+    def test_exa_desynced_fence_batch_recovers_all_eight_records(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" /
+                              "exa-fetch-8url-fence-desync-20261015.json").read_text())
+        urls = ["https://docs.parallel.ai/integrations/mcp/quickstart",
+                "https://parallel.ai/blog/parallel-cli",
+                "https://docs.parallel.ai/integrations/cli",
+                "https://www.perplexity.ai/api-platform",
+                "https://developers.openai.com/api/docs/guides/tools-web-search?api-mode=responses",
+                "https://developers.openai.com/cookbook/examples/deep_research_api/how_to_build_a_deep_research_mcp_server/readme",
+                "https://docs.bigmodel.cn/cn/guide/tools/web-search",
+                "https://www.anysearch.com/home"]
+        rows = SourceArchive._extract(fixture, urls)
+        self.assertEqual([row["url"] for row in rows], urls)
+        saved = self.capture(fixture, urls)
+        self.assertEqual([page["extraction_status"] for page in saved["pages"]], ["extracted"] * 8)
+        self.assertTrue(all(page["characters"] > 0 for page in saved["pages"]))
+
+    def test_empty_envelope_and_unparsed_content_are_distinguished(self):
+        urls = ["https://example.test/page"]
+        empty = self.capture({"structuredContent": {"results": []}}, urls)
+        self.assertEqual(empty["pages"][0]["extraction_status"], "no_content_returned")
+        prose = self.capture({"content": [{"type": "text", "text": "Prose without any record header."}]}, urls)
+        self.assertEqual(prose["pages"][0]["extraction_status"], "content_present_unparsed")
 
     def test_exa_indented_multiline_title_is_a_separate_page_boundary(self):
         # Public Exa output can retain line breaks/indentation from a page title.

@@ -191,9 +191,46 @@ class SourceArchive:
             rows.extend(cls._text_rows(text, requested_urls))
         return rows
 
+    @classmethod
+    def _carries_content(cls, response):
+        """True when a response carries page-bearing payload, not just an empty envelope."""
+        if not isinstance(response, dict):
+            return False
+        if cls._rows(response.get("structuredContent")):
+            return True
+        blocks = response.get("content")
+        if not isinstance(blocks, list):
+            return False
+        for block in blocks:
+            if not isinstance(block, dict) or block.get("type") != "text" or not isinstance(block.get("text"), str):
+                continue
+            text = block["text"]
+            if not text.strip():
+                continue
+            try:
+                decoded = json.loads(text)
+            except ValueError:
+                return True
+            if cls._rows(decoded):
+                return True
+        return False
+
+    @classmethod
+    def _empty_status(cls, rows, response):
+        """Per-URL status when a response yields no record for a requested URL."""
+        if rows:
+            return "unrecognized_or_not_returned"
+        return "content_present_unparsed" if cls._carries_content(response) else "no_content_returned"
+
     @staticmethod
     def _boundary_text(text):
-        """Mask fenced examples without shifting offsets into the original text."""
+        """Mask fenced examples without shifting offsets into the original text.
+
+        An unclosed fence masks the remainder of the block: the provider may
+        have truncated an example around the next page header. Callers must
+        treat headers inside the mask as ambiguous (see _text_rows), never as
+        records on their own.
+        """
         lines, fence = [], None
         for line in text.splitlines(keepends=True):
             marker = re.match(r" {0,3}(`{3,}|~{3,})([^\r\n]*)", line)
@@ -206,8 +243,7 @@ class SourceArchive:
                 fence = (marker[1][0], len(marker[1]))
                 masked = True
             lines.append(re.sub(r"[^\r\n]", " ", line) if masked else line)
-        # A truncated example could contain what looks like the next page header.
-        return None if fence is not None else "".join(lines)
+        return "".join(lines)
 
     @classmethod
     def _text_rows(cls, text, requested_urls=None):
@@ -227,8 +263,6 @@ class SourceArchive:
         # Titles may retain indented continuation lines from the source HTML.
         # Records must start the block or follow the provider's blank separator.
         boundary_text = cls._boundary_text(text)
-        if boundary_text is None:
-            return rows
         header = r"(?:\A|\n\n)(?:# |Title: )([^\n]+(?:\n[ \t][^\n]*)*)\nURL: (https?://[^\s]+)\n"
         matches = list(re.finditer(header, boundary_text))
         # A missed or malformed URL field could hide the next page boundary.
@@ -244,16 +278,29 @@ class SourceArchive:
         if not matches or matches[0].start() != 0 or len(set(keys)) != len(keys):
             return rows
         # A provider can truncate one page inside a fence and concatenate the
-        # next page before a later fence happens to close it. Global Markdown
-        # balance alone then hides real page headers. If a requested page is
-        # missing, do not guess whether hidden headers are examples or records.
-        # Complete batches still preserve fenced examples, including examples
-        # referring to another URL that has its own visible record.
+        # next page before a later fence happens to close it, or leave a fence
+        # unclosed; the mask then hides real page headers. Header-shaped lines
+        # inside the mask are normally ambiguous (fenced examples versus
+        # records), so refuse unless the hidden records are exactly the missing
+        # requested pages, each once: the response then accounts for every
+        # missing page as a record instead of guessing. Anything else stays
+        # raw. Complete batches still preserve fenced examples, including
+        # examples referring to another URL that has its own visible record.
         expected = {cls._key(url) for url in requested_urls} if requested_urls is not None else None
         if expected is None or expected - set(keys):
             visible = {match.start() for match in matches}
-            if any(match.start() not in visible for match in re.finditer(header, text)):
-                return rows
+            hidden = [match for match in re.finditer(header, text) if match.start() not in visible]
+            if hidden:
+                if expected is None:
+                    return rows
+                try:
+                    hidden_keys = [cls._key(match.group(2)) for match in hidden]
+                except ValueError:
+                    return rows
+                if (len(set(hidden_keys)) != len(hidden_keys)
+                        or set(hidden_keys) != expected - set(keys)):
+                    return rows
+                matches = sorted(matches + hidden, key=lambda match: match.start())
         for index, match in enumerate(matches):
             end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             body = text[match.end():end]
@@ -313,9 +360,16 @@ class SourceArchive:
         return None, "no_extract", "provider_extracted_text"
 
     @classmethod
-    def _select(cls, rows):
+    def _select(cls, rows, empty_status="unrecognized_or_not_returned"):
+        """Select one extract per URL; empty_status names why no rows matched.
+
+        Callers pass "no_content_returned" or "content_present_unparsed" when
+        the whole response produced no records at all, keeping a provider that
+        returned nothing distinguishable from content this parser could not
+        turn into records.
+        """
         if not rows:
-            return None, None, "unrecognized_or_not_returned", "unknown"
+            return None, None, empty_status, "unknown"
         candidates = [(row, *cls._page(row)) for row in rows]
         failures = [candidate for candidate in candidates if candidate[2] == "provider_error"]
         if failures:
@@ -342,8 +396,8 @@ class SourceArchive:
             response = attempt.get("result")
             if not isinstance(response, dict):
                 continue
-            by_url = {}
-            for row in cls._extract(response, attempt["urls"]):
+            by_url, rows = {}, cls._extract(response, attempt["urls"])
+            for row in rows:
                 try:
                     key = cls._key(row["url"])
                 except (ValueError, UnicodeError):
@@ -351,17 +405,23 @@ class SourceArchive:
                 by_url.setdefault(key, []).append(row)
             archive = attempt.get("archive", {})
             saved = {row["requested_url"]: row for row in archive.get("pages", [])}
+            empty_status = cls._empty_status(rows, response)
             for url in attempt["urls"]:
                 provider = attempt["provider"]
                 if selected.get(url, {}).get("provider", provider) != provider:
                     continue
-                row, body, extraction, kind = cls._select(by_url.get(cls._key(url)))
+                row, body, extraction, kind = cls._select(by_url.get(cls._key(url)), empty_status)
                 if response.get("isError"):
                     body, extraction = None, "provider_error"
                 archived = saved.get(url, {})
-                if body is not None and archived.get("sha256") and hashlib.sha256(
-                        body.encode("utf-8")).hexdigest() != archived["sha256"]:
-                    body, extraction = None, "source_attribution_mismatch"
+                if body is not None and archive.get("status") == "saved":
+                    # Serve a body only when the archive vouches for exactly
+                    # these bytes. A body the manifest did not record means the
+                    # capture was written by a different parser version; it
+                    # must not resurface through a newer re-extraction.
+                    digest = archived.get("sha256")
+                    if not digest or hashlib.sha256(body.encode("utf-8")).hexdigest() != digest:
+                        body, extraction = None, "source_attribution_mismatch"
                 metadata = row or {}
                 pages[url] = {**archived, "url": url, "provider": provider,
                     "capture_id": archive.get("capture_id"),
@@ -496,8 +556,9 @@ class SourceArchive:
             self._write_json(stage / "response.json", response)
             manifest["response_sha256"] = hashlib.sha256((stage / "response.json").read_bytes()).hexdigest()
             bodies = {}
+            empty_status = self._empty_status(rows, response)
             for url in dict.fromkeys(fetch["urls"]):
-                row, body, status, kind = self._select(by_url.get(self._key(url)))
+                row, body, status, kind = self._select(by_url.get(self._key(url)), empty_status)
                 if response.get("isError"):
                     body, status = None, "provider_error"
                 entry = {"requested_url": url, "returned_url": row.get("url") if row else None,

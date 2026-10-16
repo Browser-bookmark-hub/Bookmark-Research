@@ -152,3 +152,7 @@
 - **第 7 项 精简与一致性**：`search_web` 的 `targets` 现在接受纯字符串（schema `type:["string","object"]`，等价 `{target:s, query:s}`），与 `search_bookmarks` 的字符串 targets 不再割裂；`cli.md`、`research-workflow.md`（中英）与工具描述同步；多词 AND 字面匹配与"正文走 `search_archive`"维持既有文档说明；输出体积由 16 URL／8 来源批上限与分页承担。
 - **验证（2026-10-15）**：全量 659 项通过、3 项跳过、135.2 秒（9.1 基线 650 加新增 9 项：搜索缓存命中与默认关闭、`cached_search_pairs`、字符串 targets、设置校验、读取复用单条/混合/预算、显式 serve 并发参数）。实测（仓库代码、真实网络）：同一查询两次 5.53s→0.01s，第二次 `cached:[true,true]`、`tool_calls=0`、结果 5+5 条、`retrieved_at` 保留、预算扣减计数 2；`research_fetch` 第二次 `reused_sources=[s1]`（原检索时间）、`usage` 全零、`attempts=[]`、`per_url.provider="reused"`；新配置项写入与非法组合拒绝（`server.max_pending_calls must be at least server.network_workers`）实测通过。
 - **未实施**：第 3 项（免 Key MCP 通道不暴露档位，需 REST + Key；用户确认不等待）。激活仍待第 5 节第 8 项（重装 bundle + 重启会话）。
+
+### 9.3 修正（2026-10-16）：熔断读取状态与 fail-closed 归因
+
+§9.1 的短熔断在抓取侧原读取 `unrecognized_or_not_returned`。该状态已拆分（`no_content_returned` / `content_present_unparsed`，另见 `plugin-improvement-plan-2026-10-15.md` §3）：8 URL 批次"全部 fail-closed"经归档原文复现为本地解析拒收（第 2 页围栏未闭合，遮罩盖住后续真实页头），非提供商问题；熔断改为只对 `no_content_returned` 计数，本地解析缺口不再消耗提供商熔断预算。搜索侧 `result_format` 失败批次现于回执保留 `unparsed_excerpt`（≤400 字符）。

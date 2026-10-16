@@ -601,7 +601,7 @@ class SearchProviderTests(unittest.TestCase):
         self.assertEqual(result["abandoned_providers"], ["parallel"])
         self.assertEqual(parallel.call_tool.call_args.args[1]["urls"], urls)
 
-    def test_fetch_breaker_skips_a_provider_after_repeated_unreadable_batches(self):
+    def test_fetch_breaker_skips_a_provider_after_repeated_empty_batches(self):
         value = Mock()
         value.list_tools.return_value = [EXA_FETCH]
         value.call_tool.return_value = {"structuredContent": {"results": []}}
@@ -609,12 +609,57 @@ class SearchProviderTests(unittest.TestCase):
             first = self.engine.fetch(["https://example.test/one"], provider="exa", archive=False)
             second = self.engine.fetch(["https://example.test/two"], provider="exa", archive=False)
             third = self.engine.fetch(["https://example.test/three"], provider="exa", archive=False)
-        self.assertEqual(first["per_url"][0]["extraction_status"], "unrecognized_or_not_returned")
+        self.assertEqual(first["per_url"][0]["extraction_status"], "no_content_returned")
         self.assertEqual(second["status"], "unverified")
         self.assertEqual(value.call_tool.call_count, 2)
         self.assertEqual(third["error_kind"], "provider_stalled")
         self.assertTrue(third["skipped_due_to_cooldown"])
         self.assertEqual(value.call_tool.call_count, 2)
+
+    def test_fetch_unparsed_content_does_not_stall_the_provider(self):
+        value = Mock()
+        value.list_tools.return_value = [EXA_FETCH]
+        value.call_tool.return_value = {"content": [{"type": "text", "text":
+            "# A page record without a URL field\n\nProse this parser cannot turn into a record."}]}
+        with patch.object(self.engine, "_client", return_value=value):
+            first = self.engine.fetch(["https://example.test/one"], provider="exa", archive=False)
+            second = self.engine.fetch(["https://example.test/two"], provider="exa", archive=False)
+            third = self.engine.fetch(["https://example.test/three"], provider="exa", archive=False)
+        # Content this parser cannot turn into records is a local gap, not a
+        # provider failure; the breaker must never cool a provider that did
+        # return a response.
+        self.assertEqual(first["per_url"][0]["extraction_status"], "content_present_unparsed")
+        self.assertEqual(second["per_url"][0]["extraction_status"], "content_present_unparsed")
+        self.assertEqual(third["status"], "unverified")
+        self.assertEqual(value.call_tool.call_count, 3)
+
+    def test_exa_fence_desync_batch_now_extracts_every_page(self):
+        fixture = json.loads((Path(__file__).parent / "fixtures" /
+                              "exa-fetch-8url-fence-desync-20261015.json").read_text())
+        urls = ["https://docs.parallel.ai/integrations/mcp/quickstart",
+                "https://parallel.ai/blog/parallel-cli",
+                "https://docs.parallel.ai/integrations/cli",
+                "https://www.perplexity.ai/api-platform",
+                "https://developers.openai.com/api/docs/guides/tools-web-search?api-mode=responses",
+                "https://developers.openai.com/cookbook/examples/deep_research_api/how_to_build_a_deep_research_mcp_server/readme",
+                "https://docs.bigmodel.cn/cn/guide/tools/web-search",
+                "https://www.anysearch.com/home"]
+        coverage = SearchProviders._fetch_coverage(fixture, urls)
+        self.assertEqual(coverage["status"], "ok")
+        self.assertEqual(coverage["successful_url_count"], 8)
+        self.assertEqual([row["url"] for row in coverage["per_url"]], urls)
+        self.assertTrue(all(row["extraction_status"] == "extracted" for row in coverage["per_url"]))
+
+    def test_unreadable_search_result_keeps_a_bounded_raw_excerpt(self):
+        value = Mock()
+        value.list_tools.return_value = [EXA_SEARCH]
+        value.call_tool.return_value = {"content": [{"type": "text", "text": "unexpected layout " * 40}]}
+        with patch.object(self.engine, "_client", return_value=value):
+            result = self.engine.search([{"target": "A", "query": "a"}], ["exa"])
+        batch = result["batches"][0]
+        self.assertEqual(batch["error_kind"], "result_format")
+        self.assertLessEqual(len(batch["unparsed_excerpt"]), 400)
+        self.assertTrue(batch["unparsed_excerpt"].startswith("unexpected layout"))
 
     def test_providers_run_concurrently_and_same_provider_calls_are_serial(self):
         self.settings.update({"search": {"fallback_providers": []}})

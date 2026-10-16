@@ -162,6 +162,25 @@ class SearchProviders:
                 for key in self.USAGE_FIELDS}
 
     @staticmethod
+    def _unparsed_excerpt(result, limit=400):
+        """Bounded, whitespace-collapsed head of a response we could not normalize."""
+        if not isinstance(result, dict):
+            return None
+        parts = []
+        blocks = result.get("content")
+        if isinstance(blocks, list):
+            for block in blocks:
+                if isinstance(block, dict) and isinstance(block.get("text"), str) and block["text"].strip():
+                    parts.append(block["text"])
+        if not parts and isinstance(result.get("structuredContent"), (dict, list)) and result["structuredContent"]:
+            try:
+                parts = [json.dumps(result["structuredContent"], ensure_ascii=False)]
+            except (TypeError, ValueError):
+                return None
+        text = re.sub(r"\s+", " ", "\n".join(parts)).strip()
+        return text[:limit] or None
+
+    @staticmethod
     def _failure(error):
         if isinstance(error, McpError):
             return error.details()
@@ -451,6 +470,7 @@ class SearchProviders:
             if outcome.get("error_kind") == "result_format" and not outcome.get("skipped_due_to_cooldown"):
                 self._note_empty_attempt(provider, "Provider repeatedly returned unreadable search results; skipped briefly")
             return {**base, **outcome, "results": [], "result_state": "failed"}
+        result = None
         try:
             result = outcome.pop("result")
             rows = self._normalize(result)[:limit]
@@ -459,9 +479,16 @@ class SearchProviders:
             return {**base, **outcome, "results": rows, "result_state": "nonempty" if rows else "empty"}
         except (RuntimeError, ValueError, OSError) as error:
             failure = self._failure(error)
+            batch = {**base, **outcome, "status": "error", "results": [], "result_state": "failed", **failure}
             if failure.get("error_kind") == "result_format":
                 self._note_empty_attempt(provider, "Provider repeatedly returned unreadable search results; skipped briefly")
-            return {**base, **outcome, "status": "error", "results": [], "result_state": "failed", **failure}
+                # Search responses are not archived; keep a bounded head of the
+                # unreadable payload in the receipt so a shape failure can be
+                # attributed after the fact.
+                excerpt = self._unparsed_excerpt(result)
+                if excerpt is not None:
+                    batch["unparsed_excerpt"] = excerpt
+            return batch
 
     def _search_provider(self, work):
         provider, queries, limit = work
@@ -735,16 +762,17 @@ class SearchProviders:
         # Share the archive's conservative URL/body association rules even when
         # archival is disabled; a redirected or unidentified body is unverified.
         from archive import SourceArchive
-        by_url = {}
-        for row in SourceArchive._extract(result, urls):
+        by_url, rows = {}, SourceArchive._extract(result, urls)
+        for row in rows:
             try:
                 key = SourceArchive._key(row["url"])
             except (ValueError, TypeError, KeyError):
                 continue
             by_url.setdefault(key, []).append(row)
+        empty_status = SourceArchive._empty_status(rows, result)
         coverage = []
         for url in urls:
-            _, body, extraction, kind = SourceArchive._select(by_url.get(SourceArchive._key(url)))
+            _, body, extraction, kind = SourceArchive._select(by_url.get(SourceArchive._key(url)), empty_status)
             status = "ok" if body is not None and kind != "provider_excerpts" else (
                 "error" if extraction == "provider_error" else "unverified")
             coverage.append({"url": url, "status": status, "extraction_status": extraction,
@@ -776,7 +804,8 @@ class SearchProviders:
 
         def quality(row):
             return (row["status"] == "ok", row.get("characters", 0) > 0,
-                    row["extraction_status"] not in ("request_failed", "unrecognized_or_not_returned"))
+                    row["extraction_status"] not in ("request_failed", "unrecognized_or_not_returned",
+                                                     "no_content_returned", "content_present_unparsed"))
 
         def run(name, pending):
             try:
@@ -980,9 +1009,14 @@ class SearchProviders:
         fetched.update(self._fetch_coverage(outcome["result"], urls))
         rows = fetched["per_url"]
         if any(row.get("status") == "ok" and row.get("extraction_status") not in
-               ("request_failed", "unrecognized_or_not_returned") for row in rows):
+               ("request_failed", "unrecognized_or_not_returned",
+                "no_content_returned", "content_present_unparsed") for row in rows):
             self._note_usable_result(provider)
-        elif rows and all(row.get("extraction_status") == "unrecognized_or_not_returned" for row in rows):
+        elif rows and all(row.get("extraction_status") == "no_content_returned" for row in rows):
+            # Only genuinely empty responses feed the breaker. Content this
+            # parser could not turn into records is our problem, not the
+            # provider's; cooling it would skip a healthy provider and hide
+            # the parse gap behind a fallback.
             self._note_empty_attempt(provider, "Provider repeatedly returned no usable page text; skipped briefly")
         if store is not None:
             try:

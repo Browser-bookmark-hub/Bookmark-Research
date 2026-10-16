@@ -29,18 +29,36 @@ class FetchBoundaryTests(unittest.TestCase):
         fetched["archive"] = self.archive.save(fetched)
         return fetched
 
-    def test_a_later_page_cannot_close_a_truncated_previous_pages_fence(self):
+    def test_a_truncated_fence_recovers_only_the_missing_requested_page(self):
         urls = ["https://example.test/a", "https://example.test/b"]
         fence = chr(96) * 3
-        for second_url in (urls[1], "https://redirect.test/b"):
-            with self.subTest(second_url=second_url):
-                text = ("# A\nURL: " + urls[0] + "\n\nFirst page.\n" + fence + "python\ntruncated\n\n"
-                        "# B\nURL: " + second_url + "\n\nB_ONLY_EVIDENCE\n" + fence + "\nSecond page.")
-                response = {"content": [{"type": "text", "text": text}]}
-                fetched = self.capture(response, urls)
-                self.assertTrue(all(p["body_path"] is None for p in fetched["archive"]["pages"]))
-                self.assertTrue(all(p["text"] is None for p in SourceArchive.compact_fetch(fetched)["pages"]))
-                self.assertEqual(json.loads(Path(fetched["archive"]["response_path"]).read_text()), response)
+        text = ("# A\nURL: " + urls[0] + "\n\nFirst page.\n" + fence + "python\ntruncated\n\n"
+                "# B\nURL: " + urls[1] + "\n\nB_ONLY_EVIDENCE\n" + fence + "\nSecond page.")
+        response = {"content": [{"type": "text", "text": text}]}
+        fetched = self.capture(response, urls)
+        # The hidden header is exactly the missing requested page, so the
+        # truncated fence is treated as provider damage, not as an example:
+        # both pages are recovered without mixing their bodies.
+        bodies = [Path(p["body_path"]).read_text() for p in fetched["archive"]["pages"]]
+        self.assertIn("First page.", bodies[0])
+        self.assertNotIn("B_ONLY_EVIDENCE", bodies[0])
+        self.assertIn("B_ONLY_EVIDENCE", bodies[1])
+        self.assertNotIn("First page.", bodies[1])
+        view = SourceArchive.compact_fetch(fetched)
+        self.assertEqual([page["text"] for page in view["pages"]], bodies)
+
+    def test_a_truncated_fence_hiding_an_unrequested_page_keeps_the_block_raw(self):
+        urls = ["https://example.test/a", "https://example.test/b"]
+        fence = chr(96) * 3
+        text = ("# A\nURL: " + urls[0] + "\n\nFirst page.\n" + fence + "python\ntruncated\n\n"
+                "# B\nURL: https://redirect.test/b\n\nB_ONLY_EVIDENCE\n" + fence + "\nSecond page.")
+        response = {"content": [{"type": "text", "text": text}]}
+        fetched = self.capture(response, urls)
+        # The hidden record is not the missing requested page, so it could be
+        # a fenced example; nothing in the block is attributed.
+        self.assertTrue(all(p["body_path"] is None for p in fetched["archive"]["pages"]))
+        self.assertTrue(all(p["text"] is None for p in SourceArchive.compact_fetch(fetched)["pages"]))
+        self.assertEqual(json.loads(Path(fetched["archive"]["response_path"]).read_text()), response)
 
     def test_compact_budget_and_continuation_preserve_the_same_archived_body(self):
         urls = ["https://example.test/a", "https://example.test/b"]
