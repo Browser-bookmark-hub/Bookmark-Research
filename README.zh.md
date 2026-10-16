@@ -25,13 +25,13 @@
 
 ## 安装
 
-**当前测试版（`0.5.0-beta.12`）**，支持 macOS、Linux、Windows 交互安装：
+**当前测试版（`0.5.0-beta.13`）**，支持 macOS、Linux、Windows 交互安装：
 
 ```sh
-npx bookmark-research@0.5.0-beta.12 install --source npm:bookmark-research@0.5.0-beta.12
+npx bookmark-research@0.5.0-beta.13 install
 ```
 
-这条命令同时固定安装器和插件内容。下面的 `@latest` 示例使用默认渠道，目前仍为 `0.5.0-beta.3`；`@beta` 当前指向 `0.5.0-beta.12`。只改 npx 的版本选择，不会改变安装器默认下载的内容来源。
+安装器会自动锁定当前版本并平滑升级各宿主，无需再手动指定 `--source`。老用户或新用户均可直接执行此命令无感覆盖升级；`@beta` 标签当前指向 `0.5.0-beta.13`。
 
 **默认渠道的交互安装：**
 
