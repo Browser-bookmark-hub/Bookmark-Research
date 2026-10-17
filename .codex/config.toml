@@ -1,0 +1,18 @@
+# Tool scope for this project. Start a new thread after changing it.
+# CodeGraph uses its existing host registration; Git uses the shell.
+# For browser debugging, set enabled = true below.
+[mcp_servers.chrome-devtools]
+enabled = false
+
+# Canvas + direct web retrieval. The host composes these for agentic search.
+# History, settings, Wiki and persistent research remain available via CLI.
+# Add task-specific names or remove enabled_tools for the full catalog.
+[plugins."bookmark-research@bookmark-research".mcp_servers."bookmark-research"]
+enabled_tools = [
+  "index_status",
+  "sync_package",
+  "search_bookmarks",
+  "get_context",
+  "search_web",
+  "fetch_web",
+]

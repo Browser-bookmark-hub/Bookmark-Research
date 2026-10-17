@@ -219,8 +219,9 @@ class Onboarding:
     def _preferences(self):
         console, current = self.console, self.settings.load()
         console.step("Research preferences (Enter keeps the highlighted value)", "研究偏好（回车保留当前选项）")
-        depth = console.select("Default research depth", "默认研究深度", [
-            Option("auto", "Auto", "自动", "choose from the question", "根据问题自动选择"),
+        depth = console.select("Default research depth (optional; Auto is usually right)",
+                               "默认研究深度（可选；通常保持「自动」即可）", [
+            Option("auto", "Auto", "自动", "follow each request: lookup, investigation or batch", "按每次请求自动选择：查证、调查或整包"),
             Option("quick", "Quick", "快速", "quick source check", "快速查证"),
             Option("agentic", "Agentic", "多轮", "iterative search and reading", "多轮搜索与阅读"),
             Option("deep", "Deep", "深度", "deep research with retained evidence", "保留证据的深度研究")],

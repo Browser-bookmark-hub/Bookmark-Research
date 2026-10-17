@@ -1,0 +1,355 @@
+# Bookmark Research 0.5.0-beta.15 改进计划（2026-10-17）
+
+> 本轮主题：**把 README 的三条基础路线串成默认流——问题 → 本地定位链接 → MCP 抓取/搜索 → 证据 → Wiki。**
+>
+> 依据：
+> 1. README 的“三个基础”（本地理解 / 外部调研三条路线 / 可复核知识存储）；
+> 2. 2026-10-17 真实画布包实测（`github-bookmark-canvas`，4,966 items / 4,130 bookmarks / 3,079 unique URLs）＋同日联网冒烟（2 目标 × 2 提供商、3 个 URL、2 份归档）。
+> 3. 参考项目 `smartsearch-main`（能力路由、`deep` 规划 → `research` 实跑、`fetch_before_claim`）与 `aether-search-main`（seed fan-out + tool loop、RRF、探活/印证）；
+> 4. 用户判断：**“用户想调研时，自动通过 MCP 去抓关键链接；不拿链接、不联网搜索，插件怎么知道？拿完链接就是 Wiki。”**
+> 5. **本轮立项前的代码核对**（§0.5、§0.6）：把“已有能力”与“真缺口”分开，避免重复立项。
+>
+> 本文件是计划，不是实现记录；不随本轮改动发版。
+
+## 0. 基线
+
+### 0.1 README 定义的三个基础（本计划的框架）
+
+| 基础 | README 原文要点 | 现状 |
+| --- | --- | --- |
+| 本地理解 | 卡片/分组布局、连线方向与标签、跨卡片副本（空间）；日期字段、ID 日期段、真正改过内容的 Git 提交（时间）；纯离线 | 空间可用；时间只到“能手工推”，无 `added_at` 列（§4.1） |
+| 外部调研三条路线 | ① 读取已知 URL 不需要推理；② Agentic 搜索由宿主模型规划、搜索、阅读、追缺口；③ 深度研究加入持续清单、独立核验、覆盖检查与报告；OpenAI/Parallel 为可选路线 | 三条都能跑。②的循环在宿主侧，插件只声明步骤、不计数（§2.3 已定为编排式）；①没有内容状态；③的引文门槛与缺口记录**已存在**（§0.6），缺的是自动触发 |
+| 可复核知识存储 | 研究沉淀为 Wiki：已审核页面、带历史版本与互链，之后直接复用 | `wiki_write` 可用，但要求**已审阅 claim**；research → claim → review → wiki 的“人工逐条确认”仍是断点（§3.2） |
+
+> README 同时明确：**无头浏览器与爬虫类项目不在集成范围内。** 本计划默认遵守这条边界（见 §9 决策项）。
+
+### 0.2 本次实测（本地 + 联网）
+
+- 本地：38 sections / 47 nodes / 6 groups / 14 edges / 25 memberships；25 条包含关系逐条正确；41 张卡 0 重叠；3 实例 / 1 URL 的副本识别正确。
+- 时间：`tempId_YYYYMMDD` 覆盖 3,673/3,913 条；永久树 `dateAdded` 1,241 条；edge epoch 可还原 06-27 → 09-08；170 次提交，最近 push 10-17 22:52:18（+152/−2）。
+- 联网：`search_web` 2 目标 × 2 提供商全成功（RRF k=60）；`fetch_web` 3 URL / 2 capture；但 `developers.google.com/edge/foresight` 仅 284 字符（“No additional info available”）仍记为成功；Google Blog 正文有 “OCT. 6, 2026” 而 `provider_published_at: null`。
+
+> **复现要求**：`tempId` / `dateAdded` 这两个字段名在 `src/`、`tests/`、`docs/` 中都不存在，只来自这次对真实包的观测。§10 必须记录本次实测包的绝对路径与提取脚本，否则 3,673 / 1,241 这两个数字无法被实现者复现或证伪。
+
+### 0.3 参考项目可借鉴的机制
+
+| 项目 | 机制 | 用在哪 |
+| --- | --- | --- |
+| smartsearch | 能力路由 + 同能力 fallback；`deep` 离线规划、`research` 实跑（plan → discover → fetch → gap check → evidence-only）；Cloudflare 挑战标记 | 路线 ②③ 的**规划**与能力路由；“挑战标记”并入 §5.1 |
+| aether | 无条件 seed fan-out；tool loop（`search_multi`/`fetch_page`，6 步 / 90s）；超时降级 digest → 原始证据；探活 404/410；跨通道印证；RRF | 路线 ② 的**循环形状**与“永不空输出”；注意其工具名与本插件现有工具名不同（§2.3） |
+
+不搬：Grok 通道（第三方模型直接出答案，和“宿主洗稿”冲突）、桌面 App、provider 扩张。
+
+> `fetch_before_claim` 不再列为“待借鉴”：本插件 `research_record(kind=claim)` 已强制引文逐字存在于已抓正文（§0.6）。
+
+### 0.4 问题清单
+
+| # | 问题 | 侧 | 严重度 |
+| --- | --- | --- | --- |
+| 1 | 没有“问题 → 链接”的默认自动流，用户得先自己选卡片/贴 URL | 产品 | P0 |
+| 2 | 空壳/JS 壳页无状态，284 字符也算成功 | 联网 | P0 |
+| 3 | 研究结束没有 Wiki 草稿；且 claim 逐条人工确认的成本未被计量 | Wiki | P0 |
+| 4 | 路线 ② 的循环在宿主侧；插件只**声明**步骤、不计数，而宿主 workflow 层也没有步数上限 | 联网/架构 | P0（原 P1 上调，见 §2.3） |
+| 5 | 路线 ③ 缺**自动**缺口发现与补抓；缺口“记录”与“证据不足即拒答”已存在 | 联网 | P1 |
+| 6 | 无探活、无跨来源印证、`published_at` 只取了 provider 元数据一层 | 联网 | P1 |
+| 7 | `get_context(collection="items", section=…)` 返回 0，与同一响应里的 `bookmark_count` 自相矛盾 | 本地 | P1 |
+| 8 | 无 `added_at`；edge 按 id 字典序；导入根目录失败；重名 label | 本地 | P1/P2 |
+
+### 0.5 与既有计划的关系
+
+| 文件 | 本轮处置 |
+| --- | --- |
+| `plugin-improvement-plan-2026-10-15.md` §2.1 引文级复核、§2.2 批量刷新 | **本轮不排**，R1–R5 已满；明确保留待办，不回退其验收口径 |
+| `plugin-improvement-plan-2026-10-15.md` §3.3 提供商健康跨进程持久化 | 本轮不排，可作为 §5.2 的后续积木 |
+| `plugin-improvement-plan-2026-10-15.md` §4.1 “`wiki work` 只读草稿大纲：按 question 分组 eligible claims，附引文首句” | **与本轮 §3.1 同源**，合并实现，验收样本沿用该计划记录的 `r-eb7778ec8c954b9a`（16 条 eligible claim） |
+| `knowledge-storage-plan.md` | 语义边界不变；§4.2 的日期透传不得破坏 hedge/waterfall 与缓存复用语义 |
+| `search-hedge-plan-2026-10-14.md` §7.6“子代理编排开箱化”（子代理调插件已实测：23 次调用、约 12.6 分钟；bundle 内 `workflows/bookmark-research.js` 待启用与验证） | **与本轮 §2.3 同源**，并入路线 ②：编排接缝已在包内，本轮补预算计数与发现脚本 |
+
+### 0.6 已存在、本轮不重复立项的能力
+
+| 能力 | 位置 | 结论 |
+| --- | --- | --- |
+| 引文必须来自已抓正文，逐字校验 | `src/research.py:1297`（`quote not in body` 即拒）、`:1247`、`:1079` | **已实现**，无需重做；§2.4 只写“复核 + 用例” |
+| claim 需要审阅、`wiki_write` 需要 reviewed claim | `src/mcp_server.py:358` | 已实现，门槛保持 |
+| 缺口可记录并阻塞完成 | `research_record(kind="gap")`（`research.py:1539`）、`research_finish` 输出 `Unresolved:`（`:1744`）、“completed 要求无未解决冲突”（`mcp_server.py:269`） | **已实现**，缺的是自动发现 |
+| 会话预算 | `research.py:30` `DEFAULT_BUDGET = {max_search_calls:16, max_fetch_calls:12, max_rounds:8}` | 已实现，路线 ③ 的预算不需要新造 |
+| 卡片内 URL 与实例数 | `search_bookmarks` 返回 `url` / `counts.instances` / `counts.unique_urls` | 已实现，§2.1 直接复用（见 §6.1） |
+| 外部报告作为未审阅二级证据 | `research_import_evidence` 描述 | 已实现，§2.5 保持 |
+| 档位路由（quick/agentic/deep × task_shape） | `src/routing.py:36` `route()`；`auto` 下 `investigation → agentic`、`batch_research → deep`；普通 agentic 入口是 `search_web / fetch_web`（`:124`） | 已实现，§2.3 的入口据此写 |
+| 四宿主 workflow 接缝 + 共享编排脚本 | `hosts/codex/delegate.md`、`hosts/claude/runtime.js`、`hosts/pi/register-workflow.py`、`hosts/dsh/workflow-call.py`、`hosts/shared/research-flow.js`、桥 `hosts/shared/research-call.py` | 已实现，§2.3 复用而非新建 |
+
+## 1. 目标与非目标
+
+做：
+
+1. **默认自动流**：研究请求 → 本地定位相关卡片与链接 → 按三条路线取证据 → 产出证据包与 Wiki 草稿建议。
+2. **三条路线各自补齐**：① 抓取状态与日期；② 循环预算与降级；③ 缺口自动发现与补抓。
+3. **Wiki 沉淀**：研究完成即生成“可审阅的草稿”（不自动发布），并把用户的确认动作**批量**化。
+4. **时间统一**：本地 `added_at`、联网 `published_at/updated_at`，带来源与置信度。
+
+不做：
+
+- 不做无头浏览器/爬虫（遵守 README 边界，§9 可复议）；
+- 不做 Grok/第三方模型直接出答案；洗稿归四个宿主；
+- 不做 GUI、向量库、知识图谱、多模态；
+- 不自动发布 Wiki、不自动改画布包；
+- **不重复实现 §0.6 中已有的门槛**（引文校验、review 门槛、缺口记录、会话预算、URL/实例计数）。
+
+## 2. 默认自动流（P0）
+
+### 2.1 触发与范围解析
+
+用户提出调研请求时，宿主应自动执行，**不要求用户先选卡片或贴 URL**：
+
+1. 调 `plan_research(question, source_id, max_cards=3, max_urls=8)`（**新增工具，2026-10-18 已定**，契约见下）或手工等价步骤；
+2. 工具内部用 `search_bookmarks` 定位相关卡片（默认 Top 3，按命中数排序；**新鲜度排序延后到 §4.1 落地后启用**）；
+3. 用 **`search_bookmarks(section=<卡片>, targets=[…], item_types=["bookmark"])`** 取该卡的条目（URL、note、标签），按 `url` 去重并保留 `counts.instances`；**不要用 `get_context(collection="items")`**（原因见 §6.1）；
+4. 判断意图，选择路线：
+   - 问题里已有 URL，或卡片里命中“官方文档/仓库” → 路线 ①；
+   - 需要发现/对比/时效 → 路线 ②；
+   - 明确“深度/核验/报告” → 路线 ③；
+5. 取数上限：单次 ≤ 3 张卡、≤ 8 个 URL、≤ 1 次补充搜索（路线 ②/③ 另计预算）。
+
+**`plan_research` 工具契约（2026-10-18 已定，§9 决策记录 3）**
+
+纯本地、不发网络请求、不写盘的只读工具。它存在的理由：§2.1 与 §2.3 的验收都是宿主行为，跑不了 CI，而 §7 要求新增单测；把“选卡片 + 取 URL + 判路线”收敛成一个函数才测得动。
+
+| 项 | 规定 |
+| --- | --- |
+| 入参 | `source_id`（必填）、`question`（必填，1–2000 字符）、`max_cards`（默认 3，1–3）、`max_urls`（默认 8，1–8）、`refresh`（默认 true，语义同 `search_bookmarks`） |
+| 出参 | `cards[]`（`section_id` / `label` / `file_path` / `hits` / `bookmark_count`）、`urls[]`（`url` / `instances` / `section_ids[]` / `title`）、`route`（建议值）、`basis[]`（每张卡的命中依据，供用户纠正）、`truncated`（是否被 `max_urls` 截断）、`errors[]` |
+| `route` 取值 | **复用 `routing.py` 的既有 route id**，不另起一套词表：`direct_retrieval` / `host_iterative_research` / `host_workflow` / `professional_service`。`plan_research` 只给建议，档位与失败的最终判定仍归 `research_route`（`routing.py:36`），两者不得各说一套 |
+| 不做什么 | 不发网络请求、不读正文、不建研究会话、不抓取、不扩大范围 |
+| 空结果 | 命中 0 卡时返回 `cards: []` 与 `route: null`，由宿主回“包里没有”，**不得**静默扩大范围 |
+| 部分结果 | 卡片命中但无 URL 时仍返回 `cards`，`urls: []`，并在 `errors` 里说明 |
+
+边界：范围是“用户的书签里与问题相关的部分”，不是全网漫游；找不到相关卡片时明确说“包里没有”，再问是否扩大范围。
+
+**用户动作预算（新增验收项）**：一次完整调研（问题 → 证据包 → Wiki 草稿）用户侧动作 ≤ 2 次（提出请求、确认草稿）；需要中途追问时才增加。
+
+验收：对一个纯问题（如“EmbeddingGemma 2 怎么本地部署”），不要求用户指定卡片即可命中 A-1-1 并抓取其中 2–3 个链接。自动化部分是 `plan_research` 的单测，覆盖“命中 0 卡 / 命中多卡 / 命中卡片但无 URL / 被 `max_urls` 截断”四条分支；宿主是否真的照做属**人工验收**，记录到 §10，附原问题与命中卡片。
+
+### 2.2 路线 ①：读取已知 URL（无推理）
+
+- 输入：URL 列表（来自卡片）；
+- 并发与超时**沿用现有旋钮，不新造常量**：并发用 `server.network_workers`（默认 4，1–16，需重启生效）；单 URL 超时用全局 `timeout_seconds`（1–60）；
+- reader 链沿用现有 provider（parallel/exa/jina/tavily），瀑布流沿用 `fetch.strategy`（默认 `staggered`）＋ `fetch.grace_seconds`（默认 25）＋ `fetch.deadline_seconds`；单页与总量沿用 `fetch.max_characters`（默认 12000）；
+- 归一化：`title / text / sha256 / characters / status / content_state / published_at / fetched_at`；
+- 内容状态（见 §5.1）：`content_state` = `usable` / `content_insufficient` / `js_shell_suspected` / `challenge_blocked` / `soft_404` / `paywall_suspected`；
+- 归档沿用 capture（manifest + page body）。
+
+验收：8 URL 并发总耗时 ≤ 最慢单页 + 2s；284 字符页面被标 `content_insufficient`，不计入可引用证据。
+
+### 2.3 路线 ②：Agentic search（**已定方案 B：编排式**，2026-10-17）
+
+**决策**：预算落到**插件侧计数 + 四宿主 workflow 接缝**，不新增通用编排 MCP 工具。依据：
+
+- 插件已有路由决策点：`research_route`（`src/routing.py:36`）按 `depth` 与 `task_shape` 选路线，`auto` 下 `investigation → agentic`；普通 agentic 的入口本就是 `search_web / fetch_web`（`:124`），只有批量才落到 `research_start / research_*`。
+- 四宿主 workflow 接缝已在包内（§0.6）。共享脚本 `hosts/shared/research-flow.js` 开头已经把原则写死，照抄即可：**“Thin choreography only. The host owns agents, concurrency, cancellation and replay. ResearchSessions owns the inventory, evidence, reviews, budgets and completion gate.”**
+- **宿主侧没有步数上限**。DSH `workflow` 工具（[W7][W8]，developer preview）文档只给 `maxResultChars`（默认 50000）与 deployment-fixed 的 provider/caps/toolName，**未给步数、子代理数或墙钟上限**；取消或异常结束一律返回错误，“partial output is never reported as success”。所以“步数 ≤ 6、总超时 90s”**只能由插件自己数**。
+
+落地：
+
+1. **单问题不启动 workflow**：宿主直接用 `search_web` + `fetch_web`。DSH 官方写明 `workflow` “use it only when the user explicitly requests a workflow or large multi-agent orchestration”，小任务用普通子代理/工具调用。
+2. **批量/并行发现**沿用现有会话作为**唯一预算权威**（复用 `research_*` 状态，不另起一套；`routing.py` 的 batch 分支已经指向它），补上发现轮次所需的 `budget` 语义；宿主侧由 `scripts/host_assets.py build_workflow` 生成与 `hosts/shared/workflow.json` 并列的发现脚本。
+3. **预算**：步数 ≤ 6、总超时 90s、查询变体 ≤ 3、抓取 ≤ 8，全部在插件侧计数；超时/工具不支持 → 用已收证据生成 digest，再不行退回证据列表，**永不空输出**。
+4. **返回值约束**：宿主只见**一个最终 JSON**（“The model sees one final outcome, never intermediate child messages”）；证据包必须 ≤ `maxResultChars`（默认 50000），超出会被截断且**截断内容没有取回句柄**。因此证据包按条给 excerpt 上限，不塞整页正文。
+5. **阻塞语义**：DSH workflow 前台执行会阻塞父轮次直到完成并 dispose；90s 因此是用户体验约束，不是可省的优化。
+6. 可与路线 ① 并发：卡片 URL 先抓，同时发 1 次 seed search，结果按 URL 去重合并。
+
+验收：单测覆盖“预算耗尽降级非空 / 连续两步无新增即停 / 工具报错降级 digest / 证据包不超 `maxResultChars`”；3 步内对“EmbeddingGemma 2 本地部署”给出 ≥ 3 条带 URL 的证据。
+
+[W7]: https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/workflow
+[W8]: https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/workflow/tool-workflow/README.md
+
+### 2.4 路线 ③：Deep research
+
+复用现有 `research_*` 会话。**先明确已有什么，再定补什么**：
+
+| 事项 | 现状 | 本轮做什么 |
+| --- | --- | --- |
+| 结论只引用已抓正文 | **已有**：`_citations` 强制引文逐字存在于正文（`research.py:1297`），无正文来源直接拒（`:1247`） | 只补用例与文档措辞，不重写 |
+| 缺口记录 | **已有**：`kind="gap"` → question `unresolved`；`research_finish` 输出 `Unresolved:`；completed 门槛已要求无未解决冲突 | 不动数据模型 |
+| 缺口自动发现与补抓 | **缺**（这是 agent 侧判断，不是缺失字段） | 新增：按子问题核对已收证据的覆盖，缺口触发 1 轮补抓或标 `unsupported` |
+| 证据不足即输出“不足 + 缺口清单” | **半有**：门槛会拒绝 completed，但不生成“不足 + 缺口”的成型答复 | 新增：证据不足时输出固定形状的“不足 + 缺口清单”（不是流畅答案） |
+
+预算：沿用 `DEFAULT_BUDGET`（`max_search_calls:16` / `max_fetch_calls:12` / `max_rounds:8`）与 `LIMITS`（上限分别为 120 / 80 / 40）。两处口径要对齐现有实现：
+
+- “子问题 ≤ 6”是本轮**自设的更严预算**（`research_start` 的 `questions` 上限是 24），要显式传 `budget`，不能改默认值；
+- “抓取 ≤ 24”高于默认 12、低于上限 80，同样只在本次任务显式传 `budget`；若想让它成为常态，改 `DEFAULT_BUDGET` 需说明对既有任务恢复语义的影响。
+
+**不加墙钟时长预算**：研究会话可恢复，10 分钟墙钟在恢复语义下没有定义。
+
+验收：对“RAG 企业落地要点”产出 ≥ 3 条证据、≥ 1 个明确缺口（或说明无缺口），每条结论可回引 capture。
+
+### 2.5 可选路线：OpenAI Deep Research / Parallel Task API
+
+保持现状：默认关闭，开启后作为路线 ③ 的替代执行器；插件只导入其报告为**未审阅二级证据**，原始 URL 覆盖需另行读取（现有语义不变）。
+
+### 2.6 洗稿边界
+
+- 插件只交付证据包：`evidence[]`（id/url/title/excerpt/published_at/sha）、`citations[]`、`gaps[]`、`conflicts[]`；
+- 四个宿主（Codex / Claude / Pi / DSH）负责组织语言、取舍、翻译、成文；
+- 成文必须引用 `evidence[].id`，不引用未抓取的 URL；
+- 插件不做文风判断，只判断引用是否成立。
+
+## 3. Wiki 沉淀（P0）
+
+### 3.1 研究结束即给草稿
+
+`research_finish` 或卡片报告完成时，自动生成 **Wiki 草稿建议**（只读）：
+
+- 页面标题/别名、分节标题；
+- 每条结论对应的 `evidence[].id` 与原文摘录；
+- 未支持/冲突项单列，不进正文；
+- 默认行为沿用 `wiki.after_research = suggest`（`settings.py:73`）：先问，不自动发布。
+
+> 与 `plugin-improvement-plan-2026-10-15.md` §4.1 的同源项合并：那份计划的“按 question 分组 eligible claims、附引文首句”的输出形状直接作为本节的草稿大纲，验收样本沿用 `r-eb7778ec8c954b9a`（16 条 eligible claim）。
+
+### 3.2 从证据到 claim
+
+现状是断的：`wiki_write` 要求 `research_id + claim_id` 且 claim 已审阅，而研究只产证据。补：
+
+1. 草稿阶段把“证据摘录”转成候选 claim（标注 `inference=false`，引文逐字）；
+2. **一次批量确认**：用户确认后对整批调 `research_record`（支持 `entries` 批量，最多 50 条），不是逐条；
+3. 再做 `wiki_write`（保留 `review` 门槛与 `expected_revision`）。
+
+不自动把“模型推断”写成 claim；推断必须 `inference=true` 且单独标注。
+
+**交互成本验收（新增）**：16 条 claim 的任务，用户确认动作 ≤ 2 次（审阅草稿、提交批量）；草稿必须标出“逐字引文”与“推断”两类，便于一次判断。
+
+### 3.3 复用
+
+- 后续问题先 `wiki_search` / `wiki_get`，命中已审核页面就直接用，仅对过期/缺失部分联网；
+- Wiki 页面带 `source_url`，刷新走现有 `wiki_refresh`。
+
+验收：一次研究后能生成 1 页草稿（≥ 3 条 claim、每条有 evidence id），用户确认后成页；再次提问命中该页而不重复抓取。
+
+## 4. 时间信号统一（P1）
+
+### 4.1 本地 `added_at`
+
+| 来源 | 解析 | 语义 |
+| --- | --- | --- |
+| `tempId_YYYYMMDD_hash_*` | 日期段 | 条目生成/导入线索，不等于阅读时间 |
+| `syncId_YYYYMMDD_hash_*` | 日期段 | 同步批次线索 |
+| 永久树 `dateAdded` | epoch ms | 收藏时间；批量导入时≈迁移时间 |
+| `edge - N -<epoch>` | epoch ms | 关系创建时间 |
+
+**数据落点（实现前必须确认）**：`items` 表没有时间列（schema 见 `bookmark_index.py:97`），只有 `raw_json` 与 `metadata_json`；而 `metadata_json` 只收白名单 `{syncId, note, noteColor, tags}`（`bookmark_output.py:13`）。因此 `tempId` / `dateAdded` **只存在于 `items.raw_json`**（`sections.raw_json` / `files.raw_json` / `edges.raw_json` 同理保留未识别字段）。结论：
+
+1. 时间在**索引期**从各表 `raw_json` 提取，落成新列 `added_at / added_at_source / added_at_precision / added_at_confidence`；
+2. 新列需要 `PRAGMA user_version` 升级（现为 1）并定义旧索引处置：重建，或首次查询惰性补列；
+3. `added_at` 输出 `null` 时**不得**回落到抓取时间或文件 mtime；
+4. edges 按解析时间排序（无时间的 edge 排末尾，保持稳定次序）。
+
+验收：§10 记录实测包绝对路径；对同一包，`added_at` 非空条数与该包内可解析时间字段的条数一致，且与 3,673 / 1,241 的口径可核对。
+
+### 4.2 联网 `published_at` / `updated_at`
+
+优先级：provider 元数据 → JSON-LD/OG/meta → 正文日期正则 → `null`（低置信度）。现状只有第一层（`archive.py:435` 的 `provider_published_at`）。抓取时间不冒充发布时间；search 片段的 `Published:` 透传到 fetch。
+
+验收 fixture：**按仓库既有做法把原始 provider 响应存成 fixture**（参照 `tests/fixtures/exa-fetch-8url-fence-desync-20261015.json`），而不是只记字符数。
+
+| URL | 字符 | 期望 |
+| --- | ---: | --- |
+| `developers.googleblog.com/embeddinggemma-2-the-developer-guide/` | 14,577 | `published_at=2026-10-06` |
+| `developers.google.com/edge/foresight` | 284 | `null` + `content_state=content_insufficient` |
+| `www.deepseek.com/harness/` | 4,433 | `null` |
+
+## 5. 证据质量与核验（P1）
+
+### 5.1 内容状态：一个权威字段，不与现有词汇打架
+
+现状有两套已存在的信号，**都保留原义**：
+
+- `status`：`ok` / `partial` / `error` / `unverified`（瀑布流质量）；
+- `extraction_status`：`extracted` / `provider_error` / `request_failed` / `no_content_returned` / `content_present_unparsed` / `unrecognized_or_not_returned`（取数与解析通道）。
+
+新增的是**内容形态**，单独一个字段 `content_state`，映射关系如下（`_fetch_coverage`，`web_search.py`）：
+
+| 现有信号 | `content_state` | 说明 |
+| --- | --- | --- |
+| `extracted` 且字符 ≥ 400，无壳页标记 | `usable` | 可引用 |
+| `extracted` 且字符 < 400，或命中空壳标记（“No additional info available”） | `content_insufficient` | 不可引用；现在的 `status=ok` 只看 `body is not None`，这就是 284 字符页被判成功的原因 |
+| `no_content_returned` | `content_insufficient` | 真无正文 |
+| `content_present_unparsed` | `usable` + 标注 `parse_gap=true` | 本地解析缺口，**不**消耗提供商熔断（既有语义） |
+| `request_failed` / `provider_error` / `unrecognized_or_not_returned` | `usable` 之外，单列“未取得正文 + 原因” | 未取得正文，原因归传输/提供商 |
+| 有标题无正文段落且字符 < 800 | `js_shell_suspected` | 新增判定 |
+| 命中 Cloudflare/JS 挑战标记 | `challenge_blocked` | 新增判定 |
+| 200 但标题/正文含 not found | `soft_404` | 新增判定 |
+| 订阅墙标记且可用正文 < 600 | `paywall_suspected` | 新增判定 |
+
+`content_state != usable` 一律不进“可引用证据”；报告中单列“未取得正文 + 原因”。
+
+### 5.2 探活与印证
+
+- 死链：HEAD/GET 探测，404/410 → `dead`，不引用；
+- 印证：同一 URL 被 ≥ 2 个 provider 命中 → `corroborated`（只证明链接重叠，不证明内容为真）；
+- 冲突：两个已抓取来源对同一事实不一致 → `conflicts[]`，交宿主呈现。
+
+## 6. 本地结构修复（P1）
+
+6.1 **`get_context` 的诚实性**（原“让 items 返回”改口径）。
+`context()` 只在传 `item_id` 时填 `items`（`bookmark_index.py`），代码注释写明上下文有意“bounded to section headers”；`page_context`（`context_output.py`）只是对数组分页。因此 `collection="items"` + 仅 `section` 时 `pagination.items.total = 0`，而同一响应里 `sections[].bookmark_count` 非 0，**自相矛盾**。修法：
+
+1. **取卡片 URL 改走 `search_bookmarks(section=…)`**（本就返回 `url`、`counts.instances`、`counts.unique_urls`），§2.1 第 3 步据此改写；
+2. `get_context` 侧只做诚实报数：`collection="items"` 且无 `item_id` 时，`pagination` 里给出 `included` 与原因（如 `requires item_id`），不再静默报 0；
+3. 不做“让 context 吐整卡 items”。一张卡可能有几百条，会直接撑爆宿主上下文。
+
+6.2 导入根目录自动下探一层；失败时给出候选包根。
+6.3 重名 section label 消歧（A-1-1 ×2）：给 `section_id` + `file_path`。
+6.4 未分组卡片：`related_nodes` 增加“最近分组 + 间距”。
+6.5 `retained_missing_files` 在计数与报告中标注“无画布位置”。
+
+## 7. 测试与发布门槛
+
+**自动化**（本仓库为 Python，测试用 pytest）
+
+- 单测：日期解析、edge 时间排序、`published_at` 三层提取、`content_state` 映射全表、search→fetch 日期透传、`plan_research`（已定，四条分支 + 与 `research_route` 的 route id 一致性）、路线 ② 预算计数与降级（§2.3 已定编排式）、claim 草稿门槛与批量确认。
+- 集成：真实网络冒烟（1 次 search + 3 个 fetch，含 1 个 JS 壳页）。
+- 回归：现有 **692** 项全过；新增 ≥ 40 项（**且不含人工验收项**）。
+
+**人工验收**（记录进 §10，不计入 ≥ 40）
+
+- “纯问题 → 定位卡片 → 抓链接 → Wiki 草稿”端到端一次，附原问题、命中卡片、用户动作数；
+- 路线 ② 批量发现：一次真实 `workflow` 调用，检查最终 JSON 是否超 `maxResultChars`、中间子代理消息是否确实不可见。
+
+**发布**：仅 npm `beta` 通道；release notes 写清“未取得正文”“证据不足”“Wiki 草稿需审阅”。
+
+**工具面改动的连带成本**：若采纳 §9 决策项 3，新增 `plan_research` 必须同步 `skills/bookmark-research/`、`docs/prompt-reference.md`、`docs/details.md`、README（中英）与 `tests/test_mcp_server.py`。
+
+## 8. 实施顺序
+
+| 轮次 | 内容 | 完成标志 |
+| --- | --- | --- |
+| R1（2 天） | §2.1 范围解析（新增 `plan_research` 工具 + Skill／docs 文案，**不含**新鲜度排序；新鲜度留到 R2）＋ §6.1 诚实报数 | 纯问题能自动命中卡片与链接；单测覆盖 0 卡／多卡／有卡无 URL／截断四条分支；`skills/`、`docs/prompt-reference.md`、README 与 `tests/test_mcp_server.py` 同步 |
+| R2（2–3 天） | §2.2 抓取状态 + §4.1 `added_at`（含 `user_version` 升级）+ §4.2 `published_at` + §5 ＋ 启用 R1 的新鲜度排序 | 284 字符页有明确结论；日期 fixture 通过；新旧索引升级路径可用 |
+| R3（2 天） | §2.3 路线 ②（插件侧预算计数 + 发现脚本 + 与路线 ① 并发） | 单测覆盖降级、停止与 `maxResultChars` 上限；一次真实 workflow 冒烟 |
+| R4（2–3 天） | §2.4 自动缺口与 evidence-only + §3 Wiki 草稿 → 批量确认 → claim → 页面 | 一次研究生成可审草稿；16 条 claim 确认 ≤ 2 次动作 |
+| R5（1 天） | §6.2–6.5 消歧与导入体验 | 新包首次导入不用猜路径 |
+
+每轮结束：全量测试 + 真实网络冒烟 + 更新 §10。
+
+## 9. 风险与决策项
+
+**决策记录（逐条落定后才开工对应轮次）**：
+
+1. ~~路线 ② 预算落地方案~~ **已定：B（编排式，2026-10-17）**。落在插件侧计数 + 四宿主 workflow 接缝，**复用 `research_*` 会话作为唯一预算权威**（早先草案里“不复用 `research_*` 状态”一句作废）。R3 可直接开工，无需再等决策。
+2. **内容状态字段**：确认新增 `content_state` 而不替换既有 `extraction_status`，且 `status` 语义不动（§5.1 映射表为准）。
+3. ~~是否新增 `plan_research`~~ **已定：新增（2026-10-18）**。契约见 §2.1，`route` 取值复用 `routing.py` 的既有 route id。连带成本是同步 `skills/bookmark-research/`、`docs/prompt-reference.md`、`docs/details.md`、README（中英）与 `tests/test_mcp_server.py`，已并入 R1 的完成标志。
+4. **`added_at` 列的升级方式**：重建索引，还是惰性补列；对已保存的旧索引是否需要一次性迁移工具。
+
+**其他风险**：
+
+- **无头浏览器边界**：README 明确“不在集成范围”。Cloudflare 并发抓取是合理方向，但会引入新依赖/Key 并改变公开边界；建议 beta.15 不做，先用 §5.1 状态诚实标注，另开单独决策（改边界需同步改 README 与安装向导）。
+- 自动范围解析可能选错卡片：给“命中卡片 + 依据”让用户可纠正，默认 ≤ 3 张。
+- 匿名 provider 配额有限：每问题 ≤ 8 URL、≤ 1 次补充搜索。
+- Wiki 草稿不等于已审核：claim 需确认，推断必须标注，禁止自动发布。
+- 引用可能在“洗稿”中丢失：证据包给稳定 ID，成文回引。
+- 隐私：只发卡片内 URL 与查询词；归档本地。
+- 与上一轮计划的排队关系：§0.5 里“本轮不排”的三项不得因为本轮新增 R1–R5 而被静默丢弃，需在下一轮计划开头重申。
+
+## 10. 实施记录
+
+（待填。必须记录：本次实测包的绝对路径与时序字段提取口径；`user_version` 升级结果；`plan_research` 的契约实现与 `research_route` 的 route id 一致性核对结果；人工验收的原问题与命中卡片。）
