@@ -26,7 +26,7 @@
 ### 0.2 本次实测（本地 + 联网）
 
 - 本地：38 sections / 47 nodes / 6 groups / 14 edges / 25 memberships；25 条包含关系逐条正确；41 张卡 0 重叠；3 实例 / 1 URL 的副本识别正确。
-- 时间：`tempId_YYYYMMDD` 覆盖 3,673/3,913 条；永久树 `dateAdded` 1,241 条；edge epoch 可还原 06-27 → 09-08；170 次提交，最近 push 10-17 22:52:18（+152/−2）。
+- 时间：`tempId_YYYYMMDD` 覆盖 3,673/3,913 条（**口径存疑**，2026-10-18 复核见 §4.1）；永久树 `dateAdded` 1,241 条；edge epoch 可还原 06-27 → 09-08；170 次提交，最近 push 10-17 22:52:18（+152/−2）。
 - 联网：`search_web` 2 目标 × 2 提供商全成功（RRF k=60）；`fetch_web` 3 URL / 2 capture；但 `developers.google.com/edge/foresight` 仅 284 字符（“No additional info available”）仍记为成功；Google Blog 正文有 “OCT. 6, 2026” 而 `provider_published_at: null`。
 
 > **复现要求**：`tempId` / `dateAdded` 这两个字段名在 `src/`、`tests/`、`docs/` 中都不存在，只来自这次对真实包的观测。§10 必须记录本次实测包的绝对路径与提取脚本，否则 3,673 / 1,241 这两个数字无法被实现者复现或证伪。
@@ -47,7 +47,7 @@
 | # | 问题 | 侧 | 严重度 |
 | --- | --- | --- | --- |
 | 1 | 没有“问题 → 链接”的默认自动流，用户得先自己选卡片/贴 URL | 产品 | P0 |
-| 2 | 空壳/JS 壳页无状态，284 字符也算成功 | 联网 | P0 |
+| 2 | 空壳/JS 壳页无状态，284 字符也算成功 | 联网 | P0 → 已解决（§5.1；见 §10） |
 | 3 | 研究结束没有 Wiki 草稿；且 claim 逐条人工确认的成本未被计量 | Wiki | P0 |
 | 4 | 路线 ② 的循环在宿主侧；插件只**声明**步骤、不计数，而宿主 workflow 层也没有步数上限 | 联网/架构 | P0（原 P1 上调，见 §2.3） |
 | 5 | 路线 ③ 缺**自动**缺口发现与补抓；缺口“记录”与“证据不足即拒答”已存在 | 联网 | P1 |
@@ -239,26 +239,21 @@
 | 永久树 `dateAdded` | epoch ms | 收藏时间；批量导入时≈迁移时间 |
 | `edge - N -<epoch>` | epoch ms | 关系创建时间 |
 
-**数据落点（实现前必须确认）**：`items` 表没有时间列（schema 见 `bookmark_index.py:97`），只有 `raw_json` 与 `metadata_json`；而 `metadata_json` 只收白名单 `{syncId, note, noteColor, tags}`（`bookmark_output.py:13`）。因此 `tempId` / `dateAdded` **只存在于 `items.raw_json`**（`sections.raw_json` / `files.raw_json` / `edges.raw_json` 同理保留未识别字段）。结论：
+**数据落点（2026-10-18 实测确认，已实现）**：`tempId_` / `syncId_` 日期段在 **`item_id`** 里；`dateAdded` 是 **`items.raw_json` 里的裸整数 epoch ms**（permanent 树节点字段）；edge 时间在 **`edge_id` 尾部**（`edge - 9 -1782572278545`，中间那个数是计数器不是时间）。落成三列 `added_at` / `added_at_source` / `added_at_confidence`，`user_version` 1 → 2：打开旧库时 ALTER 三列并用**库内 `raw_json`** 回填（不读包、不重建索引），`added_at_precision` 由来源派生（`dateAdded` 与 `edge_epoch` = millisecond，`id_date_segment` = day）。取值优先级：`dateAdded`（high，收藏时间）> id 日期段（low，生成/导入线索，**明确不等于阅读时间**）。无信号时 `added_at` 输出 `null`，不回落到抓取时间或文件 mtime。edges 在 `context()` 里按解析时间升序、无时间的排末尾（保持 id 稳定序）。
 
-1. 时间在**索引期**从各表 `raw_json` 提取，落成新列 `added_at / added_at_source / added_at_precision / added_at_confidence`；
-2. 新列需要 `PRAGMA user_version` 升级（现为 1）并定义旧索引处置：重建，或首次查询惰性补列；
-3. `added_at` 输出 `null` 时**不得**回落到抓取时间或文件 mtime；
-4. edges 按解析时间排序（无时间的 edge 排末尾，保持稳定次序）。
-
-验收：§10 记录实测包绝对路径；对同一包，`added_at` 非空条数与该包内可解析时间字段的条数一致，且与 3,673 / 1,241 的口径可核对。
+实测（`~/Downloads/kk/Bookmark-Canvas/bookmark/书签画布/`，4,926 items / 4,104 bookmarks / 14 edges）：`dateAdded` **1,241 条，与 §0.2 完全一致**；回落到 id 日期段 3,685 条；**4,104 条书签全部有 `added_at`**，跨度 2025-11-17 → 2026-10-17；14 条 edge 全部解析（2026-06-27 → 09-08，与 §0.2 一致）。§0.2 的“3,673/3,913”应按今日口径改读为“3,685 条回落 / 4,926 items”：分子同量级，分母是当时的快照。
 
 ### 4.2 联网 `published_at` / `updated_at`
 
 优先级：provider 元数据 → JSON-LD/OG/meta → 正文日期正则 → `null`（低置信度）。现状只有第一层（`archive.py:435` 的 `provider_published_at`）。抓取时间不冒充发布时间；search 片段的 `Published:` 透传到 fetch。
 
-验收 fixture：**按仓库既有做法把原始 provider 响应存成 fixture**（参照 `tests/fixtures/exa-fetch-8url-fence-desync-20261015.json`），而不是只记字符数。
+验收 fixture（**2026-10-18 按实测重写**；原始响应存为 `tests/fixtures/exa-fetch-evidence-states-20261018.json`，并由单测离线回放）：
 
-| URL | 字符 | 期望 |
+| URL | 字符（原计划） | 期望与实测 |
 | --- | ---: | --- |
-| `developers.googleblog.com/embeddinggemma-2-the-developer-guide/` | 14,577 | `published_at=2026-10-06` |
-| `developers.google.com/edge/foresight` | 284 | `null` + `content_state=content_insufficient` |
-| `www.deepseek.com/harness/` | 4,433 | `null` |
+| `developers.googleblog.com/embeddinggemma-2-the-developer-guide/` | 9,973（原 14,577） | `published_at=2026-10-06`（provider_metadata，high）✓ |
+| `developers.google.com/edge/foresight` | 1,411（原 284） | `published_at=null` ✓，`content_state=js_shell_suspected`（原期望 content_insufficient：该 URL 今天返回的是 1,411 字符的导航壳，见 §10） |
+| `www.deepseek.com/harness/` | 3,437（原 4,433） | `published_at=null` ✓ |
 
 ## 5. 证据质量与核验（P1）
 
@@ -368,4 +363,39 @@
 - **文档同步**：`README.md` / `README.zh.md` 工具表、`docs/details.en.md` 的 MCP tools 表、`SKILL.md` 与 `references/zh/skill-guide.md` 流程表、`references/package-semantics.md` 与 `zh/package-semantics.md`（`plan_research` 段落 + `scope_note` 说明）。
 - **有意未做**：CLI 不加 `plan` 子命令（`cli.md` 的 MCP↔CLI 映射表保持原样）；`docs/tool-surface-audit.md` 的 40 项计数属历史审计，不改写；`docs/prompt-reference.md` 与 `docs/details.md` 不含工具清单，无需同步。
 - **仍待记录 / 仍待人工验收**：R2 的时序字段提取口径与 `user_version` 升级结果；真实宿主会话里“宿主是否真按 `plan_research` 的建议去抓链接”（本轮只到证据包与路线建议，不含实际抓取）。
+
+### R2（2026-10-18，已完成）
+
+**§4.1 本地 `added_at`（已完成）**
+
+- 纯解析器（`src/bookmark_index.py` 模块级）：`_added_at_from_id`（`tempId_/syncId_YYYYMMDD` → 当日 UTC 零点，非法日期返回 `null`）、`_added_at_from_epoch`（**范围校验 2001–2286**，所以 edge id 中间那个计数器不会被当成日期）、`_added_at_from_edge_id`（取尾部数字）、`_added_at_fields`（`dateAdded` 优先于 id 段）。
+- 三列 + `user_version` 1 → 2，旧库打开时 `ALTER TABLE` 并**从库内 `raw_json` 回填**；`_item_result` 暴露 `added_at` / `added_at_source` / `added_at_confidence` / 派生 `added_at_precision`。
+- `context()` 的 edges 按解析时间升序（无时间排末尾）；`plan_scope` 的同级排序启用新鲜度（`newest_added_at`），R1 的“延后启用”就此关闭。
+- 测试：`tests/test_added_at.py` 10 项（含**手工造 v1 库**验证迁移与回填、v2 库不重复修复）；全量 **715 项通过、3 项跳过、137 秒**。
+- 真实包复核：见 §4.1 的实测段；§0.2 的口径已就地标注。
+- 过程中的自纠：两处 UTC 期望值我手算错了（差 1h20m），由测试暴露后按 `epoch/86400` 独立验算改正，代码未动。
+
+**§5.1 内容状态 + §4.2 联网日期（已完成）**
+
+- `src/archive.py` 新增两个纯函数：
+  - `content_state(title, text, extraction_status)` → `unavailable` / `challenge_blocked` / `paywall_suspected` / `soft_404` / `content_insufficient` / `js_shell_suspected` / `usable`，与既有 `extraction_status`、`status` 并存（§5.1 映射表为准）。
+  - `published_at(text, provider_value, reference)` → `(published_at, source, confidence)`：provider 元数据（high）→ 正文中带标签的字段（JSON-LD / meta / `<time>` / `Published:` / `发布日期`，high）→ 正文前 1,500 字符内的裸日期（low，且**不得晚于抓取日**）。
+- 三处接线：`compact_fetch` 的 `pages[]`（`fetch_web` 输出）、`save()` 的 manifest、`web_search._fetch_coverage` 的 `per_url`（`research_fetch` 与覆盖度）；无正文的失败行统一 `content_state: "unavailable"`。
+- 真实抓取与 fixture（2026-10-18，Exa 通道，3/3 成功；原始响应 `tests/fixtures/exa-fetch-evidence-states-20261018.json`，18.5 KB，单测离线回放）：见 §4.2 的实测表。
+- **实测迫使的三处修正**：
+  1. §0.4 #2 的“284 字符”今天不再复现（同一 URL 返回 1,411 字符），但那 1,411 字符**全是标题与链接导航**。因此 shell 上限从 800 提到 4,000，并改为“正文权重”判定：先剥掉链接/图片/裸 URL，再按句子标点或 ≥60 字符的行累计；该页由此得到明确结论 `js_shell_suspected`。
+  2. 挑战标记加“无正文”前提：长正文里出现 `enable javascript…` 是文章主题，不是页面状态（付费墙不同：墙前的免费导语也是正文，故保留计划里的纯长度规则）。
+  3. 日期正则的 `\b` 漏掉 `2026-09-08T10:00:00Z`（`8` 与 `T` 之间没有词边界），改为 `(?<!\d)` / `(?!\d)` 守卫；缺陷由单测发现。
+  4. §4.2 的 fixture 表按实测重写（保留原计划数字对照）。
+- 测试：新增 `tests/test_evidence_state.py` 15 项（含 fixture 回放）；全量 **729 项通过、3 项跳过、130 秒**。
+
+**§5.2 死链与印证（已完成）**
+
+- **印证**：`fuse_results` 本来就有 `provider_count`（去重后的 provider 数）与 `independent_fact_confirmation: false`；本轮只把信号显式化——每条结果新增 `corroborated = provider_count > 1`，并在 `ranking` 里写明“两家以上返回同一 URL 只是链接重叠，不是内容确认”。零新词表。
+- **死链**：`_liveness(url)` 先 HEAD，被拒（403/405/501）再一次 GET；只有 **404/410** 记 `dead`，其余（含 200）一律 `unknown`——探测不是抓取，绝不冒充成功。`_with_liveness` 只探测**没有拿到正文**的 URL，写 `per_url[].liveness`（`dead` / `unknown` / 有正文的 `not_probed`）与顶层 `dead_urls[]`。
+- **一次真实的设计回退（值得记下）**：最初把探测放在每个 provider 尝试内部，结果 ① 让离线测试开始做真实 DNS/HTTP；② 改变了瀑布流“完成即入列”的尝试顺序——`test_fetch_waterfall_parallel_fallback_only_receives_unresolved_urls` 从 5/5 通过变成 4/5 失败。我在 HEAD 版本上跑同样 5 次作对照，确认是本次引入而非既有。修法：探测只在**最外层** `fetch()` 收尾做一次，内部尝试显式 `probe=False`，并留 `_probe_opener()` 这一个可被测试替换的出口。改后该测试 5/5 通过。
+- 测试：`tests/test_evidence_state.py` 增到 18 项（`dead`/`unknown`/`not_probed`、HEAD→GET 回退、两 provider 印证）；全量 **733 项通过、3 项跳过、约 130 秒**（R1+R2 共新增 41 项，§7 的“≥40 项”已达成）。
+
+**R2 完成情况**：§2.2 的抓取字段（`content_state` / `published_at` / `retrieved_at` 即计划里的 `fetched_at`；并发与超时沿用 `server.network_workers`、`timeout_seconds`、`fetch.strategy/grace/deadline`，未新造常量）随 §5.1/§4.2 一起落地；R1 延后的新鲜度排序已启用。§8 的 R2 验收三项均达成：284 字符页（今天为 1,411 字符的壳页）有明确结论、日期 fixture 通过、新旧索引升级路径可用（含手工 v1 库的迁移测试）。
+- **未解释现象（不掩盖）**：§5.1/§4.2 完成后的一次全量跑里，`test_web_search.test_real_transport_usage_is_per_operation_and_not_mixed_between_providers` 失败——`len(requests)` 11 ≠ 10，而同一回执的 usage 计数仍是 10（一次**未被计数**的传输调用）；此后多次全量与单文件重跑均通过，未能复现，本轮未改搜索路径。§5.2 期间还出现过一次“尝试顺序”失败，但那一次已定位并修复（见下），与本条无关。
 

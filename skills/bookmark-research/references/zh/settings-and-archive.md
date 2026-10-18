@@ -109,7 +109,7 @@ knowledge/
 
 - `response.json` 是 MCP 返回的原始结果对象，包含文本块和 provider 状态；不是网页原始 HTML，也不包含本插件的认证请求头。
 - Markdown 保存能确认关联到指定 URL 的实际提取文本，不让模型凭摘要补全文；相同正文只存一份，由各 manifest 的 `body_file` 引用（旧抓取在其目录内保存 `pages/<URL 哈希>.md`，两种都可读取）。来源信息放在 `manifest.json`，避免混入原文。
-- manifest 记录请求 URL、返回 URL、provider、tool、实际请求参数、检索时间、响应哈希 `response_sha256`、正文路径与哈希，以及失败、缺失、摘录或可能截断的标记。服务返回的发布时间与作者分别放在 `provider_published_at`、`provider_author`，不混入正文。`completeness: "unknown"` 表示不能证明完整。`possibly_truncated: false` 也不是完整性保证。
+- manifest 记录请求 URL、返回 URL、provider、tool、实际请求参数、检索时间、响应哈希 `response_sha256`、正文路径与哈希，以及失败、缺失、摘录或可能截断的标记。服务返回的发布时间与作者分别放在 `provider_published_at`、`provider_author`，不混入正文。每页还带 `content_state`（页面自身的形态：`usable`、`content_insufficient`、`js_shell_suspected`、`challenge_blocked`、`soft_404`、`paywall_suspected`，没拿到正文时为 `unavailable`），只有 `usable` 值得引用。`published_at` 是解析后的日精度日期，附 `published_at_source`（`provider_metadata`、`structured_metadata`、`body_date`）与 `published_at_confidence`；正文里的裸日期为低置信，且晚于抓取日的一律拒绝。`completeness: "unknown"` 表示不能证明完整。`possibly_truncated: false` 也不是完整性保证。
 - `#comments` 等锚点会保留，但网页提取不保证所有评论已加载；`fragment_scope_verified: false` 明示这一点。检索时间不等于网页发布时间、更新时间或缓存时间。
 - 返回格式无法识别时仍保存响应与 manifest，正文路径为空；部分 URL 失败时只保存成功识别的正文。每页的 `extraction_status: "provider_error"` 表示服务报告失败；同一 URL 的正文冲突时为 `conflicting_provider_results`，不自动挑选一份正文。归档失败会在 `archive.status: "error"` 明示，工具仍返回已收到的内容，不自动重复付费抓取。
 - Exa 批量记录支持带缩进的多行标题。每个独占行的 `URL:` 字段都必须属于已识别的记录；边界缺失、格式异常或重复时，该文本块只保留原始响应。未请求的重定向页面同样构成边界。正文内出现类似记录字段的歧义内容时，这项保守检查可能不提取正文，应检查原始响应，不将其归给另一页。

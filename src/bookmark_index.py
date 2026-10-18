@@ -30,6 +30,62 @@ def question_urls(text):
     """The URLs a question already contains; the one shared URL extractor."""
     return QUESTION_URL.findall(text) if isinstance(text, str) else []
 
+# Added-at is deliberately literal: a tempId_/syncId_ date segment is a
+# generation clue, a dateAdded epoch is the bookmark's own add time, and an
+# edge id ends with the millisecond it was created. Nothing here guesses a
+# missing time, and each source keeps its own precision and confidence.
+ID_DATE = re.compile(r"^(?:temp|sync)Id_(\d{8})_")
+EPOCH_MS = (10 ** 12, 10 ** 13)  # 2001-09-09 .. 2286-11-20
+ADDED_AT_SOURCES = {"dateAdded": ("millisecond", "high"), "edge_epoch": ("millisecond", "medium"),
+                    "id_date_segment": ("day", "low")}
+
+
+def _added_at_from_id(item_id):
+    """The YYYYMMDD segment of a tempId_/syncId_ id as an ISO instant, or None."""
+    match = ID_DATE.match(item_id if isinstance(item_id, str) else "")
+    if match is None:
+        return None
+    try:
+        moment = datetime.strptime(match.group(1), "%Y%m%d")
+    except ValueError:
+        return None
+    return moment.replace(tzinfo=timezone.utc).isoformat()
+
+
+def _added_at_from_epoch(value):
+    """An epoch-millisecond number as an ISO instant, or None when implausible.
+
+    The range check is what keeps a stray counter, such as the middle number of
+    an edge id, from being read as a date.
+    """
+    if type(value) is not int or not EPOCH_MS[0] <= value < EPOCH_MS[1]:
+        return None
+    return datetime.fromtimestamp(value / 1000, timezone.utc).isoformat()
+
+
+def _added_at_from_edge_id(edge_id):
+    """The trailing millisecond of an ``edge - 9 -1782572278545`` id, or None."""
+    tail = (edge_id if isinstance(edge_id, str) else "").rsplit("-", 1)[-1]
+    return _added_at_from_epoch(int(tail)) if tail.strip().isdigit() else None
+
+
+def _added_at_fields(item_id, raw):
+    """(added_at, source, confidence) for one item; dateAdded wins over an id segment.
+
+    dateAdded is when the bookmark was added; an id date segment is only a
+    generation or import clue, so it is reported with low confidence and never
+    overrides a real add time.
+    """
+    if isinstance(raw, dict):
+        epoch = _added_at_from_epoch(raw.get("dateAdded"))
+        if epoch is not None:
+            return epoch, "dateAdded", ADDED_AT_SOURCES["dateAdded"][1]
+    segment = _added_at_from_id(item_id)
+    if segment is not None:
+        return segment, "id_date_segment", ADDED_AT_SOURCES["id_date_segment"][1]
+    return None, None, None
+
+
 def _dump(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -113,7 +169,9 @@ CREATE TABLE IF NOT EXISTS items (
  url TEXT NOT NULL, note TEXT NOT NULL, note_color TEXT,
  tags_json TEXT NOT NULL, tag_text TEXT NOT NULL, path_json TEXT NOT NULL,
  folder_path TEXT NOT NULL, ancestor_ids_json TEXT NOT NULL,
- raw_json TEXT NOT NULL, metadata_json TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+ raw_json TEXT NOT NULL, metadata_json TEXT NOT NULL,
+ added_at TEXT, added_at_source TEXT, added_at_confidence TEXT,
+ revision INTEGER NOT NULL DEFAULT 1,
  UNIQUE(source_id,section_id,item_id),
  FOREIGN KEY(source_id,section_id) REFERENCES sections(source_id,section_id)
 );
@@ -160,7 +218,7 @@ CREATE TABLE IF NOT EXISTS memberships (
  group_id TEXT NOT NULL, node_id TEXT NOT NULL,
  PRIMARY KEY(source_id,canvas_path,group_id,node_id)
 );
-PRAGMA user_version=1;
+PRAGMA user_version=2;
 """
 
 
@@ -180,9 +238,18 @@ class BookmarkIndex:
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.connection.execute("PRAGMA busy_timeout=5000")
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2):
             self.close()
             raise ValueError("Unsupported bookmark index schema version: %s" % version)
+        if version == 1:
+            # Add the added-at columns and fill them from stored raw_json before
+            # the schema script runs: CREATE TABLE IF NOT EXISTS cannot add a
+            # column, and the script would advance the version past this repair.
+            try:
+                self._upgrade_items_added_at()
+            except Exception:
+                self.close()
+                raise
         try:
             self.connection.executescript(SCHEMA)
         except Exception:
@@ -190,6 +257,26 @@ class BookmarkIndex:
             raise
         self._fts_mode = self._prepare_search_index()
         self._window_functions = self._supports_window_functions()
+
+    def _upgrade_items_added_at(self):
+        """v1 → v2: derive added-at for existing rows without touching the package.
+
+        The index is derived data, but its package may be gone or unreadable, so
+        the backfill reads the stored raw_json and item_id rather than re-importing.
+        """
+        with self.transaction():
+            for column in ("added_at", "added_at_source", "added_at_confidence"):
+                self.connection.execute("ALTER TABLE items ADD COLUMN %s TEXT" % column)
+            for row in self.connection.execute("SELECT pk,item_id,raw_json FROM items").fetchall():
+                try:
+                    raw = json.loads(row["raw_json"])
+                except ValueError:
+                    raw = {}
+                added_at, source, confidence = _added_at_fields(row["item_id"], raw)
+                self.connection.execute(
+                    "UPDATE items SET added_at=?,added_at_source=?,added_at_confidence=? WHERE pk=?",
+                    (added_at, source, confidence, row["pk"]))
+            self.connection.execute("PRAGMA user_version=2")
 
     def _supports_window_functions(self):
         """SQLite 3.25+ can return the pre-LIMIT count alongside the page."""
@@ -370,6 +457,7 @@ class BookmarkIndex:
                 note_color = item_meta.get("noteColor", "orange") if note else None
                 if note_color is not None:
                     _string(note_color, "noteColor")
+                added = _added_at_fields(item_id, node)
                 result.append((item_id, {
                     "parent_id": parent_id, "item_type": item_type, "position": position,
                     "preorder": len(result), "title": title, "url": url, "note": note,
@@ -380,6 +468,7 @@ class BookmarkIndex:
                     # Full child arrays also survive in files/sections.raw_json.
                     "raw_json": _dump({key: value for key, value in node.items() if key != "children"}),
                     "metadata_json": _dump(item_meta if permanent else {key: node[key] for key in ("tags", "note", "noteColor") if key in node}),
+                    "added_at": added[0], "added_at_source": added[1], "added_at_confidence": added[2],
                 }))
                 visit(children, item_id, titles + ((title,) if title else ()), ancestor_ids + (item_id,))
 
@@ -932,7 +1021,11 @@ class BookmarkIndex:
         return anchors
 
     def _item_result(self, row, anchors=None, section_cache=None):
-        result = {key: row[key] for key in ("source_id", "section_id", "item_id", "parent_id", "item_type", "title", "url", "note", "note_color", "position")}
+        keys = row.keys()
+        result = {key: row[key] for key in ("source_id", "section_id", "item_id", "parent_id", "item_type", "title",
+                                            "url", "note", "note_color", "position")
+                  + (("added_at", "added_at_source", "added_at_confidence") if "added_at" in keys else ())}
+        result["added_at_precision"] = ADDED_AT_SOURCES.get(result.get("added_at_source"), (None,))[0]
         result.update(source=row["source_id"], section=row["section_id"], item=row["item_id"],
             path=json.loads(row["path_json"]), folder_path=row["folder_path"], tags=json.loads(row["tags_json"]),
             raw_json=json.loads(row["raw_json"]), metadata=json.loads(row["metadata_json"]))
@@ -1127,6 +1220,13 @@ class BookmarkIndex:
             edge["direction"] = ("both" if edge["from_end"] == edge["to_end"] == "arrow" else
                 "forward" if edge["to_end"] == "arrow" else "reverse" if edge["from_end"] == "arrow" else "none")
             edge["raw_json"] = json.loads(edge["raw_json"])
+            edge["added_at"] = _added_at_from_edge_id(edge["edge_id"])
+            edge["added_at_source"] = "edge_epoch" if edge["added_at"] else None
+            edge["added_at_confidence"] = ADDED_AT_SOURCES["edge_epoch"][1] if edge["added_at"] else None
+        # Chronological inside each canvas; an edge whose id carries no time
+        # stays in stable id order at the end instead of being invented a date.
+        edges.sort(key=lambda edge: (edge["canvas_path"], edge["added_at"] is None,
+                                     edge["added_at"] or "", edge["edge_id"]))
         for node in nodes:
             node["raw_json"] = json.loads(node["raw_json"])
         selected_node_ids = {(node["canvas_path"], node["node_id"]) for node in nodes}

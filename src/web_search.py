@@ -757,11 +757,64 @@ class SearchProviders:
                 "freshness": "retrieved_at is retrieval time; origin freshness is not established",
                 "evidence_note": "Provider agreement is not independent fact verification; read source pages."}
 
+    # A probe answers one question only: does this page still exist? Everything
+    # else, including a successful HEAD, stays unknown, because a probe is not a
+    # fetch and must never be reported as one. Only URLs that produced no body
+    # are probed, and only 404/410 count as gone.
+    DEAD_STATUSES = (404, 410)
+    HEAD_REFUSALS = (403, 405, 501)
+    PROBE_TIMEOUT = 10
+
+    @classmethod
+    def _probe_opener(cls):
+        """The one place probe requests go through, so tests can replace them."""
+        import urllib.request
+        return urllib.request.urlopen
+
+    @classmethod
+    def _liveness(cls, url, timeout=None):
+        import urllib.error
+        import urllib.request
+        timeout = cls.PROBE_TIMEOUT if timeout is None else timeout
+        opener = cls._probe_opener()
+        for method in ("HEAD", "GET"):
+            try:
+                with opener(urllib.request.Request(url, method=method), timeout=timeout) as response:
+                    response.read(0)
+            except urllib.error.HTTPError as error:
+                if error.code in cls.DEAD_STATUSES:
+                    return "dead"
+                if method == "HEAD" and error.code in cls.HEAD_REFUSALS:
+                    continue
+            except Exception:
+                pass
+            return "unknown"
+        return "unknown"
+
+    @classmethod
+    def _with_liveness(cls, fetched):
+        """Probe the URLs that produced no body; mark the gone ones as dead.
+
+        Called once, after every attempt has settled, so a probe can never sit
+        inside a provider attempt: that would add real I/O to a path tests run
+        offline and would re-time the attempts the waterfall races.
+        """
+        dead = []
+        for row in fetched.get("per_url") or []:
+            if row.get("status") == "ok":
+                row.setdefault("liveness", "not_probed")
+                continue
+            row["liveness"] = cls._liveness(row["url"])
+            if row["liveness"] == "dead":
+                dead.append(row["url"])
+        fetched["dead_urls"] = dead
+        return fetched
+
     @staticmethod
-    def _fetch_coverage(result, urls):
+    def _fetch_coverage(result, urls, reference=None):
         # Share the archive's conservative URL/body association rules even when
         # archival is disabled; a redirected or unidentified body is unverified.
-        from archive import SourceArchive
+        from archive import SourceArchive, content_state, published_at
         by_url, rows = {}, SourceArchive._extract(result, urls)
         for row in rows:
             try:
@@ -772,11 +825,18 @@ class SearchProviders:
         empty_status = SourceArchive._empty_status(rows, result)
         coverage = []
         for url in urls:
-            _, body, extraction, kind = SourceArchive._select(by_url.get(SourceArchive._key(url)), empty_status)
+            row, body, extraction, kind = SourceArchive._select(by_url.get(SourceArchive._key(url)), empty_status)
+            title = (row or {}).get("title")
+            provider_published = ((row or {}).get("publishedDate") or (row or {}).get("published_at")
+                                  or (row or {}).get("publishedTime"))
+            published = published_at(body, provider_published, reference=reference)
             status = "ok" if body is not None and kind != "provider_excerpts" else (
                 "error" if extraction == "provider_error" else "unverified")
             coverage.append({"url": url, "status": status, "extraction_status": extraction,
-                             "content_kind": kind, "characters": len(body) if body is not None else 0,
+                             "content_kind": kind, "content_state": content_state(title, body, extraction),
+                             "characters": len(body) if body is not None else 0,
+                             "published_at": published[0], "published_at_source": published[1],
+                             "published_at_confidence": published[2],
                              "complete_page_verified": False})
         successful = sum(row["status"] == "ok" for row in coverage)
         status = "ok" if successful == len(urls) else ("partial" if successful else
@@ -814,9 +874,9 @@ class SearchProviders:
                 fetched = {"status": "error", **cls._failure(error), "usage": cls._empty_usage()}
             fetched = {**fetched, "provider": name, "urls": pending}
             if "result" in fetched:
-                fetched.update(cls._fetch_coverage(fetched["result"], pending))
+                fetched.update(cls._fetch_coverage(fetched["result"], pending, fetched.get("retrieved_at")))
             else:
-                fetched["per_url"] = [{"url": url, "status": "unverified",
+                fetched["per_url"] = [{"url": url, "status": "unverified", "content_state": "unavailable",
                                        "extraction_status": "request_failed", "characters": 0}
                                       for url in pending]
             return fetched
@@ -957,7 +1017,7 @@ class SearchProviders:
         pool.shutdown(wait=not abandoned)
         return assemble(abandoned)
 
-    def fetch(self, urls, provider=None, archive=None, max_characters=None):
+    def fetch(self, urls, provider=None, archive=None, max_characters=None, probe=True):
         preferences = self.settings.load()
         automatic = provider is None
         provider = preferences["fetch"]["provider"] if provider is None else provider
@@ -982,14 +1042,14 @@ class SearchProviders:
         if automatic:
             names = self._selected(Settings.fetch_providers(preferences))
             fetched = self._fetch_waterfall(urls, names, lambda name, pending:
-                self.fetch(pending, provider=name, archive=archive, max_characters=max_characters),
+                self.fetch(pending, provider=name, archive=archive, max_characters=max_characters, probe=False),
                 strategy=preferences["fetch"]["strategy"], grace=preferences["fetch"]["grace_seconds"],
                 deadline=preferences["fetch"]["deadline_seconds"])
             if len(fetched["attempts"]) == 1 and not fetched["abandoned_providers"]:
-                return fetched["attempts"][0]
+                return self._with_liveness(fetched["attempts"][0])
             # Keep the waterfall shape whenever a provider was abandoned so the
             # disclosure and per-URL provider attribution stay visible.
-            return fetched
+            return self._with_liveness(fetched)
         from archive import SourceArchive
         store = SourceArchive(preferences["archive"]["directory"]) if archive else None
         outcome = self._execute(provider, "fetch", urls=urls, max_characters=max_characters)
@@ -1001,12 +1061,15 @@ class SearchProviders:
                    "freshness": "Origin freshness is not established; inspect per-URL provider statuses."}
         fetched["archive"] = {"status": "disabled"}
         if outcome["status"] == "error":
-            fetched["per_url"] = [{"url": url, "status": "unverified", "extraction_status": "request_failed"} for url in urls]
+            fetched["per_url"] = [{"url": url, "status": "unverified", "content_state": "unavailable",
+                                   "extraction_status": "request_failed"} for url in urls]
             fetched["successful_url_count"] = 0
             if store is not None:
                 fetched["archive"] = {"status": "not_saved", "reason": "No provider response was obtained"}
             return fetched
-        fetched.update(self._fetch_coverage(outcome["result"], urls))
+        fetched.update(self._fetch_coverage(outcome["result"], urls, fetched.get("retrieved_at")))
+        if probe:
+            fetched = self._with_liveness(fetched)
         rows = fetched["per_url"]
         if any(row.get("status") == "ok" and row.get("extraction_status") not in
                ("request_failed", "unrecognized_or_not_returned",

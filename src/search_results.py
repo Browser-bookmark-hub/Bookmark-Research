@@ -192,12 +192,14 @@ def fuse_results(payload):
         ranked = []
         for canonical, sources in by_url.items():
             sources.sort(key=lambda source: (source["rank"], source["provider"], source["query"]))
+            provider_count = len({source["provider"] for source in sources})
             ranked.append({
                 "url": sources[0]["url"], "canonical_url": canonical,
                 "raw_urls": sorted({url for source in sources for url in source["raw_urls"]}),
                 "title": next((source["title"] for source in sources if source["title"]), ""),
                 "rrf_score": sum(1.0 / (RRF_K + source["rank"]) for source in sources),
-                "provider_count": len({source["provider"] for source in sources}),
+                "provider_count": provider_count,
+                "corroborated": provider_count > 1,
                 "evidence_count": len(sources), "sources": sources,
             })
         ranked.sort(key=lambda hit: (-hit["rrf_score"], hit["canonical_url"]))
@@ -237,6 +239,7 @@ def fuse_results(payload):
         "mode": _mode(all_providers, query_count), "limit_per_target": limit,
         "ranking": {"method": "rrf", "k": RRF_K,
                     "evidence_unit": "unique provider/query retrieval for this target and URL",
+                    "corroborated": "Two or more providers returned this URL; that is link overlap, not confirmation of its content.",
                     "independent_fact_confirmation": False},
         "missing_targets": [item["target"] for item in targets if item["status"] == "missing"],
         "uncovered_targets": [item["target"] for item in targets if not item["results"]],

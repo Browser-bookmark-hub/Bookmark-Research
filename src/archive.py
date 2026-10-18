@@ -14,6 +14,158 @@ from urllib.parse import urlsplit, urlunsplit
 from settings import Settings
 
 
+# Content state is the page's own shape, independent of how it was fetched:
+# transport and parse problems stay in extraction_status, and a page is only
+# "usable" when it carries prose a claim could quote.
+CONTENT_MINIMUM = 400
+# A rendered shell can carry thousands of characters of navigation before any
+# content arrives, so this bound is generous; the prose test is the real filter.
+SHELL_MAXIMUM = 4000
+PAYWALL_MAXIMUM = 600
+EMPTY_MARKERS = ("no additional info available", "no content available", "no information available")
+CHALLENGE_MARKERS = ("enable javascript and cookies to continue", "just a moment...", "checking your browser",
+                     "cf-browser-verification", "verify you are human", "captcha-delivery.com")
+PAYWALL_MARKERS = ("subscribe to continue", "this article is for subscribers", "subscribers only",
+                   "create a free account to keep reading", "订阅后继续阅读", "订阅以继续")
+NOT_FOUND_MARKERS = ("page not found", "404 not found", "the page you are looking for", "页面不存在",
+                     "找不到页面", "该页面已被删除")
+NO_BODY_STATES = ("request_failed", "provider_error", "unrecognized_or_not_returned")
+# A marker near the top belongs to the page's own chrome; the same words deep
+# in a long body are the page talking about the topic, so only the head counts.
+SOFT_MARKER_WINDOW = 300
+SHELL_PROSE_MINIMUM = 120
+SENTENCE_MARKS = ("。", "！", "？", "．", "!", "?")
+LINK_OR_URL = re.compile(r"!?\[[^\]]*\]\([^)]*\)|https?://\S+|www\.\S+")
+
+# Published-at is read in three tiers: what the provider says, what the page
+# says about itself in a labelled field, then a bare date near the top. A bare
+# date is the only tier that can be a misread, so it is the only one that must
+# not be later than the fetch, and the only one reported with low confidence.
+PUBLISHED_AT_SOURCES = {"provider_metadata": "high", "structured_metadata": "high", "body_date": "low"}
+PUBLISHED_KEYS = re.compile(r'"(?:datePublished|dateCreated|dateModified|published_time)"\s*:\s*"([^"]{4,40})"', re.I)
+PUBLISHED_META = re.compile(r"<meta[^>]+(?:article:published_time|property=\"og:published_time\"|"
+                            r"name=\"(?:pubdate|publishdate|date)\")[^>]+content=\"([^\"]{4,40})\"", re.I)
+PUBLISHED_TIME_TAG = re.compile(r"<time[^>]+datetime=\"([^\"]{4,40})\"", re.I)
+PUBLISHED_LINE = re.compile(r"^[>\s*]*(published|posted|last updated|发布日期|发布时间|更新于)\s*[:：]\s*\**\s*(\S[^\n]{3,40})",
+                            re.I | re.M)
+# The not-a-digit guards let an ISO timestamp such as 2026-09-08T10:00:00Z still
+# match, while a longer number cannot donate its first digits to a fake date.
+DATE_PATTERNS = (re.compile(r"(?<!\d)((?:19|20)\d{2})-(\d{1,2})-(\d{1,2})(?!\d)"),
+                 re.compile(r"(?<!\d)((?:19|20)\d{2})/(\d{1,2})/(\d{1,2})(?!\d)"),
+                 re.compile(r"((?:19|20)\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日"))
+DATE_TEXT = re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2}),?\s+((?:19|20)\d{2})\b", re.I)
+MONTHS = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+          "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+BODY_DATE_WINDOW = 1500
+
+
+def _day(year, month, day, ceiling=None):
+    """A validated YYYY-MM-DD, or None; a bare date must not be after the fetch."""
+    year, month, day = int(year), int(month), int(day)
+    if not 1990 <= year <= 2100 or not 1 <= month <= 12 or not 1 <= day <= MONTH_DAYS[month - 1]:
+        return None
+    value = "%04d-%02d-%02d" % (year, month, day)
+    return None if ceiling is not None and value > ceiling else value
+
+
+def _first_date(value, ceiling=None):
+    """The first plausible YYYY-MM-DD in a string, or None."""
+    if not isinstance(value, str) or not value:
+        return None
+    text = value.strip()
+    for pattern in DATE_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            found = _day(*match.groups(), ceiling=ceiling)
+            if found:
+                return found
+    match = DATE_TEXT.search(text)
+    if match:
+        return _day(match.group(3), MONTHS[match.group(1).lower()[:3]], match.group(2), ceiling=ceiling)
+    return None
+
+
+def published_at(text, provider_value=None, reference=None):
+    """(published_at, source, confidence): provider, then labelled, then bare date.
+
+    The value is a day-precision YYYY-MM-DD, because publication dates are the
+    only thing these sources actually state. A bare date is accepted only when
+    it is not later than the fetch day, so a page merely mentioning a future
+    date cannot claim to have been published then.
+    """
+    ceiling = reference[:10] if isinstance(reference, str) and len(reference) >= 10 else None
+    from_provider = _first_date(provider_value)
+    if from_provider:
+        return from_provider, "provider_metadata", PUBLISHED_AT_SOURCES["provider_metadata"]
+    text = text if isinstance(text, str) else ""
+    for pattern, group, window in ((PUBLISHED_KEYS, 1, 20000), (PUBLISHED_META, 1, BODY_DATE_WINDOW),
+                                   (PUBLISHED_TIME_TAG, 1, BODY_DATE_WINDOW), (PUBLISHED_LINE, 2, BODY_DATE_WINDOW)):
+        match = pattern.search(text[:window])
+        if match:
+            labelled = _first_date(match.group(group))
+            if labelled:
+                return labelled, "structured_metadata", PUBLISHED_AT_SOURCES["structured_metadata"]
+    bare = _first_date(text[:BODY_DATE_WINDOW], ceiling=ceiling)
+    if bare:
+        return bare, "body_date", PUBLISHED_AT_SOURCES["body_date"]
+    return None, None, None
+
+
+def content_state(title, text, extraction_status="extracted"):
+    """How usable one fetched page is, using only what the page itself shows.
+
+    Thresholds follow the beta.15 plan, with two corrections the real captures
+    forced: a rendered shell can be thousands of characters of navigation, and
+    a challenge phrase inside a real body is the page's subject rather than its
+    state, so that marker only counts for a page without prose.
+    """
+    if extraction_status in NO_BODY_STATES or not isinstance(text, str):
+        return "unavailable"
+    body = text.strip()
+    lowered = body.casefold()
+    head = lowered[:SOFT_MARKER_WINDOW]
+    short = len(body) < SHELL_MAXIMUM
+    prose = _prose_weight(body)
+    # A paywall page is different: its free intro before the wall is prose too,
+    # so that rule keeps the plan's plain length bound.
+    if any(marker in head for marker in CHALLENGE_MARKERS) or (
+            short and prose < SHELL_PROSE_MINIMUM and any(marker in lowered for marker in CHALLENGE_MARKERS)):
+        return "challenge_blocked"
+    if any(marker in lowered for marker in PAYWALL_MARKERS) and len(body) < PAYWALL_MAXIMUM:
+        return "paywall_suspected"
+    if any(marker in (title or "").casefold() for marker in NOT_FOUND_MARKERS) or any(
+            marker in head for marker in NOT_FOUND_MARKERS):
+        return "soft_404"
+    # An explicit empty-page marker is a known statement, not a suspicion about
+    # JavaScript, so it outranks the shell heuristic.
+    if any(marker in lowered for marker in EMPTY_MARKERS):
+        return "content_insufficient"
+    if short and title and prose < SHELL_PROSE_MINIMUM:
+        return "js_shell_suspected"
+    if len(body) < CONTENT_MINIMUM:
+        return "content_insufficient"
+    return "usable"
+
+
+def _prose_weight(text):
+    """Characters that read as sentences rather than navigation, links or labels.
+
+    Links, images and bare URLs are removed first: a devsite shell carries
+    thousands of characters of link markdown and no prose at all, and its long
+    lines are exactly those links. A line then counts when it ends a sentence,
+    or when it is long enough to be a paragraph rather than a label.
+    """
+    weight = 0
+    for line in text.splitlines():
+        stripped = LINK_OR_URL.sub(" ", line).strip()
+        if len(stripped) >= 12 and any(mark in stripped for mark in SENTENCE_MARKS):
+            weight += len(stripped)
+        elif len(stripped) >= 60 and not stripped.startswith(("@", "#", "|")):
+            weight += len(stripped)
+    return weight
+
+
 class SourceArchive:
     """Append immutable capture directories; never invent missing page bodies.
 
@@ -423,16 +575,21 @@ class SourceArchive:
                     if not digest or hashlib.sha256(body.encode("utf-8")).hexdigest() != digest:
                         body, extraction = None, "source_attribution_mismatch"
                 metadata = row or {}
+                provider_published = metadata.get("publishedDate") or metadata.get("published_at") or metadata.get("publishedTime")
+                published = published_at(body, provider_published, reference=attempt.get("retrieved_at"))
                 pages[url] = {**archived, "url": url, "provider": provider,
                     "capture_id": archive.get("capture_id"),
                     "returned_url": row.get("url") if row else None,
                     "title": row.get("title") if row else None,
                     "extraction_status": extraction, "content_kind": kind,
+                    "content_state": content_state(row.get("title") if row else None, body, extraction),
                     "completeness": "unknown", "retrieved_at": attempt.get("retrieved_at"),
                     "characters": len(body) if body is not None else 0,
                     "possibly_truncated": bool(archived.get("possibly_truncated") or metadata.get("truncated") or (body is not None and
                         attempt.get("character_limit_applied") and len(body) >= attempt["requested_max_characters"] - 2)),
-                    "provider_published_at": metadata.get("publishedDate") or metadata.get("published_at") or metadata.get("publishedTime"),
+                    "provider_published_at": provider_published,
+                    "published_at": published[0], "published_at_source": published[1],
+                    "published_at_confidence": published[2],
                     "provider_crawled_at": metadata.get("crawled_at") or metadata.get("crawledAt"),
                     "text": body,
                     "manifest_path": archive.get("manifest_path")}
@@ -563,7 +720,8 @@ class SourceArchive:
                     body, status = None, "provider_error"
                 entry = {"requested_url": url, "returned_url": row.get("url") if row else None,
                          "title": row.get("title") if row else None, "extraction_status": status,
-                         "content_kind": kind, "body_file": None, "page_body_archived": False,
+                         "content_kind": kind, "content_state": content_state(row.get("title") if row else None, body, status),
+                         "body_file": None, "page_body_archived": False,
                          "completeness": "unknown", "provider_crawled_at": None,
                          "fragment_scope_verified": False, "sha256": None}
                 if row:
@@ -573,6 +731,8 @@ class SourceArchive:
                     entry["provider_status"] = row.get("status", row.get("httpStatus"))
                     if row.get("error") or row.get("errors"):
                         entry["provider_error"] = row.get("error") or row.get("errors")
+                published = published_at(body, entry.get("provider_published_at"), reference=fetch.get("retrieved_at"))
+                entry["published_at"], entry["published_at_source"], entry["published_at_confidence"] = published
                 if body is not None:
                     # Written before the capture is published, so a manifest
                     # never points at a missing body. Identical bodies share it.
