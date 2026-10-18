@@ -13,6 +13,8 @@ enabled_tools = [
   "sync_package",
   "search_bookmarks",
   "get_context",
+  "plan_research",
   "search_web",
   "fetch_web",
+  "discovery_bundle",
 ]
