@@ -150,7 +150,7 @@ Local MCP tools:
 
 | Group | Tools |
 | --- | --- |
-| Bookmarks | `sync_package`, `index_status`, `source_history`, `source_remove`, `source_merge`, `search_bookmarks`, `get_context` |
+| Bookmarks | `sync_package`, `index_status`, `source_history`, `source_remove`, `source_merge`, `search_bookmarks`, `get_context`, `plan_research` |
 | Web | `search_web`, `fetch_web`, `search_archive`, `search_providers` |
 | Research | `research_readiness`, `research_start`, `research_status`, `research_search`, `research_fetch`, `research_source`, `research_record`, `research_inventory`, `research_coverage`, `research_import_evidence`, `research_finish`, `research_route` |
 | Research services (optional) | `research_services`, `research_service_prepare`, `_start`, `_status`, `_result`, `_cancel`, `_attach`, `_import` |

@@ -66,9 +66,11 @@
 
 `search_bookmarks` 对所选条目类型的标题、URL、note、tag 文字、文件夹路径做字面子串匹配，加上栏目／组／文件夹／tag 过滤。`canvas_matches` 单独返回整个来源内匹配的文字卡、分组标签和连线标签，不计入条目总数与分页。`descriptionMd` 和完整布局用 `get_context` 读取。短词会误匹配，例如 Exa 也会命中 URL 中的 examples，应检查结果字段并按上下文筛选。
 
+`plan_research` 把一个问题变成有边界的本地范围：把问题拆成字面词（问题里的 URL 单列进 `question_urls` 并从词表剔除），按词长 ÷ 命中卡片数为每个词加权，再按“词权和 × 密度（hits ÷ bookmarks）”排序卡片——具体名字压过常见词，1,053 条的大树也不能只靠体量取胜。返回每张卡的 `score`、`density`、`file_path` 与命中的词，以及该卡按 URL 去重后的匹配书签（按每条 URL 自身命中过的最重词排序）；`term_cards` 记录每个词指向的卡树数（只指向一棵 = 问题点名了它）。每棵主树只保留一张卡片，副本锚点不会占用三个卡片名额中的两个；并把 `source_instances` 与所选范围的 `instances` 分开报告。文档／仓库书签只有在问题点名它时才把路线判成 lookup。它不联网、也不扩大范围：`cards` 为空且问题不带 URL 表示包里没有这些词，此时 `route` 为 `null`；返回的 `terms` 说明实际搜了什么。其 `task_shape` 与 `route` 复用 `research_route` 的词表，只是建议（`depth` 读已存的 `research.depth`）；执行前仍在那里确认路线。
+
 `tags` 过滤器仅匹配文字；颜色保存在返回的 `tags[].color` 中。按颜色与文字组合统计时，需完整分页读取候选后按同一个 tag 对象筛选，不能把第一页的筛选数当作总数。
 
-`section` 可以匹配 ID、slot、label 或文件路径；同一个 label 可能选中多张卡片，要唯一定位时用 section ID。`get_context` 不传 `item_id` 时返回栏目头、节点、组和边，`items` 为空不代表空树；其 counts 是返回栏目的总数，不是某个条目的子树计数。用 `search_bookmarks(item_types:["folder"])` 找文件夹，再传 `folder_id` 和所需条目类型读取子树。完整列表需分页，并区分 `synthetic:true` 根容器与用户文件夹。需要额外祖先元数据或布局时才读条目 context。
+`section` 可以匹配 ID、slot、label 或文件路径；同一个 label 可能选中多张卡片，要唯一定位时用 section ID。`get_context` 不传 `item_id` 时返回栏目头、节点、组和边，`items` 为空不代表空树，此时 `pagination.items` 会带 `scope_note` 说明缺哪个参数；读某张卡的书签用 `search_bookmarks(section:…)` 或 `plan_research`。其 counts 是返回栏目的总数，不是某个条目的子树计数。用 `search_bookmarks(item_types:["folder"])` 找文件夹，再传 `folder_id` 和所需条目类型读取子树。完整列表需分页，并区分 `synthetic:true` 根容器与用户文件夹。需要额外祖先元数据或布局时才读条目 context。
 
 已有 FTS5 派生表，但公开查询未使用 BM25 排名、embedding、网页正文检索或任意 SQL。未知字段保存在原始对象中，不意味着已有对应过滤器或模型理解规则。
 

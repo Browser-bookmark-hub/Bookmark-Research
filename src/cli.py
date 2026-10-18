@@ -124,6 +124,8 @@ def _parser():
     configure.add_argument("--fetch-strategy", choices=("sequential", "staggered", "hedged"))
     configure.add_argument("--fetch-provider", choices=Settings.PROVIDERS)
     configure.add_argument("--fetch-fallback-provider", action="append", choices=Settings.PROVIDERS)
+    configure.add_argument("--depth", choices=("auto", "quick", "agentic", "deep"),
+                           help="Default research depth; auto picks one from each request")
     configure.add_argument("--max-characters", type=int)
     configure.add_argument("--search-cache-seconds", type=int,
                            help="Serve repeated identical searches from a short-TTL cache; 0 disables (default)")
@@ -468,6 +470,7 @@ def main(argv=None):
                 for section, field, value in (
                         ("archive", "enabled", None if args.archive is None else args.archive == "true"),
                         ("archive", "directory", args.archive_dir),
+                        ("research", "depth", args.depth),
                         ("search", "providers", args.search_provider),
                         ("search", "fallback_providers", args.search_fallback_provider),
                         ("search", "strategy", args.search_strategy),

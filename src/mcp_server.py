@@ -114,6 +114,12 @@ TOOL_SCHEMAS = {
         "offset": {"type": "integer", "minimum": 0, "maximum": 1000000000, "default": 0},
         "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
     }, ["source_id"]),
+    "plan_research": _object_schema({
+        "source_id": IDENTIFIER, "question": _text_schema(2000),
+        "max_cards": {"type": "integer", "minimum": 1, "maximum": 3, "default": 3},
+        "max_urls": {"type": "integer", "minimum": 1, "maximum": 8, "default": 8},
+        "refresh": {"type": "boolean", "default": True},
+    }, ["source_id", "question"]),
     "index_status": _object_schema({"source_id": IDENTIFIER}),
     "search_web": _object_schema({
         "targets": _array_schema({"type": ["string", "object"], "minLength": 1, "maxLength": 2000,
@@ -160,6 +166,7 @@ TOOL_DESCRIPTIONS = {
     "source_merge": "Preview merging an identical source into into_source_id; confirm=true transfers path aliases and drops the duplicate. Synchronized content versions must match; synchronize legacy sources first.",
     "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
     "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default.",
+    "plan_research": "Rank the cards a question touches and the bookmarks inside them, then suggest a research route. Local and read-only: it never fetches and never widens the scope. Terms are literal and weighted by length over the number of cards they match, so a specific name outranks a common word that appears everywhere; a card's weight is then scaled by its density (hits/bookmarks), so a large tree cannot outrank a topic card on size alone, and one card per canonical tree is ranked so a copy anchor cannot fill two slots. Each card reports its score, density, file_path and the terms it matched, which also disambiguates repeated labels; term_cards counts the canonical trees each term points at, which is how a name (one tree) is told from a common word. A URL inside the question is returned in question_urls and stripped from the terms; read it directly. urls are the matched bookmarks of those cards, deduplicated by URL, each with the terms its own rows matched, ordered by the most specific of them, with the cards that contain them and the source-wide instance count, which is not the selected scope. task_shape and route use the same vocabulary research_route uses, depth follows the saved research.depth, and the route is a suggestion: confirm it there before running. A documentation or repository bookmark only makes this a lookup when the question names it (a term that reaches one card matched that URL's rows). Empty cards with no question_urls mean the package has nothing on the returned terms; read those terms before retrying, and note that an empty terms list reports a question with nothing searchable in it.",
     "index_status": "Read source modes, snapshots, counts, input availability, pending changes and monitor errors. No refresh or web fetch; unchecked means a live directory needs a recent check.",
     "search_web": "Discover sources for public queries with saved primary providers, then fallbacks for unresolved queries. search.strategy selects hedged (default), staggered, sequential or wait_all; search.grace_seconds and search.deadline_seconds bound the hedged and staggered runs, and dropped or uncalled providers are listed in routing. Explicit providers restrict the call. Targets accept target/query objects or plain query strings. Results are discovery snippets; pages are not fetched.",
     "fetch_web": "Read known URLs directly (up to 16 per call) with per-page and total text budgets. Continue saved text using capture_id and offset without refetching. Omit provider for the saved fallback order (fetch.strategy overlaps a stalled provider); specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing.",
@@ -565,21 +572,28 @@ class StdioMcpServer:
             return self._sources().remove(**arguments)
         if name == "source_merge":
             return self._sources().merge(**arguments)
-        if name in ("search_bookmarks", "get_context"):
+        if name in ("search_bookmarks", "get_context", "plan_research"):
             options = dict(arguments)
             refresh = options.pop("refresh", True)
             pagination = {key: options.pop(key, default) for key, default in (
                 ("collection", None), ("offset", 0), ("limit", 200))} if name == "get_context" else None
+            scope_notes = None if name != "get_context" or "item_id" in options else {
+                "items": "get_context fills items only for one item_id; read a card's bookmarks with "
+                         "search_bookmarks(section=...) or plan_research."}
             index = self._local()
             update = self._sources().refresh(options["source_id"]) if refresh else None
             if update and update["state"] in ("error", "unavailable"):
                 raise ValueError(update["error"] + "; use refresh=false to read the saved index")
-            method = index.search if name == "search_bookmarks" else index.context
             with index.read_snapshot():
-                result = method(**options)
-                if pagination is not None:
-                    from context_output import page_context
-                    result = page_context(result, **pagination)
+                if name == "plan_research":
+                    from research_plan import ResearchPlan
+                    result = ResearchPlan(index=index, settings=self.settings).build(**options)
+                else:
+                    method = index.search if name == "search_bookmarks" else index.context
+                    result = method(**options)
+                    if pagination is not None:
+                        from context_output import page_context
+                        result = page_context(result, scope_notes=scope_notes, **pagination)
                 result["source"] = self._sources().source_status(options["source_id"])
             result["refresh"] = {"performed": bool(refresh and result["source"]["mode"] == "live"),
                 "index_updated": bool(update and update.get("performed")),

@@ -149,7 +149,7 @@ Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿�
 
 | 分类 | 工具 |
 | --- | --- |
-| 书签 | `sync_package`、`index_status`、`source_history`、`source_remove`、`source_merge`、`search_bookmarks`、`get_context` |
+| 书签 | `sync_package`、`index_status`、`source_history`、`source_remove`、`source_merge`、`search_bookmarks`、`get_context`、`plan_research` |
 | 网页 | `search_web`、`fetch_web`、`search_archive`、`search_providers` |
 | 研究 | `research_readiness`、`research_start`、`research_status`、`research_search`、`research_fetch`、`research_source`、`research_record`、`research_inventory`、`research_coverage`、`research_import_evidence`、`research_finish`、`research_route` |
 | 专业研究服务（可选） | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach`、`_import` |

@@ -14,6 +14,7 @@
 | 解释卡片的空间上下文 | `get_context` 总览；用 `search_bookmarks` 找跨卡片的出现位置。布局、链式关系和副本见[数据语义](package-semantics.md) |
 | 追溯日期、学习或关注变化 | [包内时间线索](package-semantics.md#时间上下文)，结合宿主 Git 工具做[阶段学习回顾](github-and-sync.md#回顾阶段学习) |
 | 查找当前上下文缺少的旧知识 | 已知页面用 `wiki_get`，否则用关键词 `wiki_search`；原文用 `search_archive`，旧任务用 `research_status` |
+| 从问题规划调研范围 | `plan_research` 对一个问题排序命中的卡片与书签并给出路线建议，问题里的 URL 单列 `question_urls` 直接读取。只读本地：不抓取、不扩大范围；路线只是建议，执行前用 `research_route` 确认 |
 | 读取已知 URL | `fetch_web` 或合适的宿主读取工具 |
 | 发现来源、比较网页证据 | `search_web` 后 `fetch_web`，宿主根据结果推理、补查缺口 |
 | 持续深入调查、恢复研究、审阅完整链接集合 | [深度研究](deep-research.md) |

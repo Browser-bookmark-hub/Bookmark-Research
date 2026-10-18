@@ -102,7 +102,7 @@
 用户提出调研请求时，宿主应自动执行，**不要求用户先选卡片或贴 URL**：
 
 1. 调 `plan_research(question, source_id, max_cards=3, max_urls=8)`（**新增工具，2026-10-18 已定**，契约见下）或手工等价步骤；
-2. 工具内部用 `search_bookmarks` 定位相关卡片（默认 Top 3，按命中数排序；**新鲜度排序延后到 §4.1 落地后启用**）；
+2. 工具内部用 `search_bookmarks` 定位相关卡片（默认 Top 3，按词权排序；同级再按卡片最新 `added_at` 排序，无时间的排后）；
 3. 用 **`search_bookmarks(section=<卡片>, targets=[…], item_types=["bookmark"])`** 取该卡的条目（URL、note、标签），按 `url` 去重并保留 `counts.instances`；**不要用 `get_context(collection="items")`**（原因见 §6.1）；
 4. 判断意图，选择路线：
    - 问题里已有 URL，或卡片里命中“官方文档/仓库” → 路线 ①；
@@ -117,13 +117,16 @@
 | 项 | 规定 |
 | --- | --- |
 | 入参 | `source_id`（必填）、`question`（必填，1–2000 字符）、`max_cards`（默认 3，1–3）、`max_urls`（默认 8，1–8）、`refresh`（默认 true，语义同 `search_bookmarks`） |
-| 出参 | `cards[]`（`section_id` / `label` / `file_path` / `hits` / `bookmark_count`）、`urls[]`（`url` / `instances` / `section_ids[]` / `title`）、`route`（建议值）、`basis[]`（每张卡的命中依据，供用户纠正）、`truncated`（是否被 `max_urls` 截断）、`errors[]` |
+| 出参 | `terms[]`；`term_cards{}`（每个词指向的卡树数，“点名”判据）；`question_urls[]`（问题里已有的 URL）；`cards[]`（`section_id` / `label` / `file_path` / `hits` / `score` / `density` / `bookmarks` / `matched_terms` / `anchor_of`）；`urls[]`（`url` / `title` / `instances` / `matched_terms` / `section_ids[]` / `source_instances`）；`task_shape` + `task_shape_reason`；`depth` / `route` / `route_id` / `entrypoint` / `next_action`；`truncated`；`errors[]` |
+| 排序规则 | 词权 = 词长 ÷ 命中卡片数（越具体越重），卡片按**词权和 × 密度（hits ÷ bookmarks）**排序（2026-10-19 修订：只按词权和时，1,053 条的永久树与 543 条的大卡压过 82/107 的主题卡）；URL 按它自身命中过的最重词排序，不被所在的大卡片带偏。实测：`EmbeddingGemma 2 怎么本地部署` 第一名仍是 A-1-1；`RAG 企业落地` 改为两张 A-1-1 居前、永久树退出前三（§10） |
 | `route` 取值 | **复用 `routing.py` 的既有 route id**，不另起一套词表：`direct_retrieval` / `host_iterative_research` / `host_workflow` / `professional_service`。`plan_research` 只给建议，档位与失败的最终判定仍归 `research_route`（`routing.py:36`），两者不得各说一套 |
 | 不做什么 | 不发网络请求、不读正文、不建研究会话、不抓取、不扩大范围 |
 | 空结果 | 命中 0 卡时返回 `cards: []` 与 `route: null`，由宿主回“包里没有”，**不得**静默扩大范围 |
-| 部分结果 | 卡片命中但无 URL 时仍返回 `cards`，`urls: []`，并在 `errors` 里说明 |
+| URL 范围 | `urls` 是所选卡片中命中该问题的书签，按 URL 去重；匹配发生在标题或 note 上、URL 里不含问题词的书签同样会返回（每条 URL 带 `matched_terms`）。导入器拒绝无 URL 的书签（`bookmark_index._items`），因此卡片命中时 `urls` 不会为空；守卫只作防御并在代码里注明。问题文本自带的 URL 另在 `question_urls` 单列并从搜索词中剔除，路线 ① 直接读它们 |
 
 边界：范围是“用户的书签里与问题相关的部分”，不是全网漫游；找不到相关卡片时明确说“包里没有”，再问是否扩大范围。
+
+**2026-10-19 收口修订（评审后，代码为准）**：文档／仓库书签只有在“问题点名它”（某词只指向一棵卡树且命中该 URL 行）时才判 `lookup`，偶然命中不再把研究型问题降档；0 卡且问题不带 URL 时短路返回 `route: null`（`depth` / `route_id` / `entrypoint` 同为 null，问题自带 URL 时仍给 `direct_retrieval`）；`depth` 传 `None` 读已存的 `research.depth` 设置，不再写死 `auto`。
 
 **用户动作预算（新增验收项）**：一次完整调研（问题 → 证据包 → Wiki 草稿）用户侧动作 ≤ 2 次（提出请求、确认草稿）；需要中途追问时才增加。
 
@@ -352,4 +355,17 @@
 
 ## 10. 实施记录
 
-（待填。必须记录：本次实测包的绝对路径与时序字段提取口径；`user_version` 升级结果；`plan_research` 的契约实现与 `research_route` 的 route id 一致性核对结果；人工验收的原问题与命中卡片。）
+### R1（2026-10-18，代码已改，未提交）
+
+- **新增工具** `plan_research`：`src/research_plan.py`（问题 → 本地范围 → 路线建议）＋ `src/mcp_server.py` 的 schema、描述与分派。输入与契约一致（`source_id` / `question` / `max_cards` / `max_urls` / `refresh`），另返回 `terms`（实际搜的词）与 `task_shape_reason`，便于用户纠正。
+- **本地范围**在 `src/bookmark_index.py`：`plan_terms` 抽字面词（ASCII 整段、CJK 二元组、ASCII 单字符丢弃、上限 12），`plan_scope` 按**词权（词长 ÷ 命中卡片数）**排序卡片、每棵主树只留一张（副本锚点不占名额）、每张卡带 `score` 与 `matched_terms`；URL 按 URL 去重、按**自身命中过的最重词**排序，并给 `section_ids` 与 `source_instances`（与所选范围区分）；`max_cards` 1–3、`max_urls` 1–8，越界即报错。
+- **路线不新建词表**：`route` / `depth` / `next_action` 直接取自 `ResearchRouting.route(task_shape=…, host="unknown", depth="auto")`，测试断言其值等于 `research_route` 的返回。
+- **§6.1**：`get_context` 未传 `item_id` 时，`pagination.items` 增补 `scope_note`（`context_output.page_context` 新增 `scope_notes` 参数，`mcp_server` 传参），说明它需要 `item_id` 并指向 `search_bookmarks(section=…)` 与 `plan_research`；`context()` 的返回结构不变。
+- **契约偏差**：原“卡片命中但无 URL”一栏不可达——导入器拒绝无 URL 的书签（`bookmark_index.py:347`）——已按真实行为改成“URL 范围”，守卫保留并在代码注明。
+- **测试**：新增 `tests/test_research_plan.py`（12 项）＋ `tests/test_context_pagination.py` 的 `scope_note` 用例（1 项）；全量 705 项通过、3 项跳过、131 秒（此前 692）。R1 新增 13 项；§7 的“≥40 项”覆盖 R1–R5。
+- **真实包验收（2026-10-18）**：包 `~/Downloads/kk/Bookmark-Canvas/bookmark/书签画布/`（37 卡 / 4,926 items / 4,104 bookmarks / 3,067 unique URLs；比 §0.2 记的 4,966 / 4,130 / 3,079 略少，因为包此后又变过）。问题 `EmbeddingGemma 2 怎么本地部署`，不指定卡片：第一名卡片确为 `A-1-1`（`临时栏目/常规链式/A-1-1 企业知识库(RAG).json`），与独立 `search_bookmarks` 查到的唯一命中卡一致；URL 前两位正是那两条书签（`developers.google.com/edge/foresight`、`unsloth.ai/docs/zh/mo-xing/embeddinggemma-2`）；`task_shape=lookup`、`route=direct_retrieval`；纯本地 0.07 秒。边界：单字符 ASCII（`A`）明确报“无可搜词”而不是静默返空，单字符中文（`书`）正常（3 卡 / 8 URL），无匹配词同样明确报错。顺带暴露该包有重名 label（两张 `A-1-1`），输出以 `file_path` 区分（对应 §6.3）。
+- **冒烟发现并修掉两个真实缺陷**：①“按原始命中数排序”会选错卡——千条大卡（A、A-10）压过真正命中的 A-1-1，URL 列表被通用 CJK 二元组的噪音占满，真 URL 掉到第 6–8 位；改为词权排序 + URL 自身词排序后，A-1-1 第一、两条真 URL 前二。② 文档站判定过窄——`developers.google.com` 不在硬编码列表里，`lookup` 被误判成 `investigation`；改为规则（`docs.` / `developer(s).` 前缀）加原有列表。两者均有单测锁定。
+- **文档同步**：`README.md` / `README.zh.md` 工具表、`docs/details.en.md` 的 MCP tools 表、`SKILL.md` 与 `references/zh/skill-guide.md` 流程表、`references/package-semantics.md` 与 `zh/package-semantics.md`（`plan_research` 段落 + `scope_note` 说明）。
+- **有意未做**：CLI 不加 `plan` 子命令（`cli.md` 的 MCP↔CLI 映射表保持原样）；`docs/tool-surface-audit.md` 的 40 项计数属历史审计，不改写；`docs/prompt-reference.md` 与 `docs/details.md` 不含工具清单，无需同步。
+- **仍待记录 / 仍待人工验收**：R2 的时序字段提取口径与 `user_version` 升级结果；真实宿主会话里“宿主是否真按 `plan_research` 的建议去抓链接”（本轮只到证据包与路线建议，不含实际抓取）。
+

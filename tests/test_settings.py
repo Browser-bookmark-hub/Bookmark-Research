@@ -236,12 +236,14 @@ Settings(config).update(json.loads(patch))
     def test_cli_set_and_show_share_the_persistent_format(self):
         cli = Path(__file__).resolve().parents[1] / "src/cli.py"
         prefix = [sys.executable, str(cli), "--config", str(self.settings.path), "config"]
-        changed = subprocess.run(prefix + ["set", "--search-provider", "exa", "--archive", "false"],
+        changed = subprocess.run(prefix + ["set", "--search-provider", "exa", "--archive", "false",
+                                           "--depth", "agentic"],
                                  check=True, text=True, capture_output=True)
         shown = subprocess.run(prefix + ["show"], check=True, text=True, capture_output=True)
         self.assertEqual(json.loads(changed.stdout), json.loads(shown.stdout))
         self.assertEqual(self.settings.load()["search"]["providers"], ["exa"])
         self.assertFalse(self.settings.load()["archive"]["enabled"])
+        self.assertEqual(self.settings.load()["research"]["depth"], "agentic")
 
 
 if __name__ == "__main__":

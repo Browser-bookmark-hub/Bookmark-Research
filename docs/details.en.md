@@ -185,6 +185,7 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | `source_remove` / `source_merge` | Preview or confirm removal and merging of registered sources |
 | `search_bookmarks` | Query bookmarks for multiple targets while retaining item context |
 | `get_context` | Read section, card, group, connection, and item-ancestor context |
+| `plan_research` | Rank the cards and bookmarks one question touches, locally, and suggest a research route; a URL inside the question is returned for direct reading |
 | `search_providers` | List configured web providers |
 | `search_web` | Search through Exa / Parallel / Tavily / keyed Jina and merge results per target |
 | `fetch_web` | Read known URLs and optionally archive responses and page text |

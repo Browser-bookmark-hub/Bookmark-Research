@@ -7,6 +7,7 @@ Absent section files are retained; a supplied canvas replaces the previous entry
 import hashlib
 import json
 import math
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -17,6 +18,17 @@ from urllib.parse import urlsplit
 # cannot use it and keep the LIKE fallback.
 TRIGRAM_MINIMUM = 3
 
+
+# A question is reduced to literal terms: ASCII runs whole, CJK runs expanded
+# into bigrams because a phrase the user typed rarely appears verbatim.
+PLAN_RUN = re.compile(r"[0-9A-Za-z][0-9A-Za-z+._-]*|[㐀-䶿一-鿿]+")
+QUESTION_URL = re.compile(r"https?://[^\s<>()\"']+")
+PLAN_MAX_TERMS = 12
+
+
+def question_urls(text):
+    """The URLs a question already contains; the one shared URL extractor."""
+    return QUESTION_URL.findall(text) if isinstance(text, str) else []
 
 def _dump(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -725,6 +737,168 @@ class BookmarkIndex:
             clauses.append("EXISTS (SELECT 1 FROM item_tags t WHERE t.item_pk=i.pk AND t.color=?)")
             args.append(color)
         return clauses, args
+
+    @staticmethod
+    def plan_terms(question):
+        """Question text into literal search terms; no semantics, no guessing.
+
+        ASCII runs of two or more characters are kept whole. A CJK run of four
+        or fewer characters is kept whole as well; a longer run contributes its
+        bigrams instead, so 本地部署 still reaches a card that only says 部署.
+        A single ASCII character is dropped, because it would match almost
+        everything; a single CJK character is kept, because it is often the
+        whole entity. The order is the order of appearance and the list is
+        capped, because a bounded OR is cheaper than an unbounded one and a
+        fixed order is testable.
+        """
+        if not isinstance(question, str):
+            raise ValueError("question must be a string")
+        if not question.strip():
+            raise ValueError("question must not be empty")
+        # A URL in the question is an instruction to read it, not a search term:
+        # its scheme and host would otherwise match half the package.
+        terms = []
+        for run in PLAN_RUN.findall(QUESTION_URL.sub(" ", question)):
+            if run[0].isascii():
+                candidates = [run] if len(run) >= 2 else []
+            else:
+                candidates = [run] if len(run) <= 4 else []
+                candidates.extend(run[index:index + 2] for index in range(len(run) - 1))
+            for candidate in candidates:
+                if candidate not in terms:
+                    terms.append(candidate)
+        return terms[:PLAN_MAX_TERMS]
+
+    def plan_scope(self, source_id, question, max_cards=3, max_urls=8):
+        """Rank the cards a question touches and the bookmarks inside them.
+
+        Local only: literal matching over indexed metadata, no fetch and no
+        reasoning. ``cards`` is ranked by term weight scaled by the card's own
+        density, not by raw hits: a term contributes its length divided by the
+        number of cards it matches (so a specific name outranks a common word
+        that appears everywhere), and the sum is multiplied by hits/bookmarks
+        (so a 1,053-bookmark tree cannot win on its size alone). One card per
+        canonical tree is kept, so a copy anchor cannot occupy two of the
+        limited slots, and each card reports the terms it matched, its density
+        and its weight. ``term_cards`` counts the canonical trees each term
+        points at, which is how ``plan_research`` tells a name (one tree) from
+        a common word. ``urls`` holds the matched bookmarks of the selected
+        cards, deduplicated by URL, with the terms each URL's own rows matched
+        and the source-wide instance count, which is not the selected scope.
+        """
+        self._source(source_id)
+        if type(max_cards) is not int or not 1 <= max_cards <= 3:
+            raise ValueError("max_cards must be an integer from 1 to 3")
+        if type(max_urls) is not int or not 1 <= max_urls <= 8:
+            raise ValueError("max_urls must be an integer from 1 to 8")
+        terms = self.plan_terms(question)
+        result = {"source_id": source_id, "terms": terms, "term_cards": {}, "cards": [], "urls": [],
+                  "truncated": False, "errors": []}
+        if not terms:
+            result["errors"].append("The question has no searchable term: a single ASCII character is not "
+                                    "searched. Ask with a longer name, a phrase or a URL")
+            return result
+        clauses = [self._match(term) for term in terms]
+        where = " OR ".join(clause for clause, _ in clauses)
+        parameters = [value for _, values in clauses for value in values]
+        # One grouped count per term answers both questions at once: how many
+        # cards a term touches (its weight denominator) and which cards matched
+        # it. No per-card loop is needed.
+        per_term = {}
+        for term, (clause, values) in zip(terms, clauses):
+            per_term[term] = {row["section_id"]: row["hits"] for row in self.connection.execute(
+                "SELECT i.section_id AS section_id, count(*) AS hits FROM items i"
+                " WHERE i.source_id=? AND i.item_type='bookmark' AND " + clause + " GROUP BY i.section_id",
+                (source_id, *values))}
+        hits = {row["section_id"]: row["hits"] for row in self.connection.execute(
+            "SELECT i.section_id AS section_id, count(*) AS hits FROM items i"
+            " WHERE i.source_id=? AND i.item_type='bookmark' AND (" + where + ")"
+            " GROUP BY i.section_id", (source_id, *parameters))}
+        if not hits:
+            result["errors"].append("No bookmark in this source matches the question terms")
+            return result
+        sections = {row["section_id"]: row for row in self._sections(source_id)}
+        scores = {}
+        for term, matched in per_term.items():
+            if not matched:
+                continue
+            weight = float(len(term)) / len(matched)
+            for section_id in matched:
+                scores[section_id] = scores.get(section_id, 0.0) + weight
+        # A term that reaches exactly one canonical tree names that tree; a term
+        # that reaches many is a common word, whatever it looks like.
+        for term, matched in per_term.items():
+            result["term_cards"][term] = len({sections[value]["canonical_id"] or value
+                                              for value in matched}) if matched else 0
+        bookmarks = {row["section_id"]: row["count"] for row in self.connection.execute(
+            "SELECT section_id, count(*) AS count FROM items WHERE source_id=? AND item_type='bookmark'"
+            " GROUP BY section_id", (source_id,))}
+        newest = {row["section_id"]: row["newest"] for row in self.connection.execute(
+            "SELECT section_id, max(added_at) AS newest FROM items WHERE source_id=? AND item_type='bookmark'"
+            " AND added_at IS NOT NULL GROUP BY section_id", (source_id,))}
+        # Size must not win by itself: the term weight is scaled by the card's own
+        # hit density, so an 82-of-107 topic card outranks an 18-of-1,053 tree.
+        density = {value: (hits[value] / bookmarks[value]) if bookmarks.get(value) else 0.0
+                   for value in scores}
+        # Two passes keep mixed sort directions readable: the first fixes the
+        # ascending tie-breaks, the second orders by score, hits and freshness,
+        # and equal rows keep the order the first pass gave them.
+        ordered = sorted(hits, key=lambda value: (sections[value]["file_path"], value))
+        ordered.sort(key=lambda value: (scores[value] * density[value], hits[value],
+                                        newest.get(value) or ""), reverse=True)
+        trees, ranked = set(), []
+        for section_id in ordered:
+            row = sections[section_id]
+            tree = row["canonical_id"] or section_id
+            if tree in trees:
+                continue
+            trees.add(tree)
+            ranked.append({"section_id": section_id, "label": row["label"], "file_path": row["file_path"],
+                "hits": hits[section_id], "score": round(scores[section_id] * density[section_id], 6),
+                "density": round(density[section_id], 6),
+                "newest_added_at": newest.get(section_id), "bookmarks": bookmarks.get(section_id, 0),
+                "matched_terms": [term for term in terms if section_id in per_term[term]],
+                "anchor_of": row["canonical_id"] if row["is_anchor"] else None})
+        result["cards"] = ranked[:max_cards]
+        selected = [card["section_id"] for card in result["cards"]]
+        placeholders = ",".join("?" for _ in selected)
+        rows = [dict(row) for row in self.connection.execute(
+            "SELECT i.url AS url, count(*) AS instances, min(i.title) AS title,"
+            " group_concat(DISTINCT i.section_id) AS sections FROM items i"
+            " WHERE i.source_id=? AND i.item_type='bookmark' AND i.url<>''"
+            " AND i.section_id IN (" + placeholders + ") AND (" + where + ")"
+            " GROUP BY i.url", (source_id, *selected, *parameters))]
+        # A URL is as relevant as the most specific term its own rows matched, so
+        # a bookmark that matched a name comes before incidental hits on a common
+        # word, wherever inside the selection it lives. Card score, raw instance
+        # counts and the URL itself only break ties.
+        url_weight, url_terms = {}, {}
+        for term, (clause, values) in zip(terms, clauses):
+            if not per_term[term]:
+                continue
+            weight = float(len(term)) / len(per_term[term])
+            for url, in self.connection.execute(
+                    "SELECT DISTINCT i.url FROM items i WHERE i.source_id=? AND i.item_type='bookmark'"
+                    " AND i.url<>'' AND i.section_id IN (" + placeholders + ") AND " + clause,
+                    (source_id, *selected, *values)):
+                url_weight[url] = max(url_weight.get(url, 0.0), weight)
+                url_terms.setdefault(url, []).append(term)
+        card_score = {card["section_id"]: card["score"] for card in result["cards"]}
+        rows.sort(key=lambda row: (-url_weight.get(row["url"], 0.0), -max(card_score.get(value, 0.0)
+            for value in row["sections"].split(",")), -row["instances"], row["url"]))
+        result["truncated"] = len(rows) > max_urls
+        for row in rows[:max_urls]:
+            row["section_ids"] = sorted(row.pop("sections").split(","))
+            row["matched_terms"] = url_terms.get(row["url"], [])
+            row["source_instances"] = self.connection.execute(
+                "SELECT count(*) FROM items WHERE source_id=? AND item_type='bookmark' AND url=?",
+                (source_id, row["url"])).fetchone()[0]
+            result["urls"].append(row)
+        # Defensive invariant: the importer refuses a bookmark without a URL, so
+        # a matching card always yields at least one URL.
+        if not result["urls"]:
+            result["errors"].append("Matched cards contain no bookmark matching the question terms")
+        return result
 
     def _match(self, target):
         """Literal substring matching: every whitespace-separated term must occur.

@@ -19,6 +19,7 @@ Answer ordinary questions directly with sufficient evidence. Reuse material alre
 | Explain a card's spatial context | `get_context` overview; use `search_bookmarks` for occurrences across cards. Read [package semantics](references/package-semantics.md) for layout, chains and copies. |
 | Trace dates, learning or focus changes | [Package time clues](references/package-semantics.md#temporal-context) and host Git tools for [learning retrospectives](references/github-and-sync.md#review-learning-stages). |
 | Recall saved knowledge missing from context | `wiki_get` for a known page; otherwise literal terms in `wiki_search`. Use `search_archive` for saved original text or `research_status` for past tasks. |
+| Plan a research scope from a question | `plan_research` ranks the cards and bookmarks the question touches in one package and suggests a route. Local only: it never fetches and never widens the scope, and its route is a suggestion to confirm with `research_route`. A URL inside the question is returned in `question_urls` and read directly. |
 | Read known URLs | `fetch_web` or a suitable host reader. |
 | Discover or compare web evidence | `search_web`, then `fetch_web`; the host reasons over results and follows gaps. |
 | Conduct sustained research, resume it or review a complete URL collection | [Deep research](references/deep-research.md). |
