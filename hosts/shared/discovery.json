@@ -1,0 +1,14 @@
+{
+  "meta": {
+    "name": "bookmark-research-discovery",
+    "description": "Answer one question from a local Bookmark Canvas package: rank the cards it touches, read their links, search once for what they miss, and return a cited evidence bundle."
+  },
+  "parameters": {
+    "question": {"type": "string", "required": true, "description": "The user's question, in their own words"},
+    "source_id": {"type": "string", "required": true, "description": "Indexed source to search; use index_status to find it"},
+    "run_key": {"type": "string", "required": true, "description": "Unique local invocation key; keep it unchanged when the host resumes this run"},
+    "max_steps": {"type": "number", "default": 6, "description": "Reading rounds, from 1 to 6; the plugin owns the budget decision and stops the loop"},
+    "output_language": {"type": "string", "default": "auto", "description": "Output language name or code, such as en or zh. Auto follows the question, with English as the fallback. Original quotations and identifiers are preserved."},
+    "bridge_path": {"type": "string", "description": "Optional absolute path to hosts/shared/research-call.py when native MCP tools are unavailable"}
+  }
+}

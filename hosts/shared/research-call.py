@@ -11,8 +11,10 @@ import sys
 def call_tool(request, db=None, config=None, timeout=600):
     if not isinstance(request, dict) or set(request) != {"name", "arguments"}:
         raise ValueError("Request must contain exactly name and arguments")
-    if not isinstance(request["name"], str) or not request["name"].startswith("research_"):
-        raise ValueError("This bridge calls research_* tools only")
+    if not isinstance(request["name"], str) or not request["name"].startswith(
+            ("research_", "plan_research", "discovery_bundle", "fetch_web", "search_web",
+             "index_status", "search_bookmarks", "get_context")):
+        raise ValueError("This bridge calls the research, discovery and local query tools only")
     if not isinstance(request["arguments"], dict):
         raise ValueError("arguments must be a JSON object")
     command = [sys.executable, "-B", str(Path(__file__).resolve().parents[2] / "src/cli.py")]

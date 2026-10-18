@@ -140,7 +140,7 @@ Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿�
 | 层 | 组成 | 运行方式 | 需要配置 |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) 及 11 份方法参考，每份都有[中文版](skills/bookmark-research/references/zh/skill-guide.md) | 由宿主加载 | 不需要 |
-| 本地 MCP | `bookmark-research`，42 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
+| 本地 MCP | `bookmark-research`，44 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
 | 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取）、[Tavily](https://tavily.com)（备用搜索） | HTTPS，不启动本地进程 | 可选 API Key |
 | 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索） | HTTPS | 可选 `JINA_API_KEY` |
 | 可选的宿主 MCP | Exa Agent、Parallel Task MCP、Tavily Research | 需自行加到宿主里 | `bookmark-research setup` 会给出步骤 |
@@ -151,7 +151,7 @@ Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿�
 | --- | --- |
 | 书签 | `sync_package`、`index_status`、`source_history`、`source_remove`、`source_merge`、`search_bookmarks`、`get_context`、`plan_research` |
 | 网页 | `search_web`、`fetch_web`、`search_archive`、`search_providers` |
-| 研究 | `research_readiness`、`research_start`、`research_status`、`research_search`、`research_fetch`、`research_source`、`research_record`、`research_inventory`、`research_coverage`、`research_import_evidence`、`research_finish`、`research_route` |
+| 研究 | `research_readiness`、`research_start`、`research_status`、`research_search`、`research_fetch`、`research_source`、`research_record`、`research_inventory`、`research_coverage`、`research_import_evidence`、`research_finish`、`research_route`、`discovery_bundle` |
 | 专业研究服务（可选） | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach`、`_import` |
 | 设置 | `get_settings`、`update_settings` |
 | Wiki 与评测 | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search`、`wiki_refresh`、`wiki_work`、`wiki_lint`、`wiki_acknowledge`、`evaluate_research` |

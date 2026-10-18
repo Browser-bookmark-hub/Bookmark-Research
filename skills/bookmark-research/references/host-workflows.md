@@ -27,6 +27,12 @@ The analysis is saved through `external_run`, with actual `result_path` and `res
 
 Use a unique `run_key` for each new script run and retain it on resume: letters, digits, dots, hyphens or underscores, at most 40 characters. Pass `output_language` explicitly; `auto` uses the brief/questions, falling back to English. Preserve original quotations and IDs.
 
+## One-question discovery
+
+For one question about a package, the discovery script runs a bounded loop instead of the grouped recipe. `plan_research` ranks the cards and bookmarks the question touches; each round reads the current URL batch with `fetch_web` while the first round also runs one `search_web` seed, and URLs the seed discovers are read next round. Every round ends with `discovery_bundle`, which owns the budget decision (defaults: steps ≤ 6, fetches ≤ 8, variants ≤ 3, 90 seconds) and returns the citable bundle: only `content_state=usable` pages become `evidence[]`, everything else is listed with its reason, and the bundle degrades excerpts → digest → URL list rather than returning nothing.
+
+The host counts steps, fetches and variants and passes them to every `discovery_bundle` call; `budget.used` and `budget.remaining` say where the budget stands, and the loop stops when `budget.continue` is false, when three evidence entries are in hand, or when no further round fits the remaining budget. The result carries `status` (ok / partial / no_evidence / empty / blocked), `host_stop` (why the loop ended), the counters, the plugin's last `budget` verdict and the `bundle` string. Answer only from `evidence[].id`, report unavailable sources and gaps separately, and never cite a URL without an evidence entry; snippets never answer.
+
 ## Codex
 
 Use `hosts/codex/delegate.md` with current native agent controls. The helper prepares inventory groups only:
@@ -41,12 +47,14 @@ Replace RID with the actual research ID. Respect the current concurrency limit, 
 
 Ordinary subagents can use available MCP tools subject to filtering; pass/preload the needed Skill explicitly. Teams do not inherit the lead's conversation. Neither option requires Dynamic Workflow.
 
-The exported `workflows/bookmark-research.js` contains the native script. With workflow access enabled (Claude Code 2.1.154+; Pro also needs its `/config` setting), explicitly invoke:
+The export contains two native scripts, `workflows/bookmark-research.js` (grouped recipe) and `workflows/bookmark-research-discovery.js` (one-question discovery). With workflow access enabled (Claude Code 2.1.154+; Pro also needs its `/config` setting), explicitly invoke:
 
 ```text
 Run /bookmark-research:bookmark-research with
 {"research_id":"RID","run_key":"review-1","group_size":12,"max_gap_rounds":1,"method":"comparison","output_language":"en"}.
 ```
+
+Run the discovery script as `/bookmark-research:bookmark-research-discovery` with `{question, source_id, run_key, output_language}`; it returns the bundle described above.
 
 Manage runs through `/workflows`. Resume works within the same session; restarting may replay completed children, so retain evidence and operation IDs. Claude's separate built-in deep research does not automatically cover this plugin's frozen inventory.
 
@@ -58,7 +66,7 @@ The grouped recipe needs Node 22.19+, Pi 0.83+, `pi-subagents` 0.43.0+ and `pi-s
 python3 hosts/pi/register-workflow.py --project /absolute/path/to/project
 ```
 
-The registrar writes only the two workflow files under project `.pi/subagent-workflows/bookmark-research/`; conflicting content is preserved. It neither installs extensions nor changes settings. Re-register after moving the stable export because the bridge path is absolute.
+The registrar writes two files per workflow under project `.pi/subagent-workflows/` — `bookmark-research/` and `bookmark-research-discovery/`; conflicting content is preserved. It neither installs extensions nor changes settings. Re-register after moving the stable export because the bridge path is absolute.
 
 ```js
 pi_subagent_workflow({
@@ -67,9 +75,11 @@ pi_subagent_workflow({
 });
 ```
 
+Run discovery with `pi_subagent_workflow({action:"run", name:"bookmark-research-discovery", args:{question:"…", source_id:"SID", run_key:"discover-1", output_language:"en"}})`.
+
 The extension runs detached: wait through its status/artifact tools until terminal and inspect failures. Use structured results (`structuredOutput`, `run.error`, `ok`), not truncated display text. There is no cross-session journal replay.
 
-Children need native MCP access or Bash access to `hosts/shared/research-call.py`, whose JSON input is `{name,arguments}` and result is `{isError,result}`. A timeout means unknown outcome; inspect saved state before continuing.
+Children need native MCP access or Bash access to `hosts/shared/research-call.py`, whose JSON input is `{name,arguments}` and result is `{isError,result}`. Besides `research_*` it serves `plan_research`, `discovery_bundle`, `fetch_web`, `search_web` and the read-only local queries (`index_status`, `search_bookmarks`, `get_context`). A timeout means unknown outcome; inspect saved state before continuing.
 
 ## DSH
 
@@ -77,6 +87,7 @@ The export includes workflow metadata, plain JavaScript and a call-object helper
 
 ```sh
 python3 hosts/dsh/workflow-call.py --research-id RID --run-key review-1 --output-language en
+python3 hosts/dsh/workflow-call.py --workflow bookmark-research-discovery --question "…" --source-id SID --run-key discover-1 --output-language en
 ```
 
 Pass the entire returned JSON to the current `workflow` tool. It contains `meta`, `script` and object `args`; use the host's actual MCP names. The host waits and returns `{runId,agentsStarted,result}`; cancellation returns an error. Preserve branch failures and let fatal schema/limit errors propagate.

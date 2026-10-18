@@ -333,7 +333,7 @@
 
 **决策记录（逐条落定后才开工对应轮次）**：
 
-1. ~~路线 ② 预算落地方案~~ **已定：B（编排式，2026-10-17）**。落在插件侧计数 + 四宿主 workflow 接缝，**复用 `research_*` 会话作为唯一预算权威**（早先草案里“不复用 `research_*` 状态”一句作废）。R3 可直接开工，无需再等决策。
+1. ~~路线 ② 预算落地方案~~ **已定：B（编排式，2026-10-17）**。落在插件侧计数 + 四宿主 workflow 接缝，**复用 `research_*` 会话作为唯一预算权威**（早先草案里“不复用 `research_*` 状态”一句作废）。R3 可直接开工，无需再等决策。R3 实际落地为插件侧计数 + `discovery_bundle` 判定，未接入 `research_*` 会话；差异与理由见 §10 R3。
 2. **内容状态字段**：确认新增 `content_state` 而不替换既有 `extraction_status`，且 `status` 语义不动（§5.1 映射表为准）。
 3. ~~是否新增 `plan_research`~~ **已定：新增（2026-10-18）**。契约见 §2.1，`route` 取值复用 `routing.py` 的既有 route id。连带成本是同步 `skills/bookmark-research/`、`docs/prompt-reference.md`、`docs/details.md`、README（中英）与 `tests/test_mcp_server.py`，已并入 R1 的完成标志。
 4. **`added_at` 列的升级方式**：重建索引，还是惰性补列；对已保存的旧索引是否需要一次性迁移工具。
@@ -399,3 +399,27 @@
 **R2 完成情况**：§2.2 的抓取字段（`content_state` / `published_at` / `retrieved_at` 即计划里的 `fetched_at`；并发与超时沿用 `server.network_workers`、`timeout_seconds`、`fetch.strategy/grace/deadline`，未新造常量）随 §5.1/§4.2 一起落地；R1 延后的新鲜度排序已启用。§8 的 R2 验收三项均达成：284 字符页（今天为 1,411 字符的壳页）有明确结论、日期 fixture 通过、新旧索引升级路径可用（含手工 v1 库的迁移测试）。
 - **未解释现象（不掩盖）**：§5.1/§4.2 完成后的一次全量跑里，`test_web_search.test_real_transport_usage_is_per_operation_and_not_mixed_between_providers` 失败——`len(requests)` 11 ≠ 10，而同一回执的 usage 计数仍是 10（一次**未被计数**的传输调用）；此后多次全量与单文件重跑均通过，未能复现，本轮未改搜索路径。§5.2 期间还出现过一次“尝试顺序”失败，但那一次已定位并修复（见下），与本条无关。
 
+### R3（2026-10-18，已完成）
+
+**§2.3 路线 ②（编排式）**
+
+- **插件侧**：新增 `src/discovery.py`。`budget_check(steps, fetches, variants, elapsed_seconds, limits)` 返回 `{continue, reason, used, limits, remaining, note}`（默认 steps ≤ 6、fetches ≤ 8、variants ≤ 3、90 秒，越界参数报错）；`evidence_bundle(sources, max_characters, excerpt_characters)` 只把 `content_state=usable` 的页面列为 `evidence[]`（稳定 `eN` ID、`excerpt`、`characters`、`published_at`），其余按原因进 `unavailable_sources[]`，按摘录(1200) → 文摘(320) → URL 清单逐级降级，绝不返回空。`src/mcp_server.py` 新增 `discovery_bundle` 工具，一次返回预算判定与证据包。
+- **宿主接缝**：新增 `hosts/shared/discovery.json` + `discovery-flow.js`；`scripts/host_assets.py` 的 `build_workflow(root, host, name)` 泛化为双工作流，`export_host_assets` 同时导出 claude（`workflows/bookmark-research-discovery.js`）与 pi/dsh（`workflows/bookmark-research-discovery/` 两文件 + 元数据）；`hosts/dsh/workflow-call.py` 新增 `--workflow`（默认仍是分组配方，向后兼容）；`hosts/pi/register-workflow.py` 一次登记两个工作流（返回 `workflows[]`）；`HOST_SOURCE_FILES` 同步；bridge 白名单从“仅 `research_*`”扩为 `research_*` + `plan_research`/`discovery_bundle`/`fetch_web`/`search_web` + 只读本地查询（`index_status`/`search_bookmarks`/`get_context`），`sync_package` 等写操作仍被拒。
+- **与路线 ① 并发**：每轮把“读卡片链接（`fetch_web` 一批）”与“首轮一次 `search_web` 种子”放进同一个 `host.all` 批次；种子发现的 URL 下一轮再读；同一 URL 只留一行，可用的重读替换未读占位。
+- **计数与停止（诚实口径）**：steps/fetches/variants 由宿主统计并随每次 `discovery_bundle` 调用传入（bundle 自身计一步），插件据 `remaining` 决定停止；宿主另在“剩余预算放不下下一轮”时停止并如实报 `host_stop`（`evidence_satisfied` / `budget` / `queue_empty` / `insufficient_remaining_budget` / `max_steps` / `bundle_error` / `plan_empty` / `plan_blocked`）。**与 §9 决策 1 的差异**：决策原文要“复用 `research_*` 会话作为唯一预算权威”，R3 **未**接入 research 会话——`discovery_bundle` 不创建、不读取研究任务，route ① 及其 `research_fetch` 预算照旧；理由：路线 ② 的验收对象是“一次问答的证据包”，接研究会话会把 `research_finish` 的完成门禁带进来，违背轻量定位。§9 决策 1 已留指针。
+- **结果字符串上限**：证据包按 40,000 字符预算（低于 DSH `maxResultChars` 默认 50,000）；`truncated` 只在连 URL 清单都放不下时置位——对应验收里的 `maxResultChars` 上限。
+- **测试**：`tests/test_discovery.py` 10 项（预算四类停止、降级三档、截断、非可用来源、工具分派与参数校验）；`tests/host-discovery.test.js` 60 项检查（每宿主 20 项 × 3 宿主：成功、第二轮预算停、证据满足即停、预算不足不起轮、空范围、plan 失败、读失败、bundle 失败、bridge、语言、9 组参数校验、args 类型），由 `tests/test_host_workflows.py` 驱动；dsh `--workflow` 与 pi 双登记用例已扩展。全量 **744 项通过、3 项跳过、130 秒**（R2 为 733；R3 新增 Python 11 项 + Node 60 项检查）。
+- **真实包冒烟（2026-10-18，我充当路线 ② 的子代理）**：`index_status(source_id=github-bookmark-canvas)` → `plan_research("EmbeddingGemma 2 怎么本地部署")` 0.2 秒命中 A-1-1（重名两张中的第一张，见 R1）、`task_shape=lookup`、`route=direct_retrieval`，URL 前两位仍是 R1 的两条；`fetch_web` 6 条 46 秒：unsloth 12,000 字可用、CSDN 12,000 字（`published_at=2026-10-03`）、linux.do 12,000 字（`2025-06-23`），foresight 页**今天只有 284 字符**（回到 §0.4 #2 的原始数字，判 `content_insufficient`；R2 当日是 1,411 字符 `js_shell_suspected`——同一壳页两次测量不同，按天变），apxml 判 `js_shell_suspected`、另一 linux.do 页 unavailable；一次 `search_web` 6.5 秒（响应键为 `batches`；一次性脚本只做防御性打印，未取行）；`discovery_bundle(steps=4, fetches=6, variants=1)`：**证据 3 条（e1/e2/e3，均带 URL）、degradation=excerpts、gaps 空、预算剩 steps 2**——“≥3 条带 URL 证据”在**第一读轮**达成，整链路一次跑通。
+- **文档同步**：`README.md` / `README.zh.md`（工具数 42 → **44**，研究行加 `discovery_bundle`）、`docs/details.en.md` 工具表、`SKILL.md` 与 `references/zh/skill-guide.md` 流程行、`references/host-workflows.md` 与 `zh/`（新增“单问题发现”小节，Claude/Pi/DSH 入口与桥接白名单同步）。
+- **过程中自纠（记录在案）**：① `export_host_assets` 泛化后 claude 分支跌进 pi/dsh 的边文件查找（`KeyError: 'claude'`），由 `test_export_bundle` 暴露后加宿主守卫；② 发现流程的 status 原把“1–2 条证据”判 ok，改为 `≥3 且无错误` 才 ok、1–2 条记 `partial`；③ Node 契约测试里对 vm 内数组要用展开再断言（跨 realm `deepEqual` 按原型比较）；④ 一次全量跑里桥接用例失败，原因是**改消息串时套件已在运行**（子进程读到新文件、断言用旧字符串），重跑即过，非代码缺陷。
+
+### R3 收口（2026-10-19，评审后）
+
+外部评审拿真实包副本复现了四个口子，逐条修掉，均有单测与实测锁定；全量 **749 项通过、3 项跳过、145 秒**。
+
+- **排序密度**：`score` 改为“词权和 × 密度（hits ÷ bookmarks）”。修前 `RAG 企业落地` 是 A / A-10（均 3.633）压过 82/107 的 A-1-1（0.633）；修后两张 A-1-1（0.602 / 0.485）居前，1,053 条的永久树退出前三；`EmbeddingGemma 2 怎么本地部署` 第一仍为 A-1-1。新 fixture 以“2/32 密度的大卡 vs 9/9 的主题卡”锁定该翻转。
+- **问题里的 URL**：`plan_terms` 先剔除 URL（修前 terms 里出现 `https`、`a.test`）；出参新增 `question_urls[]`，路线 ① 直接读它们。
+- **点名规则**：文档／仓库书签只有在该 URL 行被“只指向一棵卡树”的词命中（`term_cards` 为判据）时才判 `lookup`。修前 `RAG 企业落地` 因一个 github／docs 命中被判 lookup/quick，现正确为 investigation/agentic。
+- **两条契约**：0 卡且无自带 URL 时短路 `route: null`（修前 host_iterative_research）；`depth` 传 `None` 读已存 `research.depth`（修前写死 `auto`，`deep` 设置被忽略），并补 `config set --depth` 与用例。
+- **`.codex/config.toml`**：`enabled_tools` 6 → 8，补 `plan_research`、`discovery_bundle`，否则本仓库自己用 Codex 时新工具不可见。
+- **拆分提交**：R1–R3 与收口改动按 `feat(plan)` / `feat(evidence)` / `feat(discovery)` / `chore(codex)` 四个提交叠加在既有历史上（“1”提交保留，不改写历史）。中间的 `feat(plan)` 提交点上 `plan_scope` 已引用 `added_at` 列（列随 `feat(evidence)` 引入）：中间点是回滚粒度，不保证逐点全绿。

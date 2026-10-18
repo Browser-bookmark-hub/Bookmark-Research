@@ -74,7 +74,7 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(response["result"]["capabilities"], {"tools": {}})
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
         self.assertEqual({tool["name"] for tool in listing}, {
-            "sync_package", "source_history", "search_bookmarks", "get_context", "index_status",
+            "sync_package", "source_history", "search_bookmarks", "get_context", "plan_research", "discovery_bundle", "index_status",
             "source_remove", "source_merge",
             "search_web", "fetch_web", "search_providers", "search_archive", "get_settings", "update_settings", "research_readiness",
             "research_start", "research_status", "research_search", "research_fetch",

@@ -120,6 +120,14 @@ TOOL_SCHEMAS = {
         "max_urls": {"type": "integer", "minimum": 1, "maximum": 8, "default": 8},
         "refresh": {"type": "boolean", "default": True},
     }, ["source_id", "question"]),
+    "discovery_bundle": _object_schema({
+        "sources": {"type": "array", "items": {"type": "object"}, "minItems": 0, "maxItems": 64},
+        "max_characters": {"type": "integer", "minimum": 1000, "maximum": 50000, "default": 50000},
+        "steps": {"type": "integer", "minimum": 0, "maximum": 40, "default": 0},
+        "fetches": {"type": "integer", "minimum": 0, "maximum": 80, "default": 0},
+        "variants": {"type": "integer", "minimum": 0, "maximum": 20, "default": 0},
+        "elapsed_seconds": {"type": "integer", "minimum": 0, "maximum": 3600, "default": 0},
+    }, ["sources"]),
     "index_status": _object_schema({"source_id": IDENTIFIER}),
     "search_web": _object_schema({
         "targets": _array_schema({"type": ["string", "object"], "minLength": 1, "maxLength": 2000,
@@ -167,6 +175,7 @@ TOOL_DESCRIPTIONS = {
     "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
     "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default.",
     "plan_research": "Rank the cards a question touches and the bookmarks inside them, then suggest a research route. Local and read-only: it never fetches and never widens the scope. Terms are literal and weighted by length over the number of cards they match, so a specific name outranks a common word that appears everywhere; a card's weight is then scaled by its density (hits/bookmarks), so a large tree cannot outrank a topic card on size alone, and one card per canonical tree is ranked so a copy anchor cannot fill two slots. Each card reports its score, density, file_path and the terms it matched, which also disambiguates repeated labels; term_cards counts the canonical trees each term points at, which is how a name (one tree) is told from a common word. A URL inside the question is returned in question_urls and stripped from the terms; read it directly. urls are the matched bookmarks of those cards, deduplicated by URL, each with the terms its own rows matched, ordered by the most specific of them, with the cards that contain them and the source-wide instance count, which is not the selected scope. task_shape and route use the same vocabulary research_route uses, depth follows the saved research.depth, and the route is a suggestion: confirm it there before running. A documentation or repository bookmark only makes this a lookup when the question names it (a term that reaches one card matched that URL's rows). Empty cards with no question_urls mean the package has nothing on the returned terms; read those terms before retrying, and note that an empty terms list reports a question with nothing searchable in it.",
+    "discovery_bundle": "Assemble the route-② evidence bundle and decide the budget. Pass every source the host collected: only content_state=usable pages become evidence, the rest are listed with the reason they cannot be cited. The bundle is built at the richest level that fits max_characters (excerpts, then digest, then a plain URL list) and always keeps the URL list, so it degrades instead of returning nothing. steps, fetches, variants and elapsed_seconds are the host's own counters, and the plugin owns the decision: stop when budget.continue is false (steps ≤ 6, fetches ≤ 8, variants ≤ 3, 90 seconds). Cite evidence[].id in the answer; never cite a URL that has no evidence entry.",
     "index_status": "Read source modes, snapshots, counts, input availability, pending changes and monitor errors. No refresh or web fetch; unchecked means a live directory needs a recent check.",
     "search_web": "Discover sources for public queries with saved primary providers, then fallbacks for unresolved queries. search.strategy selects hedged (default), staggered, sequential or wait_all; search.grace_seconds and search.deadline_seconds bound the hedged and staggered runs, and dropped or uncalled providers are listed in routing. Explicit providers restrict the call. Targets accept target/query objects or plain query strings. Results are discovery snippets; pages are not fetched. Each result carries provider_count and corroborated: two or more providers returning one URL means link overlap, never confirmation of its content.",
     "fetch_web": "Read known URLs directly (up to 16 per call) with per-page and total text budgets. Continue saved text using capture_id and offset without refetching. Omit provider for the saved fallback order (fetch.strategy overlaps a stalled provider); specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing. Every page carries content_state, the page's own shape: usable, content_insufficient (under 400 characters or an empty-page marker), js_shell_suspected (a title and navigation but no prose), challenge_blocked, soft_404 or paywall_suspected; only usable pages are worth citing, and unavailable means no body was obtained. published_at is a day-precision date with published_at_source (provider_metadata, structured_metadata or body_date) and published_at_confidence; a bare date in the text is low confidence and never later than the fetch day. A URL with no body carries liveness: dead only for 404/410, otherwise unknown, and dead_urls lists them.",
@@ -552,6 +561,14 @@ class StdioMcpServer:
         if name == "research_route":
             from routing import ResearchRouting
             return ResearchRouting(self.settings).route(**arguments)
+        if name == "discovery_bundle":
+            from discovery import budget_check, evidence_bundle
+            options = dict(arguments)
+            sources = options.pop("sources")
+            budget = budget_check(steps=options.pop("steps", 0), fetches=options.pop("fetches", 0),
+                                  variants=options.pop("variants", 0),
+                                  elapsed_seconds=options.pop("elapsed_seconds", 0))
+            return {"budget": budget, **evidence_bundle(sources, **options)}
         if name == "evaluate_research":
             from evaluation import evaluate
             return evaluate(**arguments)

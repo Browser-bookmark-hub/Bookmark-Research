@@ -112,6 +112,7 @@ class ExportBundleTests(unittest.TestCase):
                     self.assertEqual(manifest["name"], "bookmark-research")
                     self.assertEqual(manifest["workflows"], "./workflows")
                     self.assertIn("export const meta", (output / "workflows/bookmark-research.js").read_text())
+                    self.assertIn("discovery_bundle", (output / "workflows/bookmark-research-discovery.js").read_text())
                     server = self.read_json(output, ".mcp.json")["mcpServers"]["bookmark-research"]
                     self.assertEqual(server, {"type": "stdio", "command": "python3",
                                               "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.py", "serve"]})

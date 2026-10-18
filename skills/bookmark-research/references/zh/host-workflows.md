@@ -27,6 +27,12 @@
 
 每次新脚本运行用唯一 `run_key`，恢复时保持原值；仅字母数字、点、横线和下划线，最长 40 字符。显式传 `output_language`；`auto` 根据 brief／问题判断，无依据则英文。原句和 ID 不翻译。
 
+## 单问题发现
+
+针对某一问题，发现脚本走有界循环，不走分组配方。`plan_research` 先排出问题触及的卡片与书签；每轮用 `fetch_web` 读当前一批 URL，第一轮额外跑一次 `search_web` 种子搜索，种子发现的 URL 下一轮再读。每轮结束调用 `discovery_bundle`：预算判定归插件（默认 steps ≤ 6、fetches ≤ 8、variants ≤ 3、90 秒），返回可引用证据包——只有 `content_state=usable` 的页面进入 `evidence[]`，其余按原因列出；包按摘录 → 文摘 → URL 清单逐级降级，绝不返回空。
+
+计数（steps／fetches／variants）由宿主统计，随每次 `discovery_bundle` 调用传入；`budget.used`、`budget.remaining` 说明预算位置，`budget.continue` 为 false、证据已满三条、或剩余预算放不下下一轮时循环停止。结果含 `status`（ok／partial／no_evidence／empty／blocked）、`host_stop`（停止原因）、计数、插件最后一次 `budget` 判定与 `bundle` 字符串。只按 `evidence[].id` 作答，如实分开报告不可用来源与缺口，没有证据条目的 URL 一律不引用；摘要不作答案。
+
 ## Codex
 
 按 `hosts/codex/delegate.md` 使用当前代理工具。辅助脚本只准备清单分组：
@@ -41,12 +47,14 @@ RID 换成真实研究 ID。遵守并发上限，等待已分配阶段结束并�
 
 普通子代理的 MCP 访问受工具过滤约束，需显式传入／预载相关 Skill；团队不继承主代理对话。两者均不要求 Dynamic Workflow。
 
-导出的 `workflows/bookmark-research.js` 包含原生脚本。启用工作流访问后（Claude Code 2.1.154+，Pro 另需 `/config` 设置），显式调用：
+导出含两个原生脚本：`workflows/bookmark-research.js`（分组配方）与 `workflows/bookmark-research-discovery.js`（单问题发现）。启用工作流访问后（Claude Code 2.1.154+，Pro 另需 `/config` 设置），显式调用：
 
 ```text
 运行 /bookmark-research:bookmark-research，传入
 {"research_id":"RID","run_key":"review-1","group_size":12,"max_gap_rounds":1,"method":"comparison","output_language":"zh"}。
 ```
+
+发现脚本以 `/bookmark-research:bookmark-research-discovery` 调用，参数 `{question, source_id, run_key, output_language}`，返回结构见上文。
 
 通过 `/workflows` 管理运行。只能同会话恢复，重启可能重跑已完成子代理，因此复用证据和操作 ID。Claude 自带的深研不自动保证本插件冻结清单的覆盖。
 
@@ -58,7 +66,7 @@ RID 换成真实研究 ID。遵守并发上限，等待已分配阶段结束并�
 python3 hosts/pi/register-workflow.py --project /absolute/path/to/project
 ```
 
-登记器只写项目 `.pi/subagent-workflows/bookmark-research/` 下的两个工作流文件，保留冲突内容，不安装扩展或更改设置。稳定导出搬迁后需重新登记绝对桥接路径。
+登记器在项目 `.pi/subagent-workflows/` 下为每个工作流写两个文件：`bookmark-research/` 与 `bookmark-research-discovery/`，保留冲突内容，不安装扩展或更改设置。稳定导出搬迁后需重新登记绝对桥接路径。
 
 ```js
 pi_subagent_workflow({
@@ -67,9 +75,11 @@ pi_subagent_workflow({
 });
 ```
 
+发现流程用 `pi_subagent_workflow({action:"run", name:"bookmark-research-discovery", args:{question:"…", source_id:"SID", run_key:"discover-1", output_language:"zh"}})` 调用。
+
 扩展 detached 运行，须通过状态／附件工具等到终态并检查失败。使用结构化结果（`structuredOutput`、`run.error`、`ok`），不能重建被截断的显示文本；不支持跨会话 journal replay。
 
-子代理需原生 MCP 或通过 Bash 访问 `hosts/shared/research-call.py`，JSON 输入 `{name,arguments}`、输出 `{isError,result}`。超时表示结果未知，继续前先查保存状态。
+子代理需原生 MCP 或通过 Bash 访问 `hosts/shared/research-call.py`，JSON 输入 `{name,arguments}`、输出 `{isError,result}`；除 `research_*` 外还提供 `plan_research`、`discovery_bundle`、`fetch_web`、`search_web` 与只读本地查询（`index_status`、`search_bookmarks`、`get_context`）。超时表示结果未知，继续前先查保存状态。
 
 ## DSH
 
@@ -77,6 +87,7 @@ pi_subagent_workflow({
 
 ```sh
 python3 hosts/dsh/workflow-call.py --research-id RID --run-key review-1 --output-language zh
+python3 hosts/dsh/workflow-call.py --workflow bookmark-research-discovery --question "…" --source-id SID --run-key discover-1 --output-language zh
 ```
 
 把返回 JSON 整体传给当前 `workflow` 工具，其中有 `meta`、`script` 和对象 `args`；使用实际 MCP 名称。宿主等待后返回 `{runId,agentsStarted,result}`，取消返回错误；保留分支失败，fatal schema／上限错误正常传播。

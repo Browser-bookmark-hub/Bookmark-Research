@@ -6,6 +6,7 @@ from pathlib import Path
 
 HOST_SOURCE_FILES = (
     "hosts/shared/workflow.json", "hosts/shared/research-flow.js", "hosts/shared/research-call.py",
+    "hosts/shared/discovery.json", "hosts/shared/discovery-flow.js",
     "hosts/claude/runtime.js", "hosts/dsh/runtime.js", "hosts/dsh/workflow-call.py", "hosts/dsh/plugin.js",
     "hosts/dsh/package.json",
     "hosts/pi/runtime.js", "hosts/pi/register-workflow.py",
@@ -27,12 +28,19 @@ def read_asset(root, relative, default=None):
     return current.read_bytes()
 
 
-def build_workflow(root, host):
+WORKFLOWS = {"bookmark-research": ("hosts/shared/workflow.json", "hosts/shared/research-flow.js"),
+             "bookmark-research-discovery": ("hosts/shared/discovery.json", "hosts/shared/discovery-flow.js")}
+
+
+def build_workflow(root, host, name="bookmark-research"):
     if host not in ("claude", "dsh", "pi"):
         raise ValueError("Unknown workflow host: " + str(host))
-    definition = json.loads(read_asset(root, "hosts/shared/workflow.json"))
+    if name not in WORKFLOWS:
+        raise ValueError("Unknown workflow: " + str(name))
+    relative_definition, relative_script = WORKFLOWS[name]
+    definition = json.loads(read_asset(root, relative_definition))
     script = read_asset(root, "hosts/" + host + "/runtime.js").decode("utf-8")
-    script += "\n" + read_asset(root, "hosts/shared/research-flow.js").decode("utf-8")
+    script += "\n" + read_asset(root, relative_script).decode("utf-8")
     if host == "claude":
         script = "export const meta = " + json.dumps(definition["meta"], ensure_ascii=False, indent=2) + ";\n\n" + script
     return definition, script
@@ -48,30 +56,32 @@ def export_host_assets(source, stage, host):
             relative = "hosts/codex/" + name
             files[relative] = read_asset(source, relative)
     else:
-        definition, script = build_workflow(source, host)
-        if host == "claude":
-            files["workflows/bookmark-research.js"] = script.encode("utf-8")
-        else:
-            files["workflows/bookmark-research/script.js"] = script.encode("utf-8")
+        for name in WORKFLOWS:
+            definition, script = build_workflow(source, host, name)
+            if host == "claude":
+                files["workflows/" + name + ".js"] = script.encode("utf-8")
+                continue
+            files["workflows/" + name + "/script.js"] = script.encode("utf-8")
             if host == "pi":
                 parameters = definition["parameters"]
                 parameters["bridge_path"]["required"] = True
                 workflow = {**definition["meta"], "parameters": parameters}
-                files["workflows/bookmark-research/workflow.json"] = (
+                files["workflows/" + name + "/workflow.json"] = (
                     json.dumps(workflow, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-                relative = "hosts/pi/register-workflow.py"
             else:
-                files["hosts/dsh/plugin.js"] = read_asset(source, "hosts/dsh/plugin.js")
                 # Scope ESM to the entry module so a package root may stay CommonJS
                 # (the npm package keeps a CommonJS bin and the pi field).
                 # Older releases predate the nested manifest. Supply the scope
                 # when absent, while still rejecting links or invalid file types.
-                files["hosts/dsh/package.json"] = read_asset(
-                    source, "hosts/dsh/package.json", default=b'{"type":"module"}\n')
-                files["workflows/bookmark-research/meta.json"] = (
+                files["workflows/" + name + "/meta.json"] = (
                     json.dumps(definition["meta"], ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-                relative = "hosts/dsh/workflow-call.py"
+        if host in ("pi", "dsh"):
+            relative = {"pi": "hosts/pi/register-workflow.py", "dsh": "hosts/dsh/workflow-call.py"}[host]
             files[relative] = read_asset(source, relative)
+        if host == "dsh":
+            files["hosts/dsh/plugin.js"] = read_asset(source, "hosts/dsh/plugin.js")
+            files["hosts/dsh/package.json"] = read_asset(
+                source, "hosts/dsh/package.json", default=b'{"type":"module"}\n')
     for relative, content in files.items():
         destination = stage / relative
         destination.parent.mkdir(parents=True, exist_ok=True)

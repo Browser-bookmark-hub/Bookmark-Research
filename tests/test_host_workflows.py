@@ -42,6 +42,16 @@ class HostWorkflowTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout)["checks"], 63)
         self.assertNotRegex(scripts["pi"], r"\basync\b", "Pi rejects nested async helpers; use Promise chains")
 
+    @unittest.skipUnless(shutil.which("node"), "Node is required for script syntax/contract tests")
+    def test_discovery_choreography_obeys_the_budget_and_degrades(self):
+        scripts = {host: host_assets.build_workflow(ROOT, host, "bookmark-research-discovery")[1]
+                   for host in ("claude", "dsh", "pi")}
+        result = subprocess.run([shutil.which("node"), str(ROOT / "tests/host-discovery.test.js")],
+                                input=json.dumps(scripts), text=True, capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)["checks"], 60)
+        self.assertNotRegex(scripts["pi"], r"\basync\b", "Pi rejects nested async helpers; use Promise chains")
+
     def test_dsh_call_contains_plain_script_meta_and_object_args(self):
         output = self.base / "dsh export"
         export_bundle.export_bundle("dsh", output)
@@ -55,6 +65,28 @@ class HostWorkflowTests(unittest.TestCase):
         self.assertNotIn("export const meta", call["script"])
         self.assertIn("pipeline(jobs", call["script"])
         self.assertEqual(call["args"]["bridge_path"], str(output / "hosts/shared/research-call.py"))
+        self.assertTrue((output / "workflows/bookmark-research-discovery/script.js").is_file())
+        self.assertTrue((output / "workflows/bookmark-research-discovery/meta.json").is_file())
+        discovery = self.run_python(output / "hosts/dsh/workflow-call.py", "--workflow",
+                                    "bookmark-research-discovery", "--question", "How do I run it locally?",
+                                    "--source-id", "host-fixture", "--run-key", "run-2", "--max-steps", "3")
+        found = json.loads(discovery.stdout)
+        self.assertEqual(found["meta"]["name"], "bookmark-research-discovery")
+        self.assertEqual(found["args"], {
+            "run_key": "run-2", "output_language": "auto", "question": "How do I run it locally?",
+            "source_id": "host-fixture", "max_steps": 3,
+            "bridge_path": str(output / "hosts/shared/research-call.py")})
+        self.assertIn("discovery_bundle", found["script"])
+        no_question = self.run_python(output / "hosts/dsh/workflow-call.py", "--workflow",
+                                      "bookmark-research-discovery", "--source-id", "host-fixture",
+                                      "--run-key", "run-3", success=False)
+        self.assertEqual(no_question.stdout, "")
+        self.assertIn("--question", no_question.stderr)
+        no_steps = self.run_python(output / "hosts/dsh/workflow-call.py", "--workflow",
+                                   "bookmark-research-discovery", "--question", "How?", "--source-id",
+                                   "host-fixture", "--run-key", "run-4", "--max-steps", "0", success=False)
+        self.assertEqual(no_steps.stdout, "")
+        self.assertIn("max-steps", no_steps.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "Node is required for the DSH bundle test")
     def test_dsh_bundle_survives_relocation_and_forwards_only_plugin_environment(self):
@@ -171,6 +203,13 @@ process.stdout.write(JSON.stringify({registered}));
         self.assertEqual(manifest["parameters"]["bridge_path"]["default"], str(output / "hosts/shared/research-call.py"))
         self.assertEqual(manifest["parameters"]["output_language"]["default"], "auto")
         self.assertIn("runs.all", (target / "script.js").read_text())
+        discovery = project / ".pi/subagent-workflows/bookmark-research-discovery"
+        discovery_manifest = json.loads((discovery / "workflow.json").read_text())
+        self.assertEqual(discovery_manifest["name"], "bookmark-research-discovery")
+        self.assertEqual(discovery_manifest["parameters"]["max_steps"]["default"], 6)
+        self.assertEqual(discovery_manifest["parameters"]["bridge_path"]["default"],
+                         str(output / "hosts/shared/research-call.py"))
+        self.assertIn("discovery_bundle", (discovery / "script.js").read_text())
         self.assertFalse((project / ".pi/settings.json").exists())
         second = self.run_python(script, "--project", str(project))
         self.assertFalse(json.loads(second.stdout)["changed"])
@@ -199,7 +238,7 @@ process.stdout.write(JSON.stringify({registered}));
             "research_id": "r-nonexistent"}}), success=False)
         self.assertTrue(json.loads(failed.stdout)["isError"])
         rejected = self.run_python(bridge, input=json.dumps({"name": "sync_package", "arguments": {}}), success=False)
-        self.assertIn("research_*", rejected.stdout)
+        self.assertIn("research, discovery and local query tools only", rejected.stdout)
 
     def test_complete_external_result_survives_real_mcp_round_trip_and_replay(self):
         bridge = ROOT / "hosts/shared/research-call.py"

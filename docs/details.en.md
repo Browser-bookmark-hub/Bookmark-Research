@@ -203,6 +203,7 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | `research_inventory` / `research_coverage` | Paginate original sources and compare actual review against the complete frozen scope |
 | `research_import_evidence` | Import actual host-read original text or explicitly secondary reports with provenance |
 | `research_route` | Recommend a route using current host observations and saved preferences |
+| `discovery_bundle` | Own the route-② budget check and assemble the citable evidence bundle (excerpts, then digest, then a URL list) from the sources the host read; only usable pages become evidence |
 | `research_services` / `research_service_*` | Describe, prepare, start, observe, read, cancel, attach and import optional professional runs |
 | `wiki_write` / `wiki_get` / `wiki_list` / `wiki_search` / `wiki_lint` / `wiki_acknowledge` | Maintain reviewed knowledge, immutable evidence-linked revisions and input review acknowledgements |
 | `wiki_refresh` | Fetch cited URLs, record source observations and identify pages that need review |

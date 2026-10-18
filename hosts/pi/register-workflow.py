@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Register the saved workflow in one project, without changing Pi settings."""
+"""Register the saved workflows in one project, without changing Pi settings."""
 
 import argparse
 import json
@@ -7,28 +7,25 @@ from pathlib import Path
 import sys
 import tempfile
 
+WORKFLOWS = ("bookmark-research", "bookmark-research-discovery")
 
-def register(project):
-    project = Path(project).expanduser().absolute()
-    if not project.is_dir() or project.is_symlink():
-        raise ValueError("Project must be an existing, nonsymlink directory")
-    project = project.resolve()
-    root = Path(__file__).resolve().parents[2]
-    source = root / "workflows/bookmark-research"
+
+def register_one(root, project, name):
+    source = root / "workflows" / name
     if source.is_dir():
         manifest = json.loads((source / "workflow.json").read_text(encoding="utf-8"))
         script = (source / "script.js").read_bytes()
     else:
         sys.path.insert(0, str(root / "scripts"))
         from host_assets import build_workflow
-        definition, script = build_workflow(root, "pi")
+        definition, script = build_workflow(root, "pi", name)
         manifest = {**definition["meta"], "parameters": definition["parameters"]}
         script = script.encode("utf-8")
     manifest["parameters"]["bridge_path"] = {
         "type": "string", "default": str(root / "hosts/shared/research-call.py"),
         "description": "Shared research tool bridge in this stable bundle location",
     }
-    target = project / ".pi/subagent-workflows/bookmark-research"
+    target = project / ".pi/subagent-workflows" / name
     current = project
     for part in target.relative_to(project).parts:
         current /= part
@@ -37,20 +34,31 @@ def register(project):
     payload = {"workflow.json": (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
                "script.js": script}
     if target.exists():
-        same = target.is_dir() and {p.name for p in target.iterdir()} == set(payload) and all(
-            (target / name).is_file() and not (target / name).is_symlink() and
-            (target / name).read_bytes() == content for name, content in payload.items())
+        same = target.is_dir() and {entry.name for entry in target.iterdir()} == set(payload) and all(
+            (target / entry).is_file() and not (target / entry).is_symlink() and
+            (target / entry).read_bytes() == content for entry, content in payload.items())
         if not same:
             raise ValueError("Existing workflow differs; preserve it and choose a clean project registration location")
-        return {"path": str(target), "changed": False, "extensions_installed": False}
+        return {"name": name, "path": str(target), "changed": False}
     target.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".bookmark-workflow-", dir=target.parent) as temporary:
-        stage = Path(temporary) / "bookmark-research"
+        stage = Path(temporary) / name
         stage.mkdir()
-        for name, content in payload.items():
-            (stage / name).write_bytes(content)
+        for entry, content in payload.items():
+            (stage / entry).write_bytes(content)
         stage.rename(target)
-    return {"path": str(target), "changed": True, "extensions_installed": False}
+    return {"name": name, "path": str(target), "changed": True}
+
+
+def register(project):
+    project = Path(project).expanduser().absolute()
+    if not project.is_dir() or project.is_symlink():
+        raise ValueError("Project must be an existing, nonsymlink directory")
+    project = project.resolve()
+    root = Path(__file__).resolve().parents[2]
+    workflows = [register_one(root, project, name) for name in WORKFLOWS]
+    return {"changed": any(row["changed"] for row in workflows), "workflows": workflows,
+            "extensions_installed": False}
 
 
 def main():

@@ -141,7 +141,7 @@ A bundle of one Skill, one local MCP server, and the remote MCPs and services th
 | Layer | Component | Runs as | Setup |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) and 11 method references, each with a [Chinese copy](skills/bookmark-research/references/zh/skill-guide.md) | Loaded by the client | None |
-| Local MCP | `bookmark-research`, 42 tools (below) | Python process started by the client | Installed for you |
+| Local MCP | `bookmark-research`, 44 tools (below) | Python process started by the client | Installed for you |
 | Remote MCPs, called by the local MCP | [Exa](https://exa.ai) (search, page reading), [Parallel](https://parallel.ai) (search, fallback reading), [Tavily](https://tavily.com) (search fallback) | HTTPS, no local process | Optional API keys |
 | HTTP service, called by the local MCP | [Jina Reader](https://jina.ai/reader) (fallback reading; search with a key) | HTTPS | Optional `JINA_API_KEY` |
 | Optional client MCPs | Exa Agent, Parallel Task MCP, Tavily Research | Added to your client by you | `bookmark-research setup` shows the steps |
@@ -152,7 +152,7 @@ Local MCP tools:
 | --- | --- |
 | Bookmarks | `sync_package`, `index_status`, `source_history`, `source_remove`, `source_merge`, `search_bookmarks`, `get_context`, `plan_research` |
 | Web | `search_web`, `fetch_web`, `search_archive`, `search_providers` |
-| Research | `research_readiness`, `research_start`, `research_status`, `research_search`, `research_fetch`, `research_source`, `research_record`, `research_inventory`, `research_coverage`, `research_import_evidence`, `research_finish`, `research_route` |
+| Research | `research_readiness`, `research_start`, `research_status`, `research_search`, `research_fetch`, `research_source`, `research_record`, `research_inventory`, `research_coverage`, `research_import_evidence`, `research_finish`, `research_route`, `discovery_bundle` |
 | Research services (optional) | `research_services`, `research_service_prepare`, `_start`, `_status`, `_result`, `_cancel`, `_attach`, `_import` |
 | Settings | `get_settings`, `update_settings` |
 | Wiki and evaluation | `wiki_write`, `wiki_get`, `wiki_list`, `wiki_search`, `wiki_refresh`, `wiki_work`, `wiki_lint`, `wiki_acknowledge`, `evaluate_research` |
