@@ -31,7 +31,7 @@
 npx bookmark-research@beta install
 ```
 
-`@beta` 跟随最新测试版；要固定某个构建可写 `@0.5.0-beta.14`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
+`@beta` 跟随最新测试版；要固定某个构建可写 `@0.5.0-beta.15`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash

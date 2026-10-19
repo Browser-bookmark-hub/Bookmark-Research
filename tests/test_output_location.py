@@ -241,11 +241,18 @@ class OutputLocationTests(unittest.TestCase):
 
     def write_page(self, rid, claim):
         from wiki import WikiStore
-        WikiStore(settings=self.settings, research_sessions=self.sessions).write("aurora", {
+        return WikiStore(settings=self.settings, research_sessions=self.sessions).write("aurora", {
             "title": "Aurora", "kind": "entity", "links": [],
             "sections": [{"heading": "Storage", "text": "Aurora provides durable storage.",
                           "claims": [{"research_id": rid, "claim_id": claim}]}],
             "review": {"method": "human", "reviewer": "Fixture author", "note": "Synthetic test."}}, "Create page")
+
+    def test_wiki_page_shows_the_archived_character_count(self):
+        rid = self.start()["research_id"]
+        result = self.write_page(rid, self.reviewed_claim(rid))
+        markdown = Path(result["artifacts"]["markdown_file"]).read_text(encoding="utf-8")
+        self.assertIn("characters", markdown)
+        self.assertIn("%d characters" % len("Aurora provides durable storage."), markdown)
 
     def test_imported_evidence_keeps_the_fetch_time_and_text_size(self):
         from wiki import WikiStore

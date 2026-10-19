@@ -187,6 +187,7 @@ class WikiStore:
                 "bookmark_refs": source.get("bookmark_refs", []), "url": source["url"],
                 "quote": citation["quote"], "source_sha256": source["sha256"],
                 "provider": source["provider"], "retrieved_at": self._retrieved_at(source),
+                "characters": source.get("characters"),
                 "review": copy.deepcopy(source["review"]),
                 "content_kind": source["content_kind"], "provenance": copy.deepcopy(source.get("provenance")),
                 "artifact_sha256": artifact_hashes,
@@ -212,7 +213,7 @@ class WikiStore:
                         # provenance already recorded the fetch time; normalize
                         # both sides before deciding the mapping changed.
                         citation["retrieved_at"] = self._retrieved_at(citation)
-                        for key in ("review", *self.ARTIFACT_FIELDS):
+                        for key in ("review", "characters", *self.ARTIFACT_FIELDS):
                             citation.pop(key, None)
                     return value
                 if substantive(current) != substantive(saved):
@@ -842,8 +843,10 @@ class WikiStore:
                           (evidence["research_id"], evidence["claim_id"], evidence["statement"]), ""])
             for citation in evidence["citations"]:
                 artifacts = {key: link(self.research._artifact(root, citation[key])) for key in self.ARTIFACT_FIELDS}
-                lines.extend(["Source %s · %s · Retrieved %s" % (citation["source_id"], citation["url"],
-                                                                  self._retrieved_at(citation) or "unknown"),
+                characters = citation.get("characters")
+                suffix = " · %s characters" % characters if characters is not None else ""
+                lines.extend(["Source %s · %s · Retrieved %s%s" % (citation["source_id"], citation["url"],
+                                                                   self._retrieved_at(citation) or "unknown", suffix),
                               "", "Inventory IDs: " + (", ".join(citation["inventory_ids"]) or "Not associated with a frozen inventory"), ""])
                 if (citation["provenance"] or {}).get("kind") == "external_report":
                     lines.extend(["Secondary evidence: an external report. Pages cited by that report have not been read by importing it.", ""])

@@ -21,7 +21,7 @@
 
 候选版本在 `release/` 分支同步三个版本清单并运行 CI。该分支的 registry 集成测试使用当前已发布渠道版本，源码测试、原生安装测试和 npm 打包检查仍验证候选内容；主分支的 registry 测试始终验证 marketplace 固定版本。发布通过 CI 的 npm 包并核验 registry 后，再将候选分支合入主分支，避免默认安装清单提前指向未发布版本。
 
-测试版使用 npm 的 `beta` 标签；若创建 GitHub 版本说明，则标记为预发布。安装测试版推荐直接使用 `npx bookmark-research@0.5.0-beta.14 install` 或 `npx bookmark-research@beta install`，启动器会自动读取当前运行包版本并固定内容来源，无需重复指定 `--source`。已存在的宿主配置支持无缝覆盖升级。
+测试版使用 npm 的 `beta` 标签；若创建 GitHub 版本说明，则标记为预发布。安装测试版推荐直接使用 `npx bookmark-research@0.5.0-beta.15 install` 或 `npx bookmark-research@beta install`，启动器会自动读取当前运行包版本并固定内容来源，无需重复指定 `--source`。已存在的宿主配置支持无缝覆盖升级。
 
 ## 官方资料与项目实例
 

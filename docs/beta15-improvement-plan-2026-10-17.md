@@ -465,5 +465,5 @@
 - **内容核验**：7.4 亿参数、2.7/1.7/3 亿拆分、Apache 2.0、100+ 语言、8K 上下文、176 MB GGUF、FP16 警告、L2 归一化均在已存 `body.txt` 中逐条存在；引文逐字命中；边界说明正确排除了 foresight 的 284 字符壳页。页面可取。
 - **缺陷 1：`Retrieved None` + `source_capture_time_unknown`**。`import_evidence` 只读 `provenance.retrieved_at`，而宿主写的是 `provenance.fetched_at`。修复：导入时取 `retrieved_at or fetched_at`，并新增 `characters = len(text)`；渲染缺时间时显示 `unknown` 而不是 `None`。
 - **缺陷 2：修复后旧页被判 `invalid_evidence`**。新代码在构造 citation 时把 `retrieved_at` 从 null 归一为 fetch 时间，而 revision 里存的是 null，`substantive()` 直接比较导致误判。修复：比较前对两侧都做同样的时间归一化。真实页现在 `status=current`、`integrity=valid`、`lint ok`（issues 为空）。
-- **遗留观察（未改）**：宿主 review 文字写“首 12000/13290 字符”，但归档 `body.txt` 只有 6,800 字符；`characters` 现在会记录真实长度，但页面仍可能引用宿主自述的、未归档的数字。建议后续要么在页面显示归档字符数，要么禁止在 review 中写不可核对的长度。
-- **测试**：新增 `test_imported_evidence_keeps_the_fetch_time_and_text_size`；全量 **755 项通过、3 项跳过**。
+- **归档字符数**：新写入的 Wiki 页面在 Source 行显示归档正文的实际字符数（`citation.characters`），review 里宿主自述的“12000/13290”不再是无从核对的孤证；已存在的 rev1 页面需要一次新修订才会带上该字段（修订是发布动作，未擅自改写用户页面）。
+- **测试**：新增 `test_imported_evidence_keeps_the_fetch_time_and_text_size` 与 `test_wiki_page_shows_the_archived_character_count`；全量 **756 项通过、3 项跳过**。
