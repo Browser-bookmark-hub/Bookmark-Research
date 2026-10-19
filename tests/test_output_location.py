@@ -247,6 +247,19 @@ class OutputLocationTests(unittest.TestCase):
                           "claims": [{"research_id": rid, "claim_id": claim}]}],
             "review": {"method": "human", "reviewer": "Fixture author", "note": "Synthetic test."}}, "Create page")
 
+    def test_imported_evidence_keeps_the_fetch_time_and_text_size(self):
+        from wiki import WikiStore
+        rid = self.start()["research_id"]
+        text = "Aurora provides durable storage. It keeps three replicas."
+        source = self.sessions.import_evidence(rid, "read-1", "q1", "https://example.test/a", text,
+            {"kind": "page", "provider": "fixture", "fetched_at": "2026-10-19T06:38:34Z"})["sources"][0]
+        self.assertEqual("2026-10-19T06:38:34Z", source["retrieved_at"])
+        self.assertEqual(len(text), source["characters"])
+        # A legacy citation without a top-level retrieved_at keeps the recorded fetch time.
+        self.assertEqual("2026-10-19T06:38:34Z",
+                         WikiStore._retrieved_at({"retrieved_at": None,
+                                                  "provenance": {"fetched_at": "2026-10-19T06:38:34Z"}}))
+
     def test_finish_returns_wiki_follow_up_for_each_policy(self):
         page_task = self.start()["research_id"]
         self.write_page(page_task, self.reviewed_claim(page_task))

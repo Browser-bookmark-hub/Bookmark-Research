@@ -35,6 +35,20 @@ class WikiStore:
         "Topic organization and semantic support are judgments by the named reviewer."
     )
 
+    @staticmethod
+    def _retrieved_at(row):
+        """The source's retrieval time, falling back to a recorded fetch time.
+
+        Imported evidence often carries ``provenance.fetched_at`` without a
+        top-level ``retrieved_at``. Rendering that as "None" and warning
+        ``source_capture_time_unknown`` hides a time the host actually recorded.
+        """
+        value = row.get("retrieved_at") if isinstance(row, dict) else None
+        if value:
+            return value
+        provenance = (row.get("provenance") or {}) if isinstance(row, dict) else {}
+        return provenance.get("retrieved_at") or provenance.get("fetched_at")
+
     def __init__(self, directory=None, settings=None, research_sessions=None):
         self.settings = settings if settings is not None else Settings()
         selected = directory if directory is not None else self.selected_directory(self.settings)
@@ -172,7 +186,7 @@ class WikiStore:
                 "source_id": source["id"], "inventory_ids": source.get("inventory_ids", []),
                 "bookmark_refs": source.get("bookmark_refs", []), "url": source["url"],
                 "quote": citation["quote"], "source_sha256": source["sha256"],
-                "provider": source["provider"], "retrieved_at": source["retrieved_at"],
+                "provider": source["provider"], "retrieved_at": self._retrieved_at(source),
                 "review": copy.deepcopy(source["review"]),
                 "content_kind": source["content_kind"], "provenance": copy.deepcopy(source.get("provenance")),
                 "artifact_sha256": artifact_hashes,
@@ -194,6 +208,10 @@ class WikiStore:
                 def substantive(value):
                     value = copy.deepcopy(value)
                     for citation in value["citations"]:
+                        # A legacy record may store retrieved_at=null while its
+                        # provenance already recorded the fetch time; normalize
+                        # both sides before deciding the mapping changed.
+                        citation["retrieved_at"] = self._retrieved_at(citation)
                         for key in ("review", *self.ARTIFACT_FIELDS):
                             citation.pop(key, None)
                     return value
@@ -294,7 +312,7 @@ class WikiStore:
                 if identity in seen:
                     continue
                 seen.add(identity)
-                stamp = SourceVersions.timestamp(citation.get("retrieved_at"))
+                stamp = SourceVersions.timestamp(self._retrieved_at(citation))
                 detail = {"url": citation["url"], "research_id": research_id, "source_id": citation["source_id"]}
                 observations = []
                 for store in stores if (citation.get("provenance") or {}).get("kind") != "external_report" else []:
@@ -302,7 +320,7 @@ class WikiStore:
                     try:
                         if key not in cache:
                             cache[key] = store.inspect(citation["url"], citation["source_sha256"],
-                                citation.get("retrieved_at"), record["updated_at"], research_id, citation["source_id"])
+                                self._retrieved_at(citation), record["updated_at"], research_id, citation["source_id"])
                         observation = cache[key]
                     except (OSError, ValueError, sqlite3.Error):
                         issues.append({**detail, "severity": "warning", "code": "source_version_index_unavailable"})
@@ -824,7 +842,8 @@ class WikiStore:
                           (evidence["research_id"], evidence["claim_id"], evidence["statement"]), ""])
             for citation in evidence["citations"]:
                 artifacts = {key: link(self.research._artifact(root, citation[key])) for key in self.ARTIFACT_FIELDS}
-                lines.extend(["Source %s · %s · Retrieved %s" % (citation["source_id"], citation["url"], citation["retrieved_at"]),
+                lines.extend(["Source %s · %s · Retrieved %s" % (citation["source_id"], citation["url"],
+                                                                  self._retrieved_at(citation) or "unknown"),
                               "", "Inventory IDs: " + (", ".join(citation["inventory_ids"]) or "Not associated with a frozen inventory"), ""])
                 if (citation["provenance"] or {}).get("kind") == "external_report":
                     lines.extend(["Secondary evidence: an external report. Pages cited by that report have not been read by importing it.", ""])

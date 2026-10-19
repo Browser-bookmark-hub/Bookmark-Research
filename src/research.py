@@ -1216,7 +1216,8 @@ class ResearchSessions:
             source = {"question_id": question_id,
                       "operation_id": operation_id, "url": url, "canonical_url": canonical,
                       "provider": provenance.get("provider", "host_import"),
-                      "retrieved_at": provenance.get("retrieved_at"), "imported_at": imported_at,
+                      "retrieved_at": provenance.get("retrieved_at") or provenance.get("fetched_at"),
+                      "imported_at": imported_at, "characters": len(text),
                       "title": title, "extraction_status": "extracted", "evidence_kind":
                           "external_report" if kind == "external_report" else "local_document" if kind == "local_document" else "page",
                       "content_kind": kind if kind in ("external_report", "local_document") else "imported_page_text",
