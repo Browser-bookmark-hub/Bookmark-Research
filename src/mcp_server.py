@@ -282,7 +282,7 @@ TOOL_DESCRIPTIONS.update({
     "research_inventory": "Read frozen original URLs, stable inventory IDs, duplicate instances and context. Follow next_offset to cover the requested scope.",
     "research_coverage": "Compare frozen input with accounted, usable-text, reviewed and answered coverage. Paginate missing/unread/unreviewed IDs as needed. A completed provider run does not establish original-source coverage.",
     "research_import_evidence": "Save supplied text and provenance using an idempotent operation_id. Imports start unreviewed; external reports do not count as reading cited originals. No fetch or source-package changes.",
-    "research_finish": "Write report, source manifest and coverage. completed requires supported answers, reviewed original input and no unresolved conflicts, pending operations or active/unknown external runs. Exclusions stay in scope; use incomplete for material gaps.",
+    "research_finish": "Write report, source manifest and coverage. completed requires supported answers, reviewed original input and no unresolved conflicts, pending operations or active/unknown external runs. Exclusions stay in scope; use incomplete for material gaps. An incomplete or cancelled result also carries insufficiency (the fixed-shape gap list: question statuses and gaps, open conflicts, pending operations, coverage blockers) and wiki_follow_up (candidate pages plus eligible_claims with exact first quotes and inference marks).",
 })
 
 

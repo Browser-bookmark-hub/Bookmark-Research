@@ -264,6 +264,12 @@ class OutputLocationTests(unittest.TestCase):
                 self.assertEqual(follow_up["candidates"][0]["title"], "Aurora")
                 self.assertLessEqual(len(follow_up["candidates"]), 5)
                 self.assertEqual(follow_up["eligible_claim_ids"], [claim])
+                drafts = follow_up["eligible_claims"]
+                self.assertEqual([row["claim_id"] for row in drafts], [claim])
+                self.assertEqual(drafts[0]["question_id"], "q1")
+                self.assertFalse(drafts[0]["inference"])
+                self.assertTrue(drafts[0]["quotes"][0]["source_id"].startswith("s"))
+                self.assertEqual("Aurora provides durable storage.", drafts[0]["quotes"][0]["quote"])
                 if policy == "suggest":
                     self.assertIn("only after the user confirms", follow_up["instruction"])
                 else:
@@ -279,6 +285,26 @@ class OutputLocationTests(unittest.TestCase):
         self.assertEqual(result["wiki_follow_up"]["candidates"], [])
         self.assertEqual(result["wiki_follow_up"]["policy"], "suggest")
         self.assertTrue(Path(result["artifacts"]["report"]).is_file())
+
+
+    def test_incomplete_finish_returns_the_fixed_gap_list(self):
+        rid = self.start()["research_id"]
+        self.sessions.record(rid, {"kind": "gap", "question_id": "q1",
+                                   "text": "No saved page covers the cost model."})
+        result = self.sessions.finish(rid, "Partial synthesis.", status="incomplete")
+        block = result["insufficiency"]
+        self.assertEqual("insufficient", block["state"])
+        self.assertEqual([("q1", "unresolved", "No saved page covers the cost model.")],
+                         [(row["id"], row["status"], row["gap"]) for row in block["questions"]])
+        self.assertEqual([], block["unresolved_conflicts"])
+        self.assertEqual([], block["pending_operations"])
+        self.assertTrue(any("unanswered" in blocker for blocker in block["coverage_blockers"]))
+        self.assertIn("not an answer", block["note"])
+        report = Path(result["artifacts"]["report"]).read_text(encoding="utf-8")
+        self.assertIn("## Insufficient evidence", report)
+        self.assertIn("No saved page covers the cost model.", report)
+        cancelled = self.sessions.finish(self.start()["research_id"], "Stopped.", status="cancelled")
+        self.assertIn("insufficiency", cancelled)
 
 
 if __name__ == "__main__":

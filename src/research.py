@@ -1645,6 +1645,8 @@ class ResearchSessions:
                         "coverage": {key: value for key, value in coverage.items() if key != "rows"}})
             self._save(path, state)
             result = self._summary(path, state)
+            if status != "completed":
+                result["insufficiency"] = self._insufficiency(state, coverage)
         # Outside the task lock: the Wiki lookup reads other research tasks.
         result["wiki_follow_up"] = self._wiki_follow_up(state)
         return result
@@ -1668,6 +1670,19 @@ class ResearchSessions:
         ranked = sorted(counts, key=lambda token: -counts[token])  # Stable: ties keep first appearance.
         return ranked[:maximum]
 
+    @staticmethod
+    def _wiki_draft(claim):
+        """One eligible claim as draft material: exact first quotes and the inference mark."""
+        quotes = []
+        for citation in claim["citations"]:
+            quote = " ".join(citation["quote"].split())
+            sentence = re.search(r"[.!?。！？](?:\s|$)", quote[:400])
+            first = quote[:sentence.end()] if sentence else quote
+            quotes.append({"source_id": citation["source_id"],
+                           "quote": first if len(first) <= 240 else first[:239].rstrip() + "…"})
+        return {"claim_id": claim["id"], "question_id": claim.get("question_id"), "statement": claim["statement"],
+                "inference": bool(claim.get("inference")), "quotes": quotes}
+
     def _wiki_follow_up(self, state):
         try:
             policy = self.settings.load()["wiki"]["after_research"]
@@ -1678,6 +1693,7 @@ class ResearchSessions:
         eligible = [claim["id"] for claim in state["claims"] if claim.get("status", "active") == "active"
                     and all(self._find(state["sources"], citation["source_id"], "source").get("review", {}).get("verdict")
                             == "accepted" for citation in claim["citations"])]
+        drafts = [self._wiki_draft(claim) for claim in state["claims"] if claim["id"] in set(eligible)]
         candidates = {}
         try:
             from wiki import WikiStore  # Lazy: wiki imports this module.
@@ -1692,13 +1708,36 @@ class ResearchSessions:
             ranked = []
         if policy == "auto":
             instruction = ("Without asking the user, write or update Wiki pages with the reviewed claims: update a matching "
-                           "candidate page (read it with wiki_get and pass its expected_revision) or create a new page, "
-                           "citing only eligible_claim_ids. Then tell the user which pages changed.")
+                           "candidate page (read it with wiki_get and pass its expected_revision) or create a new page from "
+                           "eligible_claims, citing only those claims and marking inference statements as inference. "
+                           "Then tell the user which pages changed.")
         else:
-            instruction = ("Present the candidate Wiki pages to update, or a proposed new page, to the user together with "
-                           "the eligible reviewed claims. Call wiki_write only after the user confirms.")
-        return {"policy": policy, "candidates": ranked, "eligible_claim_ids": eligible, "instruction": instruction,
-                "work": {"tool": "wiki_work", "arguments": {"research_id": state["research_id"]}}}
+            instruction = ("Present the candidate Wiki pages to update, or a proposed new page built from eligible_claims "
+                           "(group them by question_id into draft sections; each claim carries exact first quotes and an "
+                           "inference mark), to the user. Call wiki_write only after the user confirms.")
+        return {"policy": policy, "candidates": ranked, "eligible_claim_ids": eligible, "eligible_claims": drafts,
+                "instruction": instruction, "work": {"tool": "wiki_work", "arguments": {"research_id": state["research_id"]}}}
+
+    @staticmethod
+    def _insufficiency(state, coverage):
+        """The fixed shape of an incomplete report: unresolved points, never a fluent answer.
+
+        Supported findings stay in the recorded claims and answers; this block
+        lists what is missing so the host can report it without inventing more.
+        """
+        return {"state": "insufficient",
+                "questions": [{"id": question["id"], "question": question["question"], "status": question["status"],
+                               "gap": question.get("gap"), "claim_ids": list(question["claim_ids"])}
+                              for question in state["questions"]],
+                "unresolved_conflicts": [{"conflict_id": conflict["id"], "text": conflict["text"]}
+                                         for conflict in state["conflicts"] if conflict["status"] == "open"],
+                "pending_operations": [operation["id"] for operation in state["operations"]
+                                       if operation["status"] == "pending"],
+                "coverage_blockers": list(coverage["completion_blockers"]),
+                "note": "This is a gap list, not an answer: do not present unresolved questions as answered; "
+                        "supported findings live only in the recorded claims and answers.",
+                "next_action": {"reason": "Report the supported claims and this gap list, or continue the session "
+                                          "within its remaining budget before finishing again."}}
 
     @staticmethod
     def _report(state, coverage=None):
@@ -1731,6 +1770,17 @@ class ResearchSessions:
             lines.extend(["", "Failure notes and explicit exclusions count only toward accounting. A substantive review requires accepted original-page text and a quoted judgment; these checks do not independently judge its reasoning quality.", "",
                           "[Per-input reviews and gaps](%s)" % Path(state["artifacts"]["coverage"]).name, ""])
             lines.extend("- " + blocker for blocker in coverage["completion_blockers"])
+            lines.append("")
+        if state["status"] != "completed":
+            lines.extend(["## Insufficient evidence", "",
+                          "This report is not a complete answer. Unresolved points:", ""])
+            gaps = ["- %s (%s): %s" % (question["id"], question["status"],
+                                       question["gap"] or "no supported answer recorded")
+                    for question in state["questions"] if question["status"] != "answered" or question.get("gap")]
+            gaps += ["- Open conflict %s: %s" % (conflict["id"], conflict["text"])
+                     for conflict in state["conflicts"] if conflict["status"] == "open"]
+            lines.extend(gaps or ["- No question-level gaps were recorded; the report is incomplete for input "
+                                  "coverage reasons (see the coverage blockers above)."])
             lines.append("")
         lines.extend(["## Research questions", ""])
         for question in state["questions"]:

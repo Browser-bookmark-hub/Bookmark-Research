@@ -559,6 +559,7 @@ class ResearchTests(unittest.TestCase):
         finished = self.sessions.finish(research_id, "Retrieval supports research; content may be partial.",
             limitations=["This synthetic fixture does not assert any real provider behavior."])
         self.assertEqual(finished["status"], "completed")
+        self.assertNotIn("insufficiency", finished)
         self.assertEqual(finished["usage"], {"search_calls": 4, "fetch_calls": 2, "rounds": 2})
         report = Path(finished["artifacts"]["report"]).read_text()
         self.assertIn("[c1](#claim-c1)", report)

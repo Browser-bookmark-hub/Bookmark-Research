@@ -37,6 +37,10 @@
 
 宿主工具取得的原文可用 `research_import_evidence` 保存：`research_id, operation_id, question_id, url, text, provenance`，可选 `title, inventory_ids`。provenance.kind 为 `page`、`archived_page`、`local_document` 或 `external_report`；记录真实提供商、取得时间和位置。导入默认未审阅，摘要不能冒充原页；外部报告是二手证据。选定外部服务时才读[服务接口](research-services.md)。
 
+## 缺口补查
+
+结束前用 `research_coverage` 对照问题清单：有已接受证据支持的写 `answer`，矛盾解决或保留，每个未完成问题显式处理。每个未完成问题只给一次有界补查（对应 `question_id` 的 `research_search`，或补 `research_fetch` 缺失 URL，不越过剩余预算），否则记录 `gap` 说明到底缺什么；不要无限循环，也不要用未审阅页面作答。`incomplete` 结束会带回 `insufficiency`（问题状态、缺口、开放冲突、pending 操作、覆盖阻断项的固定形状清单），报告以“证据不足”一节列出同样的点，而不是流畅答案。
+
 ## 记录类型
 
 `research_record` 接受 `{research_id, entry}` 或 `{research_id, entries:[…], batch_id}`，只传对应类型的字段。
@@ -74,6 +78,8 @@
 
 未指定 `max_fetch_calls` 时默认 `min(80,max(12,ceil(URL数/16)+12))`，Jina 优先时把批次项换成 URL 数。`initial_fetch_plan` 给出容量和缺口；预算不足也保留原始范围，显式预算不扩大。读已存来源、写记录和报告不消耗检索额度，预算可为 0；宿主／服务之外的消耗另记。`research_fetch` 每次可批 16 个 URL、`research_source` 一次可读 8 个来源；宿主回合慢时，少一次往返收益最大。
 
+聚焦的深度研究问题应在 `research_start` 显式传 `budget`，不要改默认值：子问题控制在 6 个以内，输入需要时只抬高抓取额度（约 24 次）；默认值本身已随输入规模伸缩，改 `DEFAULT_BUDGET` 会影响既有任务的恢复语义。
+
 每个联网步骤用稳定 `operation_id`；参数相同重放原结果，参数改变报错。认证／网络失败和结果未知仍保留预算预留。不要仅为查看结果扩大预算或重新提交。
 
 联网前保存 pending 意图，提交状态前保存完成回执；后续读取可恢复已有回执，没有回执则仍是 pending，不重发。记录 `interruption` 前检查操作是否还在执行；确需重试才用新 ID 和预算。活动或结果未知的外部任务应先观察状态，避免重复创建。
@@ -88,6 +94,6 @@
 
 `research_finish` 使用 `completed` 要求每题有支持充分的回答、完整原始范围已实质审阅，且无开放冲突、pending 操作或活动／未知的外部任务。重要缺口用 `incomplete`，全失败／全排除不能完成整包研究。证据失效可重开已解决冲突。
 
-finish 返回报告／来源／覆盖产物路径和 `wiki_follow_up`。已有 Wiki 写入授权时，使用合格已审阅 claims 继续完成；否则按保存的 suggest／auto／off 偏好处理。写入细节见 [Wiki](wiki-and-evaluation.md)。
+finish 返回报告／来源／覆盖产物路径、`wiki_follow_up`，以及 `incomplete`／`cancelled` 时的 `insufficiency`（固定形状的缺口清单）。`wiki_follow_up.eligible_claims` 给出每条合格 claim 的首句原文与推断标记，草稿可一次确认。已有 Wiki 写入授权时，使用合格已审阅 claims 继续完成；否则按保存的 suggest／auto／off 偏好处理。写入细节见 [Wiki](wiki-and-evaluation.md)。
 
 搬迁时保留完整任务目录。使用返回的输出位置，位置偏好见[设置](settings-and-archive.md#研究结果位置与-wiki-后续整理)。对外分享服从用户范围，档案可能含私有材料。抓取时间不证明原站时效，保存任务不能迁移宿主代理的内部状态。

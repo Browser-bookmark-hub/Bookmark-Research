@@ -76,7 +76,7 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 
 `output.mode` 决定新研究任务文件夹的位置。`central`（默认）使用 `output.directory`（`<数据目录>/research`）。`beside_input` 放在唯一输入旁边：文件 `a.json` → 同级 `a.bookmark-research/`，文件夹或 ZIP `pkg` → 同级 `pkg.bookmark-research/`，不进入原文件夹。URL 列表、多个来源、Git 仓库、画布包、插件目录或没有写权限时退回统一目录，`research_start` 的 `output.fallback_reason` 说明原因。修改只影响新任务，已有任务不迁移；`<数据目录>/research-locations.json` 登记所有任务文件夹，移动或删除的标为 missing。每个任务有 `work/` 文件夹，供 agent 存放中间文件。
 
-`wiki.after_research` 决定 `research_finish.wiki_follow_up`：`suggest`（默认）列出候选页面并先征求用户同意，`auto` 直接写入已审核结论，`off` 不给建议。
+`wiki.after_research` 决定 `research_finish.wiki_follow_up`：`suggest`（默认）列出候选页面并先征求用户同意，`auto` 直接写入已审核结论，`off` 不给建议。follow_up 的 `eligible_claims` 附带每条结论的首句原文与推断标记，草稿可一次确认。
 
 配置文件路径：CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/settings.json`。归档默认目录为 `${BOOKMARK_RESEARCH_DATA_DIR}/knowledge`；未指定数据目录时采用 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/knowledge`。不同载体指向同一配置文件和数据目录即可共享偏好及档案。API key 与偏好分开，放在环境变量或私有凭据文件。
 

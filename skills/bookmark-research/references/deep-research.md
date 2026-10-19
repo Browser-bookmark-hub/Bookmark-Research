@@ -37,6 +37,10 @@ For rejected/uncertain evidence, retract affected claims and target the failed U
 
 Host-tool text can be saved with `research_import_evidence`: `research_id, operation_id, question_id, url, text, provenance`, optionally `title, inventory_ids`. Provenance kind is `page`, `archived_page`, `local_document` or `external_report`; retain actual provider, acquisition time and location. Imports start unreviewed. A snippet is not page text; an external report is secondary evidence. Read [research services](research-services.md) only for a selected provider service.
 
+## Gap pass
+
+Before finishing, compare the questions with `research_coverage`: answer what accepted evidence supports, resolve or retain conflicts, and treat each incomplete question explicitly. Give every incomplete question one bounded follow-up — a mapped `research_search` query or the specific missing `research_fetch` URLs, within the remaining budget — or record `gap` with what is actually missing. Do not loop past that and do not answer from unreviewed pages. An `incomplete` finish carries `insufficiency`, the fixed-shape list of question statuses, gaps, open conflicts, pending operations and coverage blockers; the report lists the same points under "Insufficient evidence" instead of a fluent answer.
+
 ## Record types
 
 `research_record` accepts `{research_id, entry}` or `{research_id, entries:[…], batch_id}`. Use only the fields for the selected kind.
@@ -74,6 +78,8 @@ Search accepts at most 12 queries and returns at most 20 URLs per question. Two 
 
 Without explicit `max_fetch_calls`, the default is `min(80,max(12,ceil(URL_count/16)+12))`; replace the batch term with `URL_count` when Jina is first. `initial_fetch_plan` reports capacity and shortfall. Preserve explicit budgets and full scope even when capacity is insufficient. Saved-source reads, records and reports use no retrieval allowance; budgets may be zero. Host/provider usage outside these calls must be recorded separately. Batch `research_fetch` up to 16 URLs and `research_source` up to eight `source_ids` per call: fewer round trips matter most when host turns are slow.
 
+For a focused deep-research question, pass an explicit `budget` at `research_start` instead of changing defaults: keep the sub-questions few (six or fewer), and raise only the fetch allowance when the input needs it (around 24 calls); the default above already scales with input size. Changing `DEFAULT_BUDGET` itself would alter resume semantics for existing tasks.
+
 Give each network step a stable `operation_id`. Identical parameters replay saved results; changed parameters fail. Reservations persist through auth/network failures and unknown outcomes. Do not enlarge budgets or resubmit solely to inspect a result.
 
 Pending intent is saved before access and a completion receipt before state commit. Later reads recover a saved receipt; without one, the operation stays pending and is not resubmitted. Check whether it is still executing before recording `interruption`; a justified retry uses a new ID and budget. Observe active/unknown external runs rather than starting duplicates.
@@ -88,6 +94,6 @@ Coverage separates `accounted_for`, `usable_text`, `substantive_review` and `que
 
 `research_finish` may use `completed` only with supported answers to all questions, substantive review of the complete original scope, and no unresolved conflicts, pending operations or active/unknown external runs. Material gaps require `incomplete`; entirely blocked/excluded input cannot complete whole-package research. Invalidated evidence can reopen conflicts.
 
-Finish returns report/source/coverage paths and `wiki_follow_up`. Respect existing authorization: complete a requested Wiki write using eligible reviewed claims; otherwise follow saved suggest/auto/off preferences. Wiki storage details are in the [writing reference](wiki-and-evaluation.md#compile-research-into-a-wiki).
+Finish returns report/source/coverage paths, `wiki_follow_up`, and — for `incomplete` or `cancelled` reports — `insufficiency`, the fixed-shape gap list. `wiki_follow_up.eligible_claims` carries each eligible claim's exact first quotes and its inference mark so the draft can be confirmed in one pass. Respect existing authorization: complete a requested Wiki write using eligible reviewed claims; otherwise follow saved suggest/auto/off preferences. Wiki storage details are in the [writing reference](wiki-and-evaluation.md#compile-research-into-a-wiki).
 
 Keep the complete task directory together when moving archives. Use the returned output location; placement preferences are in [settings](settings-and-archive.md#research-output-and-wiki-follow-up). Sharing follows the user's scope; archives may contain private material. Retrieval time does not prove origin freshness, and a saved task does not migrate a host agent's internal state.

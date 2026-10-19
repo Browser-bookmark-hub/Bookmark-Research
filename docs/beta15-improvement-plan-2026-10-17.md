@@ -423,3 +423,16 @@
 - **两条契约**：0 卡且无自带 URL 时短路 `route: null`（修前 host_iterative_research）；`depth` 传 `None` 读已存 `research.depth`（修前写死 `auto`，`deep` 设置被忽略），并补 `config set --depth` 与用例。
 - **`.codex/config.toml`**：`enabled_tools` 6 → 8，补 `plan_research`、`discovery_bundle`，否则本仓库自己用 Codex 时新工具不可见。
 - **拆分提交**：R1–R3 与收口改动按 `feat(plan)` / `feat(evidence)` / `feat(discovery)` / `chore(codex)` 四个提交叠加在既有历史上（“1”提交保留，不改写历史）。中间的 `feat(plan)` 提交点上 `plan_scope` 已引用 `added_at` 列（列随 `feat(evidence)` 引入）：中间点是回滚粒度，不保证逐点全绿。
+
+### R4（2026-10-19，已完成）
+
+**§2.4 路线 ③（研究内缺口补查）与 §3 Wiki 一次成页**
+
+- **先核后建**：§3 的机器侧（`wiki_follow_up` 的 suggest/auto/off、`wiki_work` 的 eligible/pending 记账、`wiki_write` 的 `research_id`+`claim_id` 与 `expected_revision`）在 R1–R3 时就位且有测试，本轮未重复实现；真实缺口只有三处：非 completed 交付没有缺口固定形状、`eligible_claims` 没有一次成页所需的草案材料、报告没有缺口小节。
+- **`insufficiency` 固定形状**（`src/research.py`）：`finish` 在 `status != "completed"` 时返回 `{state, questions[{id,status,gap}], unresolved_conflicts, pending_operations, coverage_blockers}`；`report.md` 在 “## Research questions” 前新增 “## Insufficient evidence”。completed 交付不受影响（`tests/test_research.py` 断言该键不出现）。
+- **`eligible_claims` 草案材料**：每条为 claim 的逐字首句引文（≤240 字，正则 `[.!?。！？](?:\s|$)` 截取）+ `inference` 标记 + 所属 question；suggest 保持“仅在用户确认后成页”、auto 保持“不问用户”的措辞。
+- **补查手册与工具描述**：`deep-research.md`（+zh）新增“缺口补查”小节与显式预算段（≤6 个子问题、约 24 次抓取、不动 `DEFAULT_BUDGET`）；`wiki-and-evaluation.md`、`settings-and-archive.md`（+zh）补 `eligible_claims` 说明；`src/mcp_server.py` 同步 `plan_research`（密度排序、点名规则、`question_urls`、depth 读设置）与 `research_finish`（insufficiency、wiki_follow_up）的描述。
+- **测试**：`tests/test_output_location.py` 扩 follow-up 断言、新增 `test_incomplete_finish_returns_the_fixed_gap_list`（缺口记录 → insufficiency 形状 + 报告小节 + cancelled 同样携带该块）；全量 **750 项通过、3 项跳过、128 秒**。
+- **真实包验收（会话 `r-1c591120f3124b5d`，真实抓取）**：`plan_research("RAG 企业落地要点")` → investigation/agentic；`research_fetch` 读 5 条 URL（混合状态，3 条正文入存）；批次记 3 条 claim + q3 缺口；随后发现其中一条 claim 的引文取自 **SSO 登录壳页**，遂 `retraction` 撤回、补 q2 缺口、q1 改用余下两条作答；`finish(incomplete)` → `insufficiency`（q1 answered；q2/q3 unresolved 且各带 gap；3 条覆盖阻断项；`wiki_policy=suggest`；`eligible_claims=[c1,c3]`，**撤回的 c2 被正确排除**）→ 报告含 “## Insufficient evidence”。再 `resume` → 读 s10 正文 → 补 `source_review` + claim c4 → 答 q2 → 二次 `finish(incomplete)` → `eligible_claims=[c1,c3,c4]`。
+- **Wiki 一次成页（写在临时 wiki）**：`wiki_write` 以 c1/c3/c4 成页 `rag-enterprise-landing`（revision 1）→ `wiki_search("RAG 企业落地")` 命中 → `wiki_work(research_id)` 报 `compiled`、`eligible_claim_count=3`。**用的是 `/tmp/br-r4-acceptance/` 下的临时配置与 wiki 目录，用户真实 wiki 未被写入。**
+- **过程中自纠（记录在案）**：① 首轮三条证据里有一条引用登录壳页，是我选源不严，靠本轮新增的 retraction 路径纠正——也顺带证明 `eligible_claims` 会排除已撤回的 claim；② c4 的首句引文实为阿里云页面的导航行（抽取文本开头即导航），仍是逐字子串、通过校验，验收足够但值得记；③ bridge 白名单**不含** wiki 工具，这是设计（成页由宿主直连 MCP 完成），验收脚本因此改用进程内 MCP 直调 wiki 工具，等价于宿主路径；④ 验收期间的一次全量跑报了 1 个失败，但后台任务只保留尾部输出、未能定位到用例；该次与验收脚本（并发开子进程）时间重叠，独立重跑未见复现；⑤ 未 bump 版本号（留到发版前统一处理）。
