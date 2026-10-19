@@ -273,8 +273,9 @@
 | `no_content_returned` | `content_insufficient` | 真无正文 |
 | `content_present_unparsed` | `usable` + 标注 `parse_gap=true` | 本地解析缺口，**不**消耗提供商熔断（既有语义） |
 | `request_failed` / `provider_error` / `unrecognized_or_not_returned` | `usable` 之外，单列“未取得正文 + 原因” | 未取得正文，原因归传输/提供商 |
-| 有标题无正文段落且字符 < 800 | `js_shell_suspected` | 新增判定 |
+| 有标题无正文段落且字符 < 4,000（按剥掉链接后的正文权重判定） | `js_shell_suspected` | 实测修订：1,411 字符的导航壳仍属此类 |
 | 命中 Cloudflare/JS 挑战标记 | `challenge_blocked` | 新增判定 |
+| 短页且命中 SSO/登录墙标记（`sign in to continue`、`请登录` 等） | `login_required` | 新增判定；R4 验收中登录壳页被误当正文后补上 |
 | 200 但标题/正文含 not found | `soft_404` | 新增判定 |
 | 订阅墙标记且可用正文 < 600 | `paywall_suspected` | 新增判定 |
 
@@ -436,3 +437,13 @@
 - **真实包验收（会话 `r-1c591120f3124b5d`，真实抓取）**：`plan_research("RAG 企业落地要点")` → investigation/agentic；`research_fetch` 读 5 条 URL（混合状态，3 条正文入存）；批次记 3 条 claim + q3 缺口；随后发现其中一条 claim 的引文取自 **SSO 登录壳页**，遂 `retraction` 撤回、补 q2 缺口、q1 改用余下两条作答；`finish(incomplete)` → `insufficiency`（q1 answered；q2/q3 unresolved 且各带 gap；3 条覆盖阻断项；`wiki_policy=suggest`；`eligible_claims=[c1,c3]`，**撤回的 c2 被正确排除**）→ 报告含 “## Insufficient evidence”。再 `resume` → 读 s10 正文 → 补 `source_review` + claim c4 → 答 q2 → 二次 `finish(incomplete)` → `eligible_claims=[c1,c3,c4]`。
 - **Wiki 一次成页（写在临时 wiki）**：`wiki_write` 以 c1/c3/c4 成页 `rag-enterprise-landing`（revision 1）→ `wiki_search("RAG 企业落地")` 命中 → `wiki_work(research_id)` 报 `compiled`、`eligible_claim_count=3`。**用的是 `/tmp/br-r4-acceptance/` 下的临时配置与 wiki 目录，用户真实 wiki 未被写入。**
 - **过程中自纠（记录在案）**：① 首轮三条证据里有一条引用登录壳页，是我选源不严，靠本轮新增的 retraction 路径纠正——也顺带证明 `eligible_claims` 会排除已撤回的 claim；② c4 的首句引文实为阿里云页面的导航行（抽取文本开头即导航），仍是逐字子串、通过校验，验收足够但值得记；③ bridge 白名单**不含** wiki 工具，这是设计（成页由宿主直连 MCP 完成），验收脚本因此改用进程内 MCP 直调 wiki 工具，等价于宿主路径；④ 验收期间的一次全量跑报了 1 个失败，但后台任务只保留尾部输出、未能定位到用例；该次与验收脚本（并发开子进程）时间重叠，独立重跑未见复现；⑤ 未 bump 版本号（留到发版前统一处理）。
+
+### R4 补齐（2026-10-19，评审后）
+
+评审确认 R4 的“自动缺口”与“批量确认”只做了一半，本轮补齐三处：
+
+- **`login_required` 内容状态**（`src/archive.py`）：SSO/登录墙（`sign in to continue`、`login required`、`请登录`、`统一身份认证` 等）在正文权重 < 400 且标记出现在页头 300 字符内时判 `login_required`；它既不是 `paywall_suspected` 也不是 `js_shell_suspected`，不进可引用证据。这是 R4 验收里“引文取自 SSO 壳页”的直接修复，`tests/test_evidence_state.py` 增加英文/中文/长文反例三条。
+- **自动缺口派生**（`src/research.py`）：`_question_gap` 在问题没有 `gap` 记录时按状态派生——无 claim → “No accepted claim answers this question”；claim 被撤回 → 要求修订；有 claim 无答案 → “Claims exist but no answer was recorded”。`insufficiency.questions[]` 新增 `gap_source`（`recorded` / `derived`），报告 “## Insufficient evidence” 与问题小节同样使用派生文本。**插件仍不抓取**：`next_action.tools` 明确指向 `research_fetch` → `research_record` → `research_finish`，抓取由宿主执行（与“插件不联网”边界一致）。
+- **一次成页的页面骨架**（`src/research.py`）：`wiki_follow_up.draft` 给出 `{page:{title,kind,sections,links}, claim_count, section_count, truncated, instruction}`；`sections` 按 question 分组，`text` 只拼 claim 原文（不生成新论断），每条 claim 带 `{research_id, claim_id}`，按 `wiki_write` 的 12 claim/节、16 节上限自动切分。用户确认一次、宿主 `wiki_write` 一次即可成页，满足“16 条 claim ≤ 2 次动作”的路径；`review` 块留给宿主填写真实审阅人，不代填。
+- **测试**：`test_evidence_state` +1（登录墙）、`test_output_location` +2（派生缺口、分节上限）并扩展 draft 断言；全量 **753 项通过、3 项跳过**（见提交说明）。
+- **仍未做**：跨源冲突裁决、`login_required` 的自动补抓（换源/换读者由宿主决定）、真实宿主端到端验收（下一轮人工记录）。

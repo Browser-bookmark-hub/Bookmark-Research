@@ -27,6 +27,13 @@ CHALLENGE_MARKERS = ("enable javascript and cookies to continue", "just a moment
                      "cf-browser-verification", "verify you are human", "captcha-delivery.com")
 PAYWALL_MARKERS = ("subscribe to continue", "this article is for subscribers", "subscribers only",
                    "create a free account to keep reading", "订阅后继续阅读", "订阅以继续")
+# A login wall is neither a paywall nor a JavaScript shell: the page loaded, it
+# just refuses the body. An SSO redirect is what slipped through the R4
+# acceptance run, so it gets its own state instead of counting as usable prose.
+LOGIN_MARKERS = ("sign in to continue", "log in to continue", "sign in to view", "login required",
+                 "authentication required", "single sign-on", "please sign in",
+                 "请登录", "登录后继续", "登录以继续", "统一身份认证", "无权访问")
+LOGIN_PROSE_MAXIMUM = 400
 NOT_FOUND_MARKERS = ("page not found", "404 not found", "the page you are looking for", "页面不存在",
                      "找不到页面", "该页面已被删除")
 NO_BODY_STATES = ("request_failed", "provider_error", "unrecognized_or_not_returned")
@@ -115,10 +122,10 @@ def published_at(text, provider_value=None, reference=None):
 def content_state(title, text, extraction_status="extracted"):
     """How usable one fetched page is, using only what the page itself shows.
 
-    Thresholds follow the beta.15 plan, with two corrections the real captures
-    forced: a rendered shell can be thousands of characters of navigation, and
-    a challenge phrase inside a real body is the page's subject rather than its
-    state, so that marker only counts for a page without prose.
+    Thresholds follow the beta.15 plan, with corrections the real captures
+    forced: a rendered shell can be thousands of characters of navigation, a
+    challenge phrase inside a real body is the page's subject rather than its
+    state, and a login wall is its own state (an SSO page is not usable prose).
     """
     if extraction_status in NO_BODY_STATES or not isinstance(text, str):
         return "unavailable"
@@ -132,6 +139,11 @@ def content_state(title, text, extraction_status="extracted"):
     if any(marker in head for marker in CHALLENGE_MARKERS) or (
             short and prose < SHELL_PROSE_MINIMUM and any(marker in lowered for marker in CHALLENGE_MARKERS)):
         return "challenge_blocked"
+    # A login page is short on prose by construction (form labels and links),
+    # so the marker must also sit near the top; an article about signing in
+    # keeps its prose and is not classified by a phrase in its body.
+    if prose < LOGIN_PROSE_MAXIMUM and any(marker in head for marker in LOGIN_MARKERS):
+        return "login_required"
     if any(marker in lowered for marker in PAYWALL_MARKERS) and len(body) < PAYWALL_MAXIMUM:
         return "paywall_suspected"
     if any(marker in (title or "").casefold() for marker in NOT_FOUND_MARKERS) or any(

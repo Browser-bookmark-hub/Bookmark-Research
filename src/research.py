@@ -1683,6 +1683,49 @@ class ResearchSessions:
         return {"claim_id": claim["id"], "question_id": claim.get("question_id"), "statement": claim["statement"],
                 "inference": bool(claim.get("inference")), "quotes": quotes}
 
+    @staticmethod
+    def _wiki_page(drafts, state):
+        """A ready-to-review page skeleton grouped by question, or None.
+
+        The text is the claim statements themselves, not generated prose: the
+        host may polish it, but it cannot accidentally cite a claim that is not
+        in the page's own claims list. Sections split at the wiki-write limit
+        (12 claims each, 16 sections), and a host that accepts the draft needs
+        one confirmation plus one write instead of per-claim assembly.
+        """
+        if not drafts:
+            return None
+        questions = {question["id"]: question for question in state["questions"]}
+        grouped, order = {}, []
+        for draft in drafts:
+            key = draft.get("question_id") or ""
+            if key not in grouped:
+                grouped[key] = []
+                order.append(key)
+            grouped[key].append(draft)
+        sections = []
+        for key in order:
+            rows = grouped[key]
+            base = ((questions.get(key, {}).get("question") or "Findings").strip()[:280] or "Findings")
+            for start in range(0, len(rows), 12):
+                chunk = rows[start:start + 12]
+                sections.append({"heading": base if start == 0 else base + " (continued)",
+                                 "text": "\n".join("- " + row["statement"] for row in chunk),
+                                 "claims": [{"research_id": state["research_id"], "claim_id": row["claim_id"]}
+                                            for row in chunk]})
+                if len(sections) >= 16:
+                    break
+            if len(sections) >= 16:
+                break
+        placed = sum(len(section["claims"]) for section in sections)
+        title = ((state["questions"][0]["question"] if state["questions"] else state["brief"])
+                 or "Research findings").strip()[:300]
+        return {"page": {"title": title, "kind": "topic", "sections": sections, "links": []},
+                "claim_count": len(drafts), "section_count": len(sections),
+                "truncated": placed < len(drafts),
+                "instruction": "Ask the user to confirm this page once, then pass draft.page to wiki_write with "
+                               "a review block naming the actual reviewer; do not drop claims silently."}
+
     def _wiki_follow_up(self, state):
         try:
             policy = self.settings.load()["wiki"]["after_research"]
@@ -1716,7 +1759,29 @@ class ResearchSessions:
                            "(group them by question_id into draft sections; each claim carries exact first quotes and an "
                            "inference mark), to the user. Call wiki_write only after the user confirms.")
         return {"policy": policy, "candidates": ranked, "eligible_claim_ids": eligible, "eligible_claims": drafts,
-                "instruction": instruction, "work": {"tool": "wiki_work", "arguments": {"research_id": state["research_id"]}}}
+                "draft": self._wiki_page(drafts, state), "instruction": instruction,
+                "work": {"tool": "wiki_work", "arguments": {"research_id": state["research_id"]}}}
+
+    @staticmethod
+    def _question_gap(question, state):
+        """The gap for one question and whether it was recorded or derived.
+
+        A host that never recorded a gap still gets one: an unanswered question
+        is reported as unanswered rather than silently omitted. Derived text
+        names the missing artefact (claim, answer) instead of guessing a cause.
+        """
+        if question.get("gap"):
+            return question["gap"], "recorded"
+        if question["status"] == "answered":
+            return None, None
+        claims = [claim for claim in state["claims"] if claim["id"] in question["claim_ids"]]
+        if not claims:
+            return "No accepted claim answers this question", "derived"
+        if any(claim.get("status") == "retracted" for claim in claims):
+            return "A supporting claim was retracted; a revised answer is needed", "derived"
+        if not question.get("answer"):
+            return "Claims exist but no answer was recorded", "derived"
+        return "The recorded answer is still marked unresolved", "derived"
 
     @staticmethod
     def _insufficiency(state, coverage):
@@ -1724,11 +1789,17 @@ class ResearchSessions:
 
         Supported findings stay in the recorded claims and answers; this block
         lists what is missing so the host can report it without inventing more.
+        A question without a recorded gap gets a derived one, so the list is
+        complete even when the host never called a gap record.
         """
+        questions = []
+        for question in state["questions"]:
+            gap, gap_source = ResearchSessions._question_gap(question, state)
+            questions.append({"id": question["id"], "question": question["question"],
+                              "status": question["status"], "gap": gap, "gap_source": gap_source,
+                              "claim_ids": list(question["claim_ids"])})
         return {"state": "insufficient",
-                "questions": [{"id": question["id"], "question": question["question"], "status": question["status"],
-                               "gap": question.get("gap"), "claim_ids": list(question["claim_ids"])}
-                              for question in state["questions"]],
+                "questions": questions,
                 "unresolved_conflicts": [{"conflict_id": conflict["id"], "text": conflict["text"]}
                                          for conflict in state["conflicts"] if conflict["status"] == "open"],
                 "pending_operations": [operation["id"] for operation in state["operations"]
@@ -1737,7 +1808,8 @@ class ResearchSessions:
                 "note": "This is a gap list, not an answer: do not present unresolved questions as answered; "
                         "supported findings live only in the recorded claims and answers.",
                 "next_action": {"reason": "Report the supported claims and this gap list, or continue the session "
-                                          "within its remaining budget before finishing again."}}
+                                          "within its remaining budget before finishing again.",
+                                "tools": ["research_fetch", "research_record", "research_finish"]}}
 
     @staticmethod
     def _report(state, coverage=None):
@@ -1774,9 +1846,12 @@ class ResearchSessions:
         if state["status"] != "completed":
             lines.extend(["## Insufficient evidence", "",
                           "This report is not a complete answer. Unresolved points:", ""])
-            gaps = ["- %s (%s): %s" % (question["id"], question["status"],
-                                       question["gap"] or "no supported answer recorded")
-                    for question in state["questions"] if question["status"] != "answered" or question.get("gap")]
+            gaps = []
+            for question in state["questions"]:
+                gap, _ = ResearchSessions._question_gap(question, state)
+                if question["status"] != "answered" or gap:
+                    gaps.append("- %s (%s): %s" % (question["id"], question["status"],
+                                                   gap or "no supported answer recorded"))
             gaps += ["- Open conflict %s: %s" % (conflict["id"], conflict["text"])
                      for conflict in state["conflicts"] if conflict["status"] == "open"]
             lines.extend(gaps or ["- No question-level gaps were recorded; the report is incomplete for input "
@@ -1793,6 +1868,10 @@ class ResearchSessions:
                           answer + " " + references, ""])
             if question["gap"]:
                 lines.extend(["Unresolved: " + question["gap"], ""])
+            else:
+                gap, gap_source = ResearchSessions._question_gap(question, state)
+                if gap:
+                    lines.extend(["Unresolved (%s): %s" % (gap_source, gap), ""])
         lines.extend(["## Claims and evidence", ""])
         for claim in state["claims"]:
             lines.extend(["### Claim " + claim["id"], "", "%s (confidence: %s; %s; status: %s)" % (claim["statement"], claim["confidence"],

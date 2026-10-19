@@ -270,6 +270,14 @@ class OutputLocationTests(unittest.TestCase):
                 self.assertFalse(drafts[0]["inference"])
                 self.assertTrue(drafts[0]["quotes"][0]["source_id"].startswith("s"))
                 self.assertEqual("Aurora provides durable storage.", drafts[0]["quotes"][0]["quote"])
+                draft = follow_up["draft"]
+                self.assertEqual("What does Aurora provide?", draft["page"]["title"])
+                self.assertEqual(1, draft["claim_count"])
+                self.assertEqual(1, draft["section_count"])
+                self.assertEqual({"research_id": rid, "claim_id": claim},
+                                 draft["page"]["sections"][0]["claims"][0])
+                self.assertIn("Aurora provides durable storage.", draft["page"]["sections"][0]["text"])
+                self.assertFalse(draft["truncated"])
                 if policy == "suggest":
                     self.assertIn("only after the user confirms", follow_up["instruction"])
                 else:
@@ -296,6 +304,7 @@ class OutputLocationTests(unittest.TestCase):
         self.assertEqual("insufficient", block["state"])
         self.assertEqual([("q1", "unresolved", "No saved page covers the cost model.")],
                          [(row["id"], row["status"], row["gap"]) for row in block["questions"]])
+        self.assertEqual("recorded", block["questions"][0]["gap_source"])
         self.assertEqual([], block["unresolved_conflicts"])
         self.assertEqual([], block["pending_operations"])
         self.assertTrue(any("unanswered" in blocker for blocker in block["coverage_blockers"]))
@@ -305,6 +314,33 @@ class OutputLocationTests(unittest.TestCase):
         self.assertIn("No saved page covers the cost model.", report)
         cancelled = self.sessions.finish(self.start()["research_id"], "Stopped.", status="cancelled")
         self.assertIn("insufficiency", cancelled)
+
+    def test_the_draft_page_splits_sections_at_the_write_limits(self):
+        state = {"research_id": "r-fixture", "brief": "Fixture",
+                 "questions": [{"id": "q1", "question": "First question?"},
+                               {"id": "q2", "question": "Second question?"}]}
+        drafts = [{"claim_id": "c%d" % index, "question_id": "q1", "statement": "Statement %d" % index,
+                   "quotes": []} for index in range(13)]
+        draft = ResearchSessions._wiki_page(drafts, state)
+        self.assertEqual("First question?", draft["page"]["title"])
+        self.assertEqual(2, draft["section_count"])
+        self.assertEqual(["First question?", "First question? (continued)"],
+                         [section["heading"] for section in draft["page"]["sections"]])
+        self.assertEqual([12, 1], [len(section["claims"]) for section in draft["page"]["sections"]])
+        self.assertEqual(["c0", "c12"],
+                         [draft["page"]["sections"][0]["claims"][0]["claim_id"],
+                          draft["page"]["sections"][1]["claims"][0]["claim_id"]])
+        self.assertFalse(draft["truncated"])
+
+    def test_an_unanswered_question_gets_a_derived_gap_without_a_gap_record(self):
+        rid = self.start()["research_id"]
+        result = self.sessions.finish(rid, "Partial synthesis.", status="incomplete")
+        row = result["insufficiency"]["questions"][0]
+        self.assertEqual(("q1", "derived"), (row["id"], row["gap_source"]))
+        self.assertIn("No accepted claim answers this question", row["gap"])
+        report = Path(result["artifacts"]["report"]).read_text(encoding="utf-8")
+        self.assertIn("No accepted claim answers this question", report)
+        self.assertIn("(derived)", report)
 
 
 if __name__ == "__main__":

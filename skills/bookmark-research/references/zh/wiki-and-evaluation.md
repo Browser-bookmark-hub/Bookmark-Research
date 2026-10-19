@@ -62,7 +62,7 @@ kind 为 topic 或 entity。每节必须有有效 claim；每页至多 24 个不
 
 每次写入会重新生成 `index.md`（按 kind 列出当前页面：链接、标题、一行摘要、版本、日期、结论数），并向 `log.md` 追加 `## [日期] write | 标题 (rN)` 及 page ID、修改说明和研究 ID。可阅读或 grep 它们了解全貌；`index.json` 与版本文件仍是准确数据，`index.md` 过期或缺失时 `wiki_lint` 给出 `catalog_stale`／`catalog_missing` 警告，下次写入即重新生成。
 
-已有 Wiki 写入授权时，使用合格且已审阅的 claims 直接完成，不重复询问。否则 `research_finish.wiki_follow_up` 按 `settings.wiki.after_research` 处理：`suggest` 先提出候选，`auto` 更新或创建合格页面，`off` 跳过。更新仍需当前 `expected_revision`，完成后说明实际写入。`eligible_claims` 标出每条结论的首句原文与是否为推断，草稿可一次确认。
+已有 Wiki 写入授权时，使用合格且已审阅的 claims 直接完成，不重复询问。否则 `research_finish.wiki_follow_up` 按 `settings.wiki.after_research` 处理：`suggest` 先提出候选，`auto` 更新或创建合格页面，`off` 跳过。更新仍需当前 `expected_revision`，完成后说明实际写入。`eligible_claims` 标出每条结论的首句原文与是否为推断；`draft.page` 更进一步：按问题分组，正文就是 claim 原句，每节已带好 `{research_id, claim_id}` 列表并按写入上限切分，确认一次 + `wiki_write` 一次（`review` 填真实审阅人）即可成页。不要加入该列表之外的 claim。
 
 ## 评测真实运行
 

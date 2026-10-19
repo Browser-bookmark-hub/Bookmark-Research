@@ -60,6 +60,14 @@ class ContentStateTests(unittest.TestCase):
         self.assertEqual("soft_404", content_state("404 Not Found", BODY, "extracted"))
         self.assertEqual("usable", content_state("T", PROSE * 7 + " page not found", "extracted"))
 
+    def test_a_login_wall_is_its_own_state_not_usable_prose(self):
+        login = ("Sign in to continue\n\nEmail\n\nPassword\n\n"
+                 "[Forgot password](https://example.test/reset)\n")
+        self.assertEqual("login_required", content_state("Sign in - Example", login, "extracted"))
+        self.assertEqual("login_required", content_state("统一身份认证", "请登录\n\n账号\n\n密码\n", "extracted"))
+        # The same words deep inside a long article are its subject, not its state.
+        self.assertEqual("usable", content_state("T", PROSE * 7 + "Sign in to continue", "extracted"))
+
 
 class PublishedAtTests(unittest.TestCase):
     def test_provider_metadata_wins_and_is_normalized_to_a_day(self):
