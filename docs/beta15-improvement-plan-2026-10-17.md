@@ -445,5 +445,15 @@
 - **`login_required` 内容状态**（`src/archive.py`）：SSO/登录墙（`sign in to continue`、`login required`、`请登录`、`统一身份认证` 等）在正文权重 < 400 且标记出现在页头 300 字符内时判 `login_required`；它既不是 `paywall_suspected` 也不是 `js_shell_suspected`，不进可引用证据。这是 R4 验收里“引文取自 SSO 壳页”的直接修复，`tests/test_evidence_state.py` 增加英文/中文/长文反例三条。
 - **自动缺口派生**（`src/research.py`）：`_question_gap` 在问题没有 `gap` 记录时按状态派生——无 claim → “No accepted claim answers this question”；claim 被撤回 → 要求修订；有 claim 无答案 → “Claims exist but no answer was recorded”。`insufficiency.questions[]` 新增 `gap_source`（`recorded` / `derived`），报告 “## Insufficient evidence” 与问题小节同样使用派生文本。**插件仍不抓取**：`next_action.tools` 明确指向 `research_fetch` → `research_record` → `research_finish`，抓取由宿主执行（与“插件不联网”边界一致）。
 - **一次成页的页面骨架**（`src/research.py`）：`wiki_follow_up.draft` 给出 `{page:{title,kind,sections,links}, claim_count, section_count, truncated, instruction}`；`sections` 按 question 分组，`text` 只拼 claim 原文（不生成新论断），每条 claim 带 `{research_id, claim_id}`，按 `wiki_write` 的 12 claim/节、16 节上限自动切分。用户确认一次、宿主 `wiki_write` 一次即可成页，满足“16 条 claim ≤ 2 次动作”的路径；`review` 块留给宿主填写真实审阅人，不代填。
-- **测试**：`test_evidence_state` +1（登录墙）、`test_output_location` +2（派生缺口、分节上限）并扩展 draft 断言；全量 **753 项通过、3 项跳过**（见提交说明）。
-- **仍未做**：跨源冲突裁决、`login_required` 的自动补抓（换源/换读者由宿主决定）、真实宿主端到端验收（下一轮人工记录）。
+- **测试**：`test_evidence_state` +1（登录墙）、`test_output_location` +3（派生缺口、claims-without-answer、分节上限）并扩展 draft 断言；全量 **754 项通过、3 项跳过**（见提交说明）。
+- **仍未做**：跨源冲突裁决、`login_required` 的自动补抓（换源/换读者由宿主决定）、真实宿主会话里的端到端验收（本轮只到源码级 E2E，见下）。
+
+### 真实源码端到端（2026-10-19，临时目录）
+
+在 `tempfile` 下复制真实索引库、临时 archive/wiki/output，用**工作树源码**跑完整链路，用户数据目录未写入：
+
+- `plan_research("EmbeddingGemma 2 本地部署")` → A-1-1（score 2.0075）、`lookup/direct_retrieval/quick`；URL 前二为 foresight 与 unsloth。
+- `fetch_web` 两条：`developers.google.com/edge/foresight` → `js_shell_suspected`（1,411 字符）、`published_at=null`；`unsloth.ai/...` → `usable`（3,994 字符）。`discovery_bundle(steps=1, fetches=2)` → `evidence=1`、`unavailable=1`、`degradation=excerpts`。
+- 研究会话：import 一页 → accept → 一条 claim → `finish(incomplete)`；`wiki_follow_up.draft` 生成 1 claim / 1 section；`wiki_write` 到临时 wiki 后 `wiki_search("EmbeddingGemma")` 命中 `embeddinggemma-e2e`。S1/S3 路径成立。
+- `plan_research("zzzqqqvvv")` → `route=null`、`depth=null`，S2 成立。
+- **E2E 抓到的真实缺陷**：首次 `finish` 时，q1 明明已有一条 claim，`insufficiency` 却报 “No accepted claim answers this question”。原因是 `_question_gap` 只看 `question["claim_ids"]`，而该列表只有在记录 `answer` 时才填充；claim 虽带 `question_id`，没有被计入。修法：取 `claim["id"] in question["claim_ids"] or claim["question_id"] == question["id"]`。修复后同一路径报 “Claims exist but no answer was recorded”，并补 `test_a_claim_without_an_answer_is_not_reported_as_no_claim`。这也是本轮唯一由 E2E（而非单测）发现的缺陷。

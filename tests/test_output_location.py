@@ -342,6 +342,15 @@ class OutputLocationTests(unittest.TestCase):
         self.assertIn("No accepted claim answers this question", report)
         self.assertIn("(derived)", report)
 
+    def test_a_claim_without_an_answer_is_not_reported_as_no_claim(self):
+        rid = self.start()["research_id"]
+        self.reviewed_claim(rid)
+        result = self.sessions.finish(rid, "Partial synthesis.", status="incomplete")
+        row = result["insufficiency"]["questions"][0]
+        self.assertEqual("derived", row["gap_source"])
+        self.assertIn("no answer was recorded", row["gap"])
+        self.assertNotIn("No accepted claim", row["gap"])
+
 
 if __name__ == "__main__":
     unittest.main()

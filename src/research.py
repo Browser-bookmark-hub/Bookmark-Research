@@ -1774,7 +1774,8 @@ class ResearchSessions:
             return question["gap"], "recorded"
         if question["status"] == "answered":
             return None, None
-        claims = [claim for claim in state["claims"] if claim["id"] in question["claim_ids"]]
+        claims = [claim for claim in state["claims"]
+                  if claim["id"] in question["claim_ids"] or claim.get("question_id") == question["id"]]
         if not claims:
             return "No accepted claim answers this question", "derived"
         if any(claim.get("status") == "retracted" for claim in claims):
