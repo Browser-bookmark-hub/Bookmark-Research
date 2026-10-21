@@ -83,7 +83,7 @@ async function execute(host, scenario = "success", overrides = {}) {
 }
 
 (async () => {
-  for (const host of ["claude", "dsh", "pi"]) {
+  for (const host of ["claude", "dsh"]) {
     const success = await execute(host);
     assert.equal(success.result.status, "completed");
     assert.equal(success.result.output_language, "auto");

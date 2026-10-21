@@ -18,6 +18,40 @@ from urllib.parse import urlsplit
 # cannot use it and keep the LIKE fallback.
 TRIGRAM_MINIMUM = 3
 
+# URL shape is a retrieval signal, not a claim about the page: a documentation
+# or changelog page is usually a better citation than a vendor homepage, while
+# a login or search-result URL is almost never the requested source.
+URL_KIND_RANK = {"docs": 0, "changelog": 0, "repo": 1, "other": 2, "homepage": 3, "login": 4,
+                 "search": 4, "local_file": 5}
+
+
+def url_kind(url):
+    """Classify a bookmark URL for preflight ordering; never fetch it."""
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        path = (parts.path or "").lower()
+        scheme = (parts.scheme or "").lower()
+    except (TypeError, ValueError):
+        return "other"
+    if scheme not in ("http", "https"):
+        return "local_file"
+    if any(token in path for token in ("changelog", "release-notes", "release_notes", "whats-new", "whatsnew")):
+        return "changelog"
+    if host in ("github.com", "gitlab.com", "bitbucket.org", "codeberg.org"):
+        return "repo"
+    if host.startswith("login.") or any(token in path for token in ("/login", "/signin", "/auth/", "/oauth")):
+        return "login"
+    if path.rstrip("/") in ("", "/") or path in ("", "/"):
+        return "homepage"
+    if "search" in path and parts.query:
+        return "search"
+    if (host.startswith(("docs.", "developer.", "developers.", "documentation.", "help.")) or ".docs." in host
+            or any(token in path for token in ("/docs/", "/doc/", "/document/", "/documentation/", "/api/", "/reference/"))):
+        return "docs"
+    return "other"
+
+
 
 # A question is reduced to literal terms: ASCII runs whole, CJK runs expanded
 # into bigrams because a phrase the user typed rarely appears verbatim.
@@ -29,6 +63,21 @@ PLAN_MAX_TERMS = 12
 def question_urls(text):
     """The URLs a question already contains; the one shared URL extractor."""
     return QUESTION_URL.findall(text) if isinstance(text, str) else []
+
+
+def title_has_term(title, term):
+    """Whether a title contains the term as a token, not merely a substring.
+
+    ASCII terms use word boundaries so ``quantum`` does not match
+    ``QuantumNous``. CJK has no whitespace boundary; a literal occurrence is the
+    most this layer can honestly claim.
+    """
+    if not title or not term:
+        return False
+    if term.isascii():
+        return re.search(r"(?<![0-9A-Za-z])" + re.escape(term) + r"(?![0-9A-Za-z])",
+                         title, re.I) is not None
+    return term in title
 
 # Added-at is deliberately literal: a tempId_/syncId_ date segment is a
 # generation clue, a dateAdded epoch is the bookmark's own add time, and an
@@ -335,6 +384,33 @@ class BookmarkIndex:
         if row is None:
             raise ValueError("Unknown source_id: " + str(source_id))
         return dict(row)
+
+    def _input_path(self, source_id, fallback):
+        """The package directory the user currently has, not a frozen snapshot.
+
+        A snapshot source keeps every imported file forever, so comparing a
+        missing file against ``sources.package_path`` always says it exists.
+        ``source_records.record_json`` preserves the original input path, which
+        is what makes a retained card distinguishable from a current one.
+        """
+        try:
+            row = self.connection.execute(
+                "SELECT record_json FROM source_records WHERE source_id=?", (source_id,)).fetchone()
+        except sqlite3.OperationalError:
+            # Direct BookmarkIndex.sync() callers do not have the optional
+            # source_records table; the package path fallback is exact for them.
+            row = None
+        if row is not None:
+            try:
+                record = json.loads(row[0])
+                value = record.get("input_path")
+                if isinstance(value, str) and value:
+                    path = Path(value).expanduser()
+                    if path.is_dir():
+                        return path
+            except (TypeError, ValueError, KeyError):
+                pass
+        return Path(fallback)
 
     def _upsert(self, table, keys, values):
         """Internal table/column names only; user values are always parameters."""
@@ -858,7 +934,7 @@ class BookmarkIndex:
                     terms.append(candidate)
         return terms[:PLAN_MAX_TERMS]
 
-    def plan_scope(self, source_id, question, max_cards=3, max_urls=8):
+    def plan_scope(self, source_id, question, max_cards=3, max_urls=8, homepage_limit=0):
         """Rank the cards a question touches and the bookmarks inside them.
 
         Local only: literal matching over indexed metadata, no fetch and no
@@ -875,11 +951,20 @@ class BookmarkIndex:
         cards, deduplicated by URL, with the terms each URL's own rows matched
         and the source-wide instance count, which is not the selected scope.
         """
-        self._source(source_id)
+        source = self._source(source_id)
+        package = self._input_path(source_id, source["package_path"])
+        # Partial imports keep cards whose file disappeared. They stay indexed,
+        # but ranking them above current cards hides the fact that their text is
+        # no longer in the package. Their URLs remain useful as a supplement.
+        missing_files = {row[0] for row in self.connection.execute(
+            "SELECT file_path FROM files WHERE source_id=?", (source_id,))
+            if not (package / row[0]).is_file()}
         if type(max_cards) is not int or not 1 <= max_cards <= 3:
             raise ValueError("max_cards must be an integer from 1 to 3")
         if type(max_urls) is not int or not 1 <= max_urls <= 8:
             raise ValueError("max_urls must be an integer from 1 to 8")
+        if type(homepage_limit) is not int or not 0 <= homepage_limit <= 8:
+            raise ValueError("homepage_limit must be an integer from 0 to 8")
         terms = self.plan_terms(question)
         result = {"source_id": source_id, "terms": terms, "term_cards": {}, "cards": [], "urls": [],
                   "truncated": False, "errors": []}
@@ -914,16 +999,36 @@ class BookmarkIndex:
             weight = float(len(term)) / len(matched)
             for section_id in matched:
                 scores[section_id] = scores.get(section_id, 0.0) + weight
+        # A title occurrence is a stronger signal than a note/URL hit. Only
+        # longer terms need it, and the check is token-aware for ASCII so
+        # "quantum" does not count inside "QuantumNous".
         # A term that reaches exactly one canonical tree names that tree; a term
         # that reaches many is a common word, whatever it looks like.
         for term, matched in per_term.items():
             result["term_cards"][term] = len({sections[value]["canonical_id"] or value
                                               for value in matched}) if matched else 0
+        # A title occurrence is a stronger signal than a note/URL hit. Only
+        # terms that reach a few trees need the extra scan; a common word that
+        # appears across the whole package cannot be a name.
+        title_hits = {}
+        for term in terms:
+            if len(term) < 4 or result["term_cards"].get(term, 0) > 3:
+                continue
+            escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            counts = {}
+            for row in self.connection.execute(
+                    "SELECT section_id, title FROM items WHERE source_id=? AND item_type='bookmark'"
+                    " AND title LIKE ? ESCAPE '\\'", (source_id, "%" + escaped + "%")):
+                if title_has_term(row["title"], term):
+                    counts[row["section_id"]] = counts.get(row["section_id"], 0) + 1
+            title_hits[term] = counts
         bookmarks = {row["section_id"]: row["count"] for row in self.connection.execute(
             "SELECT section_id, count(*) AS count FROM items WHERE source_id=? AND item_type='bookmark'"
             " GROUP BY section_id", (source_id,))}
-        newest = {row["section_id"]: row["newest"] for row in self.connection.execute(
-            "SELECT section_id, max(added_at) AS newest FROM items WHERE source_id=? AND item_type='bookmark'"
+        newest = {row["section_id"]: (row["newest"], row["newest_high"]) for row in self.connection.execute(
+            "SELECT section_id, max(added_at) AS newest,"
+            " max(CASE WHEN added_at_confidence='high' THEN added_at END) AS newest_high"
+            " FROM items WHERE source_id=? AND item_type='bookmark'"
             " AND added_at IS NOT NULL GROUP BY section_id", (source_id,))}
         # Size must not win by itself: the term weight is scaled by the card's own
         # hit density, so an 82-of-107 topic card outranks an 18-of-1,053 tree.
@@ -934,7 +1039,7 @@ class BookmarkIndex:
         # and equal rows keep the order the first pass gave them.
         ordered = sorted(hits, key=lambda value: (sections[value]["file_path"], value))
         ordered.sort(key=lambda value: (scores[value] * density[value], hits[value],
-                                        newest.get(value) or ""), reverse=True)
+                                        (newest.get(value) or (None, None))[0] or ""), reverse=True)
         trees, ranked = set(), []
         for section_id in ordered:
             row = sections[section_id]
@@ -942,21 +1047,38 @@ class BookmarkIndex:
             if tree in trees:
                 continue
             trees.add(tree)
-            ranked.append({"section_id": section_id, "label": row["label"], "file_path": row["file_path"],
+            ranked.append({"section_id": section_id, "label": row["label"], "title": row["title"] or "",
+                "file_path": row["file_path"],
                 "hits": hits[section_id], "score": round(scores[section_id] * density[section_id], 6),
                 "density": round(density[section_id], 6),
-                "newest_added_at": newest.get(section_id), "bookmarks": bookmarks.get(section_id, 0),
+                "newest_added_at": (newest.get(section_id) or (None, None))[0],
+                "newest_high_added_at": (newest.get(section_id) or (None, None))[1],
+                "bookmarks": bookmarks.get(section_id, 0),
                 "matched_terms": [term for term in terms if section_id in per_term[term]],
+                "term_hits": {term: per_term[term][section_id] for term in terms
+                              if section_id in per_term[term]},
+                "term_title_hits": {term: title_hits.get(term, {}).get(section_id, 0) for term in terms
+                                    if title_hits.get(term, {}).get(section_id)},
+                "stale_missing_file": row["file_path"] in missing_files,
                 "anchor_of": row["canonical_id"] if row["is_anchor"] else None})
-        result["cards"] = ranked[:max_cards]
+        eligible = [card for card in ranked if not card["stale_missing_file"]]
+        stale = [card for card in ranked if card["stale_missing_file"]]
+        # A stale card never takes a top slot while a current card exists; its
+        # URLs still join the candidate pool below, so a deleted card's precise
+        # entry points are not lost.
+        result["cards"] = (eligible or ranked)[:max_cards]
+        result["stale_missing_files"] = sorted(missing_files)
         selected = [card["section_id"] for card in result["cards"]]
-        placeholders = ",".join("?" for _ in selected)
+        stale_sections = [card["section_id"] for card in stale[:max_cards]
+                          if card["section_id"] not in selected]
+        selected_for_urls = selected + stale_sections
+        placeholders = ",".join("?" for _ in selected_for_urls)
         rows = [dict(row) for row in self.connection.execute(
             "SELECT i.url AS url, count(*) AS instances, min(i.title) AS title,"
             " group_concat(DISTINCT i.section_id) AS sections FROM items i"
             " WHERE i.source_id=? AND i.item_type='bookmark' AND i.url<>''"
             " AND i.section_id IN (" + placeholders + ") AND (" + where + ")"
-            " GROUP BY i.url", (source_id, *selected, *parameters))]
+            " GROUP BY i.url", (source_id, *selected_for_urls, *parameters))]
         # A URL is as relevant as the most specific term its own rows matched, so
         # a bookmark that matched a name comes before incidental hits on a common
         # word, wherever inside the selection it lives. Card score, raw instance
@@ -969,16 +1091,32 @@ class BookmarkIndex:
             for url, in self.connection.execute(
                     "SELECT DISTINCT i.url FROM items i WHERE i.source_id=? AND i.item_type='bookmark'"
                     " AND i.url<>'' AND i.section_id IN (" + placeholders + ") AND " + clause,
-                    (source_id, *selected, *values)):
+                    (source_id, *selected_for_urls, *values)):
                 url_weight[url] = max(url_weight.get(url, 0.0), weight)
                 url_terms.setdefault(url, []).append(term)
-        card_score = {card["section_id"]: card["score"] for card in result["cards"]}
-        rows.sort(key=lambda row: (-url_weight.get(row["url"], 0.0), -max(card_score.get(value, 0.0)
-            for value in row["sections"].split(",")), -row["instances"], row["url"]))
+        card_score = {card["section_id"]: card["score"] for card in result["cards"] + stale}
+        rows.sort(key=lambda row: (-url_weight.get(row["url"], 0.0), URL_KIND_RANK[url_kind(row["url"])],
+            -max(card_score.get(value, 0.0) for value in row["sections"].split(",")),
+            -row["instances"], row["url"]))
+        if homepage_limit:
+            kept, homepage_counts = [], {}
+            for row in rows:
+                if url_kind(row["url"]) == "homepage":
+                    sections = row["sections"].split(",")
+                    if any(homepage_counts.get(section, 0) >= homepage_limit for section in sections):
+                        continue
+                    for section in sections:
+                        homepage_counts[section] = homepage_counts.get(section, 0) + 1
+                kept.append(row)
+            rows = kept
         result["truncated"] = len(rows) > max_urls
+        stale_ids = set(stale_sections) | {card["section_id"] for card in result["cards"]
+                                           if card["stale_missing_file"]}
         for row in rows[:max_urls]:
             row["section_ids"] = sorted(row.pop("sections").split(","))
             row["matched_terms"] = url_terms.get(row["url"], [])
+            row["url_kind"] = url_kind(row["url"])
+            row["stale"] = bool(row["section_ids"]) and all(value in stale_ids for value in row["section_ids"])
             row["source_instances"] = self.connection.execute(
                 "SELECT count(*) FROM items WHERE source_id=? AND item_type='bookmark' AND url=?",
                 (source_id, row["url"])).fetchone()[0]

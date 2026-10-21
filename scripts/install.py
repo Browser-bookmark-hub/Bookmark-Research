@@ -511,7 +511,7 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
     return result
 
 
-HOSTS = ("codex", "claude", "pi", "dsh")
+HOSTS = ("codex", "claude", "dsh")
 
 
 def _setup_host(host):
@@ -529,11 +529,11 @@ def _normalize_hosts(values):
             if not name:
                 continue
             if name not in HOSTS:
-                raise ValueError("--host must be codex, claude, pi, or dsh: " + name)
+                raise ValueError("--host must be codex, claude, or dsh: " + name)
             if name not in hosts:
                 hosts.append(name)
     if not hosts:
-        raise ValueError("--host requires at least one of codex, claude, pi, or dsh")
+        raise ValueError("--host requires at least one of codex, claude, or dsh")
     return hosts
 
 
@@ -541,25 +541,23 @@ def _targets_from_args(args):
     hosts = args.host or ["codex"]
     others = [host for host in hosts if host != "codex"]
     if hosts == ["codex"]:
-        if any((args.scope, args.project, args.profile, args.install_dir, args.claude, args.pi, args.dsh)):
-            raise ValueError("Host-specific options require --host claude, pi, or dsh")
+        if any((args.scope, args.project, args.profile, args.install_dir, args.claude, args.dsh)):
+            raise ValueError("Host-specific options require --host claude or dsh")
     if others and getattr(args, "installed_path", None):
         raise ValueError("--installed-path is only supported for Codex")
     if len(hosts) == 1:
         # A single host keeps its historical option handling and native errors.
         return [{"host": hosts[0], "scope": args.scope, "project": args.project, "profile": args.profile}]
     # CLI paths for unselected hosts are harmless locators and are ignored.
-    if (args.scope or args.project) and not {"claude", "pi"} & set(hosts):
-        raise ValueError("--scope and --project require --host claude or pi")
-    if args.scope == "local" and "pi" in hosts:
-        raise ValueError("Unsupported installation scope for pi: local is Claude-only")
+    if (args.scope or args.project) and not {"claude"} & set(hosts):
+        raise ValueError("--scope and --project require --host claude")
     if args.profile and "dsh" not in hosts:
         raise ValueError("--profile is only supported for DSH")
     if args.install_dir and not others:
-        raise ValueError("Host-specific options require --host claude, pi, or dsh")
+        raise ValueError("Host-specific options require --host claude or dsh")
     return [{"host": host,
-             "scope": args.scope if host in ("claude", "pi") else None,
-             "project": args.project if host in ("claude", "pi") else None,
+             "scope": args.scope if host == "claude" else None,
+             "project": args.project if host == "claude" else None,
              "profile": args.profile if host == "dsh" else None} for host in hosts]
 
 
@@ -633,16 +631,16 @@ def main(argv=None):
         command = subparsers.add_parser(action)
         command.add_argument("--lang", choices=("auto", "en", "zh"), default=argparse.SUPPRESS, help=language_help)
         command.add_argument("--host", action="append", help=message(
-            "Target client: codex, claude, pi, or dsh; repeat or comma-separate for several. Guided selection in a terminal, otherwise codex",
-            "目标宿主：codex、claude、pi 或 dsh；可重复或用逗号指定多个。终端中引导选择，非交互时默认 codex"))
+            "Target client: codex, claude, or dsh; repeat or comma-separate for several. Guided selection in a terminal, otherwise codex",
+            "目标宿主：codex、claude 或 dsh；可重复或用逗号指定多个。终端中引导选择，非交互时默认 codex"))
         command.add_argument("--codex", default="codex", help=message("Codex CLI executable, optionally an absolute path", "Codex CLI 程序名或绝对路径"))
-        for host in ("claude", "pi", "dsh"):
+        for host in ("claude", "dsh"):
             detail = (" (default: a usable dsh on PATH, then a DeepSeek Harness Desktop installation)",
                       "（默认依次使用 PATH 中可用的 dsh 与 DeepSeek Harness 桌面版自带的 CLI）") if host == "dsh" else ("", "")
             command.add_argument("--" + host, help=message("Path to the " + host + " CLI" + detail[0],
                                                            host + " CLI 路径" + detail[1]))
         command.add_argument("--scope", choices=("user", "project", "local"), help=message(
-            "Claude/Pi scope; default user (local is Claude-only)", "Claude/Pi 作用域，默认 user；local 仅限 Claude"))
+            "Claude scope; default user (local is Claude-only)", "Claude 作用域，默认 user；local 仅限 Claude"))
         command.add_argument("--project", help=message("Project directory for project/local scope", "project/local 作用域对应的项目目录"))
         command.add_argument("--profile", help=message("Required DSH profile name", "DSH 必填的 profile 名称"))
         command.add_argument("--install-dir", help=message("Managed export/receipt root for non-Codex hosts", "非 Codex 宿主的持久包与安装记录根目录"))

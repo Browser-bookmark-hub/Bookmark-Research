@@ -14,11 +14,10 @@ from host_assets import export_host_assets
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
-FORMATS = ("codex", "agent-plugin", "claude", "pi", "dsh")
+FORMATS = ("codex", "claude", "dsh")
 NAME = "bookmark-research"
 # The DSH bundle layer a released tree ships and declares in `dsh.bundle.patch`.
 BUNDLE_PATCH = "bundle.patch.yml"
-SCHEMA_ROOT = "https://agent-plugins.org/schemas/1.0.0/"
 SHARED_ROOTS = ("src", "config", "skills")
 SHARED_DOCUMENTS = (
     "docs/wiki-quality.md", "docs/wiki-quality.zh.md",
@@ -198,7 +197,7 @@ exclude existing indexes, caches, tests, and build artifacts. They do not read
 API key values from the environment; supply provider credentials at runtime.
 
 Run `python3 src/cli.py setup` to guide preferences, hidden credential entry and
-service checks. Use `--host codex|claude_code|pi|dsh` for host-specific MCP/login
+service checks. Use `--host codex|claude_code|dsh` for host-specific MCP/login
 guidance. Agents can use `setup --non-interactive --input FILE --skip-checks`.
 Keys are saved separately in a private local `credentials.json`, never in this
 package. Environment variables override saved keys. Before each new web research
@@ -227,20 +226,6 @@ subagent tools. `python3 hosts/codex/prepare.py --research-id RID` reads every
 inventory page and emits complete ID groups; it does not start agents.
 
 Reference: https://developers.openai.com/codex/cli/reference#codex-plugin
-"""
-    elif format_name == "agent-plugin":
-        instructions = """## Agent Plugins 1.0.0
-
-The entry files are root `plugin.json` and `mcp.json`, with the Skill under
-`skills/bookmark-research/`. The client must implement this specification and
-expand `${PLUGIN_ROOT}` in MCP arguments to this package's absolute path.
-The command is `python3`; database placement follows the CLI rules above.
-This export does not force the use of `${PLUGIN_DATA}`.
-
-This is a separate standard format. Export checks do not establish compatibility
-with an untested client or make it equivalent to Codex's native plugin format.
-
-Specification: https://agent-plugins.org/specification
 """
     elif format_name == "claude":
         instructions = """## Claude Code
@@ -275,44 +260,6 @@ coverage. Injecting `ultracode` into a Skill or `-p` prompt does not invoke it.
 Client version/manifest checks do not establish a paid research run succeeded.
 
 Reference: https://code.claude.com/docs/en/plugins-reference
-"""
-    elif format_name == "pi":
-        instructions = """## Pi Skill and saved workflow package
-
-`package.json` declares `pi.skills`. The shared Skill calls the bundled Python
-CLI. The saved workflow requires already-installed `pi-subagents` 0.43.0+ and
-`pi-subagents-workflows` in the same parent session, Pi 0.83+, and Node 22.19+.
-These are extension capabilities; exporting does not install them.
-
-Load the Skill for one session, replacing the path with your export location:
-
-```sh
-pi --skill /absolute/path/to/this-bundle/skills/bookmark-research/SKILL.md
-```
-
-Use `/skill:bookmark-research` in the session to load its workflow. For persistent
-registration of the Skill, follow Pi's package instructions and run
-`pi install /absolute/path/to/this-bundle`. That command changes Pi settings;
-the exporter itself does not run it.
-
-Register the saved workflow in a trusted project without modifying Pi settings:
-
-```sh
-python3 hosts/pi/register-workflow.py --project /absolute/path/to/project
-```
-
-This copies `workflow.json` and `script.js` into that project's
-`.pi/subagent-workflows/bookmark-research/` and binds the stable bundle's shared
-tool bridge. Existing different definitions are preserved and reported as a
-conflict. Start Pi in that project. Use
-`pi_subagent_workflow({action:"run",name:"bookmark-research",args:{research_id:"RID",run_key:"review-1"}})`.
-Runs are detached; wait through pi-subagents status/artifacts, inspecting every
-failed child. The registry adds no cross-session journal replay. The `delegate`
-agent must have Bash access to the bundled Python bridge, or native research MCP
-tools. The bridge calls the same stdio server; it is not a Pi core MCP feature.
-Actual loading in Pi still needs client verification.
-
-Reference: https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md
 """
     else:
         patch_path = shlex.quote(str(output / "cordis.patch.yml"))
@@ -408,13 +355,6 @@ def _write_adapter(stage, format_name, output, manifest, python="python3", sourc
                          "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
                          "category": "Productivity"}],
         })
-    elif format_name == "agent-plugin":
-        _write_json(stage, "plugin.json", {"$schema": SCHEMA_ROOT + "plugin.schema.json", **metadata})
-        _write_json(stage, "mcp.json", {
-            "$schema": SCHEMA_ROOT + "mcp.schema.json",
-            "mcpServers": {NAME: {"type": "stdio", "command": python,
-                                  "args": ["${PLUGIN_ROOT}/src/cli.py", "serve"]}},
-        })
     elif format_name == "claude":
         claude_metadata = {**metadata, "workflows": "./workflows"}
         if manifest.get("author"):
@@ -429,9 +369,6 @@ def _write_adapter(stage, format_name, output, manifest, python="python3", sourc
             "type": "stdio", "command": python,
             "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.py", "serve"],
         }}})
-    elif format_name == "pi":
-        _write_json(stage, "package.json", {**metadata, "keywords": ["pi-package"],
-                                           "pi": {"skills": ["./skills"]}})
     else:
         _write_json(stage, "package.json", {
             **metadata, "type": "module", "main": "./hosts/dsh/plugin.js",

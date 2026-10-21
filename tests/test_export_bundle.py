@@ -65,9 +65,7 @@ class ExportBundleTests(unittest.TestCase):
     def test_each_format_has_its_own_manifest_and_shared_files(self):
         expected_roots = {
             "codex": {".codex-plugin", ".agents", "hosts"},
-            "agent-plugin": {"plugin.json", "mcp.json"},
             "claude": {".claude-plugin", ".mcp.json", "hosts", "workflows"},
-            "pi": {"package.json", "hosts", "workflows"},
             "dsh": {"package.json", "bundle.patch.yml", "cordis.patch.yml", "hosts", "workflows"},
         }
         for format_name in export_bundle.FORMATS:
@@ -96,17 +94,6 @@ class ExportBundleTests(unittest.TestCase):
                     self.assertEqual(manifest, self.read_json(self.source, ".codex-plugin/plugin.json"))
                     marketplace = self.read_json(output, ".agents/plugins/marketplace.json")
                     self.assertEqual(marketplace["plugins"][0]["source"], {"source": "local", "path": "./"})
-                elif format_name == "agent-plugin":
-                    manifest = self.read_json(output, "plugin.json")
-                    self.assertEqual(set(manifest), {"$schema", "name", "version", "description"})
-                    self.assertEqual(manifest["$schema"],
-                                     "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json")
-                    config = self.read_json(output, "mcp.json")
-                    self.assertEqual(config["$schema"],
-                                     "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json")
-                    server = config["mcpServers"]["bookmark-research"]
-                    self.assertEqual(server, {"type": "stdio", "command": "python3",
-                                              "args": ["${PLUGIN_ROOT}/src/cli.py", "serve"]})
                 elif format_name == "claude":
                     manifest = self.read_json(output, ".claude-plugin/plugin.json")
                     self.assertEqual(manifest["name"], "bookmark-research")
@@ -116,11 +103,6 @@ class ExportBundleTests(unittest.TestCase):
                     server = self.read_json(output, ".mcp.json")["mcpServers"]["bookmark-research"]
                     self.assertEqual(server, {"type": "stdio", "command": "python3",
                                               "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.py", "serve"]})
-                elif format_name == "pi":
-                    manifest = self.read_json(output, "package.json")
-                    self.assertEqual(manifest["pi"], {"skills": ["./skills"]})
-                    self.assertNotIn("dsh", manifest)
-                    self.assertNotIn("scripts", manifest)
                 else:
                     patch = (output / "cordis.patch.yml").read_text(encoding="utf-8")
                     self.assertIn(json.dumps(str(output / "src/cli.py"), ensure_ascii=False), patch)
@@ -140,7 +122,6 @@ class ExportBundleTests(unittest.TestCase):
         self.assertEqual((output / export_bundle.BUNDLE_PATCH).read_bytes(),
                          (ROOT / export_bundle.BUNDLE_PATCH).read_bytes())
         # The entry module is ESM through a subdirectory scope, because the package
-        # root still ships a CommonJS bin and the pi field.
         self.assertEqual(self.read_json(output, "hosts/dsh/package.json"), {"type": "module"})
         self.assertNotIn("type", root_manifest)
         patch = (output / export_bundle.BUNDLE_PATCH).read_text(encoding="utf-8")
@@ -220,9 +201,9 @@ class ExportBundleTests(unittest.TestCase):
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
         ]
-        output = self.export("agent-plugin")
-        config = self.read_json(output, "mcp.json")["mcpServers"]["bookmark-research"]
-        args = [arg.replace("${PLUGIN_ROOT}", str(output)) for arg in config["args"]]
+        output = self.export("claude")
+        config = self.read_json(output, ".mcp.json")["mcpServers"]["bookmark-research"]
+        args = [arg.replace("${CLAUDE_PLUGIN_ROOT}", str(output)) for arg in config["args"]]
         for create_database in (False, True):
             with self.subTest(create_database=create_database):
                 requests = list(messages)
@@ -265,7 +246,7 @@ class ExportBundleTests(unittest.TestCase):
         support.write_text("Shared reference", encoding="utf-8")
         with mock.patch.dict(os.environ, {"EXA_API_KEY": "environment-secret-marker",
                                           "TAVILY_API_KEY": "environment-secret-marker"}):
-            output = self.export("agent-plugin")
+            output = self.export("claude")
         for path in output.rglob("*"):
             if path.is_file():
                 self.assertNotIn(b"private-data-marker", path.read_bytes())
@@ -281,7 +262,7 @@ class ExportBundleTests(unittest.TestCase):
         link.symlink_to(directory, target_is_directory=True)
         for output in (directory, sentinel, link):
             with self.subTest(output=output.name), self.assertRaises(ValueError):
-                self.export("agent-plugin", output)
+                self.export("dsh", output)
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
         self.assertEqual({p.name for p in directory.iterdir()}, {"keep.txt"})
         self.assertTrue(link.is_symlink())
@@ -289,10 +270,10 @@ class ExportBundleTests(unittest.TestCase):
     def test_accepts_empty_output_and_rejects_overlapping_source(self):
         output = self.base / "empty"
         output.mkdir()
-        self.export("pi", output)
+        self.export("dsh", output)
         overlap = self.source / "skills" / "new-output"
         with self.assertRaisesRegex(ValueError, "shared source root"):
-            self.export("pi", overlap)
+            self.export("dsh", overlap)
         self.assertFalse(overlap.exists())
 
     def test_invalid_source_does_not_publish_partial_files(self):
@@ -319,7 +300,7 @@ class ExportBundleTests(unittest.TestCase):
                 path.unlink()
                 output = self.base / "incomplete"
                 with self.assertRaisesRegex(ValueError, relative):
-                    self.export("agent-plugin", output)
+                    self.export("dsh", output)
                 self.assertFalse(output.exists())
                 path.write_bytes(original)
 
@@ -346,8 +327,7 @@ class ExportBundleTests(unittest.TestCase):
         manifest["version"] = "0.2.3+codex.example"
         path.write_text(json.dumps(manifest), encoding="utf-8")
         for format_name, relative in (("codex", ".codex-plugin/plugin.json"),
-                                      ("agent-plugin", "plugin.json"),
-                                      ("claude", ".claude-plugin/plugin.json"), ("pi", "package.json")):
+                                      ("claude", ".claude-plugin/plugin.json"), ("dsh", "package.json")):
             with self.subTest(format=format_name):
                 self.assertEqual(self.read_json(self.export(format_name), relative)["version"], manifest["version"])
 
@@ -451,7 +431,7 @@ class DistributionTests(unittest.TestCase):
             self.assertIn(prefix + "scripts/verify_fixture.py", names)
             self.assertIn(prefix + "scripts/verify_quality.py", names)
             self.assertIn(prefix + "scripts/host_assets.py", names)
-            self.assertIn(prefix + "hosts/pi/runtime.js", names)
+            self.assertIn(prefix + "hosts/claude/runtime.js", names)
             self.assertIn(prefix + "tests/host-workflows.test.js", names)
             self.assertIn(prefix + "tests/test_research.py", names)
             self.assertTrue(any(name.startswith(prefix + "tests/fixtures/canvas/") for name in names))

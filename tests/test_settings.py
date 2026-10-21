@@ -168,10 +168,21 @@ Settings(config).update(json.loads(patch))
             "wiki": {"directory": str(self.base / "authored-knowledge")}})
         saved = Settings(self.settings.path).load()
         self.assertEqual(saved["search"]["providers"], ["exa"])
-        self.assertEqual(saved["professional_research"]["openai"]["model"], "o4-mini-deep-research")
+        self.assertEqual(saved["professional_research"]["openai"]["model"], "gpt-5.6-sol")
         self.assertEqual(saved["professional_research"]["openai"]["max_tool_calls"], 8)
         self.settings.update({"professional_research": {"provider": None}})
         self.assertIsNone(self.settings.load()["professional_research"]["provider"])
+
+    def test_openai_model_is_configurable_and_untested_ids_need_explicit_opt_in(self):
+        self.settings.update({"professional_research": {"openai": {"model": "gpt-5.6-sol"}}})
+        self.assertEqual(self.settings.load()["professional_research"]["openai"]["model"], "gpt-5.6-sol")
+        with self.assertRaisesRegex(ValueError, "allow_untested_model"):
+            self.settings.update({"professional_research": {"openai": {"model": "gpt-future-research"}}})
+        self.settings.update({"professional_research": {"openai": {
+            "model": "gpt-future-research", "allow_untested_model": True}}})
+        self.assertEqual(self.settings.load()["professional_research"]["openai"]["model"], "gpt-future-research")
+        with self.assertRaises(ValueError):
+            self.settings.update({"professional_research": {"openai": {"model": "Not A Model"}}})
 
     def test_research_preferences_reject_credentials_bad_methods_and_wiki_in_package(self):
         invalid = [{"research": {"depth": "exhaustive"}}, {"research": {"methods": []}},

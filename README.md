@@ -5,7 +5,7 @@
 [![GitHub Bookmark-Canvas](https://img.shields.io/badge/GitHub-Bookmark--Canvas-181717?logo=github&logoColor=white)](https://github.com/Browser-bookmark-hub/Bookmark-Canvas)
 [![npm version](https://img.shields.io/npm/v/bookmark-research/beta?logo=npm)](https://www.npmjs.com/package/bookmark-research)
 
-Research your bookmarks with verified web sources. Give it a list of bookmark URLs or a [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) package; it checks every link, searches and reads the web, and writes a cited report you can resume. Works in **Codex, Claude Code, Pi and DSH (DeepSeek Harness)**.
+Research your bookmarks with verified web sources. Give it a list of bookmark URLs or a [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) package; it checks every link, searches and reads the web, and writes a cited report you can resume. Works in **Codex, Claude Code and DSH (DeepSeek Harness)**.
 
 [Installation guide](docs/installation.en.md) · [User guide](docs/user-guide.en.md) · [Details](docs/details.en.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
@@ -21,7 +21,7 @@ Research your bookmarks with verified web sources. Give it a list of bookmark UR
 ## Requirements
 
 - Python 3.9+ with SQLite FTS5 (checked by `bookmark-research doctor`)
-- The CLI of at least one client: Codex, Claude Code, Pi or DSH. DSH also needs `pnpm`, unless it is the DeepSeek Harness Desktop CLI, which carries its own
+- The CLI of at least one client: Codex, Claude Code or DSH. DSH also needs `pnpm`, unless it is the DeepSeek Harness Desktop CLI, which carries its own
 - Node 18+ and npm to install a release
 - No API key is needed to install, or to query bookmarks locally
 
@@ -31,7 +31,7 @@ Research your bookmarks with verified web sources. Give it a list of bookmark UR
 npx bookmark-research@beta install
 ```
 
-`@beta` follows the newest prerelease; pin one build with `@0.5.0-beta.15`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
+`@beta` follows the newest prerelease; pin one build with `@0.5.0-beta.16`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
@@ -56,19 +56,18 @@ Enter keeps the highlighted value, so a full run can be just a few keystrokes. T
 | --- | --- | --- |
 | Codex | `npx bookmark-research@beta install codex --non-interactive` | `codex plugin add` |
 | Claude Code | `npx bookmark-research@beta install claude --scope user --non-interactive` | `claude plugin install` |
-| Pi | `npx bookmark-research@beta install pi --non-interactive` | `pi install` |
 | DSH | `npx bookmark-research@beta install dsh --profile web --non-interactive` | `dsh plugin add` |
 
-Several at once: `npx bookmark-research@beta install claude dsh --profile web --non-interactive`. Project scope: `--scope project --project /path/to/project` (Claude Code, Pi). All options: [installation guide](docs/installation.en.md).
+Several at once: `npx bookmark-research@beta install claude dsh --profile web --non-interactive`. Project scope: `--scope project --project /path/to/project` (Claude Code). All options: [installation guide](docs/installation.en.md).
 
-**Ask your agent to install it.** Paste this into Codex, Claude Code, Pi or DSH:
+**Ask your agent to install it.** Paste this into Codex, Claude Code or DSH:
 
 ```text
 Install the Bookmark Research plugin into the client you are running in.
 
-1. Identify your own client: codex, claude, pi or dsh.
+1. Identify your own client: codex, claude or dsh.
 2. Run: npx bookmark-research@beta install <client> --non-interactive
-   - Claude Code or Pi: add --scope user (or --scope project --project <dir>).
+   - Claude Code: add --scope user (or --scope project --project <dir>).
    - DSH: add --profile <profile>; ask me for the profile name.
 3. The command prints JSON. Confirm "verified": true and report any "error".
 4. Do not ask me for API keys in chat. Tell me to run `bookmark-research setup`
@@ -78,7 +77,7 @@ Install the Bookmark Research plugin into the client you are running in.
 
 Install notes:
 
-- **npm is the single release source** for all four hosts; it contains the shared runtime, Skill and host adapters. The installer downloads the release, prepares the host's format, then calls the host's native commands. GitHub hosts source, versions and the installation catalog; unpublished source uses the Python installer. See [distribution policy](docs/distribution.md).
+- **npm is the single release source** for all three hosts; it contains the shared runtime, Skill and host adapters. The installer downloads the release, prepares the host's format, then calls the host's native commands. GitHub hosts source, versions and the installation catalog; unpublished source uses the Python installer. See [distribution policy](docs/distribution.md).
 - **DSH installs the release directly.** The package declares `dsh.bundle.patch`, so `dsh plugin --profile <name> add bookmark-research@<version>` installs it with no export first. The reserved `desktop` profile belongs to DeepSeek Harness Desktop; use that app's CLI, which the installer and wizard locate themselves.
 - **Windows** often has no working `python3`, so the installer writes the detected Python path into each client's MCP config. Install Codex with `bookmark-research install codex` rather than adding the repository to Codex directly; `bookmark-research status` shows the interpreter in use.
 
@@ -96,7 +95,7 @@ Install notes:
 
 Use `npx bookmark-research@beta …` if the command is not installed globally. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards. `--lang zh` shows the wizard and menu in Chinese.
 
-**Update.** `bookmark-research update` refreshes every installed client from its registered source and keeps preferences, keys and data. Re-running `npx bookmark-research@beta install` also upgrades an existing Claude Code, Pi or DSH installation in place. A Codex installation keeps the source and version it was registered with; to move it to another version, remove that registration first (`codex plugin marketplace remove bookmark-research`) and install again.
+**Update.** `bookmark-research update` refreshes every installed client from its registered source and keeps preferences, keys and data. Re-running `npx bookmark-research@beta install` also upgrades an existing Claude Code or DSH installation in place. A Codex installation keeps the source and version it was registered with; to move it to another version, remove that registration first (`codex plugin marketplace remove bookmark-research`) and install again.
 
 **API keys are optional.** Enter them in `bookmark-research setup` (hidden input, checked immediately, saved in a private local file) or set environment variables, which take precedence.
 
@@ -130,7 +129,7 @@ Changing the location affects new research only; existing tasks stay where they 
 
 The host model plans the research, searches or reads pages, evaluates the evidence and follows unresolved questions. The Skill guides this loop; MCP stores inputs, evidence, budgets and progress. Saving a research task does not start a background agent.
 
-For a grouped report, the plugin supplies a reader → fresh verifier → coverage check → follow-up → report workflow. Codex uses its native subagent tools and the bundled delegation guide; Claude Code and DSH use available host workflow hooks, while Pi requires a loaded subagent/workflow extension. The host owns concurrency, cancellation and agent lifetime. All children must receive the relevant instructions and access the same research store.
+For a grouped report, the plugin supplies a reader → fresh verifier → coverage check → follow-up → report workflow. Codex uses its native subagent tools and the bundled delegation guide; Claude Code and DSH use available host workflow hooks. The host owns concurrency, cancellation and agent lifetime. All children must receive the relevant instructions and access the same research store.
 
 The workflow adapters have simulated contract tests, but a successful install does not prove that every host can execute the complete multi-agent workflow. See [host workflows](skills/bookmark-research/references/host-workflows.md) for requirements and [the validation matrix](docs/validation-0.4.0.md#host-and-provider-boundaries) for observed limits.
 

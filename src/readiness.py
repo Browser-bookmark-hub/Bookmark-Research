@@ -208,8 +208,7 @@ class Readiness:
                          "login_instruction": "Add this optional server to the selected DSH profile with an environment-backed authentication header. The documented DSH bridge supports headers; OAuth support is not established.",
                          "reference": "https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md"}
             else:
-                setup = {"login_instruction": "Pi uses the bundled CLI for ordinary research. Native research MCPs need a separately chosen MCP extension and its authentication flow. The plugin does not assume one is installed."
-                         if host == "pi" else "Select --host when running setup, or inspect the MCP settings in your actual host.",
+                setup = {"login_instruction": "Select --host when running setup, or inspect the MCP settings in your actual host.",
                          "reference": "skills/bookmark-research/references/host-workflows.md"}
             rows.append({"provider": name, "optional": True, "endpoint": native["url"],
                          "status": "needs_host_session" if observed_tools is None else "observed" if present else "not_observed",
@@ -217,7 +216,7 @@ class Readiness:
                          "setup": setup,
                          "next_step": "Inspect the current host's MCP tools; add this optional endpoint and complete its host-managed login if needed. Tool presence alone does not verify authorization."})
         collaboration_tools = {"codex": ("spawn_agent",), "claude_code": ("Agent", "Task", "Workflow"),
-                               "pi": ("subagent", "pi_subagent_workflow"), "dsh": ("subagent", "workflow"), "unknown": ()}
+                               "dsh": ("subagent", "workflow"), "unknown": ()}
         collaboration = {"optional": True,
             "status": "needs_host_session" if observed_tools is None or host == "unknown" else
                       "observed" if ResearchRouting._has(tools, *collaboration_tools[host]) else "not_observed",

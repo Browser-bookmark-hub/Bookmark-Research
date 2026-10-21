@@ -819,6 +819,65 @@ class WikiStore:
                 "method": "indexed character grams, casefolded literal and whitespace-insensitive matching "
                           "with explicit query/page aliases; no embedding-based semantic ranking"}
 
+    def search_terms(self, terms, limit=3):
+        """Find pages for several literal terms and merge them into one preflight.
+
+        ``search`` requires every whitespace-separated term to occur, so passing
+        a natural-language question finds nothing. The preflight has no single
+        query string: it has terms extracted by ``plan_terms``. Each term is
+        searched independently, pages are merged by ``page_id`` and scored by
+        the terms they matched; the result is a pointer list, not full pages.
+        """
+        if not isinstance(terms, list) or not 1 <= len(terms) <= 24:
+            raise ValueError("terms must be a list of 1 to 24 literal terms")
+        ResearchSessions._integer(limit, "limit", 1, 20)
+        ordered = []
+        for term in terms:
+            if not isinstance(term, str) or not term.strip() or len(term) > 100:
+                raise ValueError("each term must be a nonempty string of at most 100 characters")
+            if term not in ordered:
+                ordered.append(term)
+        merged = {}
+        for term in ordered:
+            result = self.search(term, limit=limit)
+            for row in result["results"]:
+                validation = row.get("validation") or {}
+                status = validation.get("status")
+                if status not in ("current", "needs_review"):
+                    continue
+                entry = merged.setdefault(row["page_id"], {
+                    "page_id": row["page_id"], "revision": row.get("revision"),
+                    "title": row.get("title"), "kind": row.get("kind"),
+                    "updated_at": row.get("updated_at"), "score": 0.0,
+                    "matched_terms": [], "summary": "",
+                })
+                entry["score"] += len(term) + (5 if term.casefold() in (row.get("title") or "").casefold() else 0)
+                entry["matched_terms"].append(term)
+                if not entry["summary"]:
+                    entry["summary"] = " ".join((row.get("snippet") or "").split())[:200]
+                issues = validation.get("issues") or []
+                # A page is as fresh as its worst matching validation. Do not
+                # let a later term with a cached/current view downgrade an
+                # earlier needs_review status.
+                if entry.get("status") == "needs_review" or status == "needs_review":
+                    entry["status"] = "needs_review"
+                else:
+                    entry["status"] = status
+                entry["issue_count"] = max(entry.get("issue_count", 0), len(issues))
+                entry["expired_count"] = max(entry.get("expired_count", 0),
+                                             sum(1 for issue in issues
+                                                 if issue.get("code") == "source_capture_expired"))
+        for entry in merged.values():
+            actions = ["wiki_get"]
+            if entry.get("status") == "needs_review":
+                actions.append("wiki_acknowledge")
+                if entry.get("expired_count"):
+                    actions.append("wiki_refresh")
+            entry["actions"] = actions
+            entry["score"] = round(entry["score"], 6)
+            entry["matched_terms"] = list(dict.fromkeys(entry["matched_terms"]))
+        return sorted(merged.values(), key=lambda entry: (-entry["score"], entry["page_id"]))[:limit]
+
     def _markdown(self, record, location):
         page = record["page"]
         link = lambda target: os.path.relpath(target, location.parent).replace(os.sep, "/")

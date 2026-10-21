@@ -16,7 +16,7 @@ from settings import Settings
 from tui import Option, Prompter
 
 
-HOSTS = (("codex", "Codex", "Codex"), ("claude", "Claude Code", "Claude Code"), ("pi", "Pi", "Pi"),
+HOSTS = (("codex", "Codex", "Codex"), ("claude", "Claude Code", "Claude Code"),
          ("dsh", "DSH / DeepSeek Harness", "DSH / DeepSeek Harness"))
 
 
@@ -126,10 +126,10 @@ class Console(Prompter):
             hints = {name: ("", None) if found[name] else ("CLI not found", "未找到 CLI") for name in found}
             found["dsh"], hints["dsh"] = client["usable"], _dsh_hint(client)
             if not any(found.values()):
-                self.warn("No supported host CLI (codex, claude, pi, dsh) was found on PATH.",
-                          "PATH 中未找到任何受支持的宿主 CLI（codex、claude、pi、dsh）。")
-                raise ValueError("No host CLI found; install Codex, Claude Code, Pi or DSH, "
-                                 "or pass --codex/--claude/--pi/--dsh PATH to point at its executable")
+                self.warn("No supported host CLI (codex, claude, dsh) was found on PATH.",
+                          "PATH 中未找到任何受支持的宿主 CLI（codex、claude、dsh）。")
+                raise ValueError("No host CLI found; install Codex, Claude Code or DSH, "
+                                 "or pass --codex/--claude/--dsh PATH to point at its executable")
             hosts = self.multiselect("Install into which hosts?", "安装到哪些宿主？", [
                 Option(name, en, zh, *hints[name], disabled=not found[name]) for name, en, zh in HOSTS],
                 [name for name, _, _ in HOSTS if found[name]])
@@ -140,7 +140,7 @@ class Console(Prompter):
         for host in hosts:
             label = next((en for name, en, _ in HOSTS if name == host), host)
             target = {"host": host, "scope": None, "project": None, "profile": None}
-            if host in ("claude", "pi"):
+            if host == "claude":
                 scope = args.scope
                 if scope is None:
                     options = [Option("user", "This user", "当前用户"), Option("project", "This project", "指定项目")]
@@ -372,7 +372,6 @@ class Onboarding:
                 "codex": "在支持 OAuth 的服务上运行 login，随后新建会话并用 /mcp 检查。使用已有登记时，将命令中的服务名换成实际名称。",
                 "claude_code": "在 Claude Code 中打开 /mcp 并按提示授权；添加命令的 scope 应与目标用户或项目对应。",
                 "dsh": "在所选 profile 中配置环境变量引用的认证 header；官方桥接器的 OAuth 支持尚未确认。",
-                "pi": "Pi 基础研究使用同包 CLI；原生研究 MCP 需自行选择 MCP 扩展并在扩展中授权。",
                 "unknown": "重新运行 setup --host 指定实际宿主，或打开宿主的 MCP 设置。",
             }[integrations["host"]])
             console.say("Provider: " + row["docs"] + "\nHost: " + setup["reference"],

@@ -8,7 +8,6 @@ Read this only after selecting useful, authorized delegation. Ordinary questions
 | --- | --- | --- |
 | [Codex](https://developers.openai.com/codex/subagents) | Native subagents; `hosts/codex/delegate.md` | Visible delegation/wait tools and permission to delegate |
 | [Claude Code](https://code.claude.com/docs/en/sub-agents) | `Agent` / older `Task`; optional Dynamic Workflow | Current tool access; teams/workflows require host enablement |
-| [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent) | Loaded subagent extension; optional `pi_subagent_workflow` | Core provides neither subagents nor MCP |
 | [DSH](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/workflow) | Subagent or `workflow` | Active profile supplies tools and research MCP/CLI access |
 
 Give each child its scope, questions, output language, Skill path, operation prefix, actual MCP/CLI entry points and shared research-store location. Inherit current model, reasoning and permissions unless instructed otherwise. Do not assume parent conversation/Skill text transfers across hosts. Without delegation, continue locally and describe any review accurately.
@@ -57,29 +56,6 @@ Run /bookmark-research:bookmark-research with
 Run the discovery script as `/bookmark-research:bookmark-research-discovery` with `{question, source_id, run_key, output_language}`; it returns the bundle described above.
 
 Manage runs through `/workflows`. Resume works within the same session; restarting may replay completed children, so retain evidence and operation IDs. Claude's separate built-in deep research does not automatically cover this plugin's frozen inventory.
-
-## Pi
-
-The grouped recipe needs Node 22.19+, Pi 0.83+, `pi-subagents` 0.43.0+ and `pi-subagents-workflows`. The export declares the Skill only. Register the script in the intended trusted project:
-
-```sh
-python3 hosts/pi/register-workflow.py --project /absolute/path/to/project
-```
-
-The registrar writes two files per workflow under project `.pi/subagent-workflows/` — `bookmark-research/` and `bookmark-research-discovery/`; conflicting content is preserved. It neither installs extensions nor changes settings. Re-register after moving the stable export because the bridge path is absolute.
-
-```js
-pi_subagent_workflow({
-  action: "run", name: "bookmark-research",
-  args: { research_id: "RID", run_key: "review-1", output_language: "en" }
-});
-```
-
-Run discovery with `pi_subagent_workflow({action:"run", name:"bookmark-research-discovery", args:{question:"…", source_id:"SID", run_key:"discover-1", output_language:"en"}})`.
-
-The extension runs detached: wait through its status/artifact tools until terminal and inspect failures. Use structured results (`structuredOutput`, `run.error`, `ok`), not truncated display text. There is no cross-session journal replay.
-
-Children need native MCP access or Bash access to `hosts/shared/research-call.py`, whose JSON input is `{name,arguments}` and result is `{isError,result}`. Besides `research_*` it serves `plan_research`, `discovery_bundle`, `fetch_web`, `search_web` and the read-only local queries (`index_status`, `search_bookmarks`, `get_context`). A timeout means unknown outcome; inspect saved state before continuing.
 
 ## DSH
 

@@ -2,7 +2,7 @@
 
 **English** · [中文](zh/package-semantics.md)
 
-These bundled analysis rules cover JSON files, fields and relationships. The runtime importer does not read `AGENTS.md`; known formats can be indexed and queried without it. Consult the original guide and data when a package adds conventions, meanings conflict, or the user requests a check. This reference does not replace applicable directory instructions already loaded by the host.
+These bundled analysis rules cover JSON files, fields and relationships. The runtime importer does not read `AGENTS.md`; known formats can be indexed and queried without it. Consult the original guide and data when a package adds conventions, meanings conflict, or the user requests a check. This reference does not replace applicable directory instructions already loaded by the host. The package's exported guide also governs writes to the package; this reference and the plugin only read the package.
 
 ## Files and fields
 
@@ -105,8 +105,9 @@ Reading-rule version: `2026-09-09`. The protocol source is the public Bookmark C
 | A1–A8, A9 text semantics, R1/R6/R7 reading semantics | File, field, identity and relationship rules above |
 | S8 and S7 analysis clues | Relationship interpretation, temporary aliases and source location |
 | S6 web research | [Research and provider access](research-workflow.md) |
+| P1 plugin boundary | Read-only scope, plugin data outside the package, resync after external edits |
 | Relevant S1/P2 storage and partial-export semantics, P1 persistence rules | Synchronization boundaries and version retention above |
 
 Tested `schemaVersion` values are 3 for permanent main trees, 2 for permanent copy anchors, and 2 for temporary sections. The importer validates actual fields; it is not a validator for every future schema. Changed semantics require checking the protocol and parser. Documentation changes alone do not add runtime capabilities.
 
-Section creation/modification, ID generation, tag/note writes, layout changes and pre-import validation belong to a future generation Skill. It could reuse these reading rules and add write rules and validators. This plugin does not provide those generation capabilities.
+Section creation/modification, ID generation, tag/note writes, layout changes and pre-import validation belong to a future generation Skill. It could reuse these reading rules and add write rules and validators, but the package's exported guide remains the write protocol. This plugin does not provide those generation capabilities.

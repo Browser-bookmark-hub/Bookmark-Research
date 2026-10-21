@@ -87,6 +87,6 @@ python3 -B tests/live_provider_smoke.py --run-live --output /tmp/bookmark-provid
 
 一次 smoke 最多 3 次搜索 + 3 次提取。更新 schema fixture 还需显式传 `--record-schemas PATH`，离线测试不会自行访问网络或更新 fixture。
 
-[此次 smoke 原始摘要](provider-smoke-0.2.0.json)：三家的目录和提取均成功；Parallel/Tavily 搜索成功；Exa 首次搜索发生连接错误，原始 `passed: false` 保留。针对该失败另发起一次 Exa 搜索，成功返回官方页面，记录在 `follow_up_checks`。因此每家都有实际搜索与提取成功证据，但这次六调用集合并非全绿，不能由单次访问推断持续可用性。
+此次 smoke 原始摘要（`docs/archive/provider-smoke-0.2.0.json`）：三家的目录和提取均成功；Parallel/Tavily 搜索成功；Exa 首次搜索发生连接错误，原始 `passed: false` 保留。针对该失败另发起一次 Exa 搜索，成功返回官方页面，记录在 `follow_up_checks`。因此每家都有实际搜索与提取成功证据，但这次六调用集合并非全绿，不能由单次访问推断持续可用性。
 
 验证范围不含真实 API Key、有偿额度、OAuth、Exa Agent / Parallel Task / Tavily Research 的执行权限或供应商计费金额。网络故障属于当前记录的一部分；离线故障注入测试负责验证这类失败不会丢失其他结果、掩盖调用次数或触发隐形重试。

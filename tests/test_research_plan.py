@@ -10,12 +10,14 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from test_bookmark_index import make_package
 
-from bookmark_index import BookmarkIndex
+from bookmark_index import BookmarkIndex, url_kind
 from mcp_server import StdioMcpServer
+from raw_library import RawLibrary
 from research_plan import ResearchPlan
 from routing import ResearchRouting
 from settings import Settings
 from source_manager import SourceManager
+from wiki import WikiStore
 
 ALPHA = "https://example.test/alpha"
 
@@ -312,11 +314,199 @@ class ResearchPlanTests(unittest.TestCase):
         self.assertEqual("investigation", payload["task_shape"])
         self.assertTrue(payload["route"])
         self.assertEqual(["search_web", "fetch_web"], payload["next_action"]["tools"])
+        self.assertIn("wiki", payload)
+        self.assertIn("archive", payload)
+        self.assertIn("relevance", payload)
+        self.assertIn("freshness", payload)
+        self.assertIn("fetch", payload)
+        self.assertIn("preflight_budget", payload)
         # A blank or partial question never reaches the tool: the server's
         # validator rejects it first, so no fetch or index work can happen.
         self.assertEqual(-32602, call({"source_id": source_id, "question": "   "})["error"]["code"])
         self.assertEqual(-32602, call({"source_id": source_id})["error"]["code"])
         self.assertEqual(-32602, call({"source_id": source_id, "question": "alpha", "max_urls": 9})["error"]["code"])
+
+    def test_an_incidental_substring_does_not_become_a_lookup(self):
+        items = [{"type": "bookmark", "title": "QuantumNous/new-api",
+                  "url": "https://github.com/QuantumNous/new-api"}]
+        items += [{"type": "bookmark", "title": "unrelated %d" % index,
+                   "url": "https://example.test/fill/%d" % index} for index in range(9)]
+        index, source_id = self.indexed(lambda root: write_card(
+            root, "Q 量子", "temp-section-Q", "Q", items))
+        built = ResearchPlan(index=index, settings=self.settings).build(
+            source_id, "quantum entanglement agriculture breeding",
+            include_wiki=False, include_archive=False)
+        self.assertFalse(built["relevance"]["accepted"], built["relevance"])
+        self.assertEqual([], built["cards"])
+        self.assertEqual([], built["urls"])
+        self.assertIsNone(built["route"])
+        self.assertIn("single weak term", built["next_action"]["reason"])
+
+    def test_a_single_cjk_entity_is_not_rejected_by_the_length_floor(self):
+        index, source_id = self.indexed(lambda root: write_card(
+            root, "书 单字", "temp-section-BOOK", "书",
+            [{"type": "bookmark", "title": "书", "url": "https://example.test/book"}]))
+        built = ResearchPlan(index=index, settings=self.settings).build(
+            source_id, "书", include_wiki=False, include_archive=False)
+        self.assertTrue(built["relevance"]["accepted"], built["relevance"])
+        self.assertEqual(["书"], [card["label"] for card in built["cards"]])
+
+    def test_a_long_unique_term_survives_the_single_hit_floor(self):
+        items = [{"type": "bookmark", "title": "unique500", "url": "https://example.test/unique500"}]
+        items += [{"type": "bookmark", "title": "filler %d" % index,
+                   "url": "https://example.test/filler/%d" % index} for index in range(25)]
+        index, source_id = self.indexed(lambda root: write_card(
+            root, "U 唯一", "temp-section-UNIQUE", "U", items))
+        built = ResearchPlan(index=index, settings=self.settings).build(
+            source_id, "unique500", include_wiki=False, include_archive=False)
+        self.assertTrue(built["relevance"]["accepted"], built["relevance"])
+        self.assertEqual(["U"], [card["label"] for card in built["cards"]])
+
+    def test_two_letter_uppercase_acronyms_count_as_meaningful(self):
+        items = [{"type": "bookmark", "title": "书签 AI 升级", "url": "https://example.test/ai"}]
+        items += [{"type": "bookmark", "title": "filler %d" % index,
+                   "url": "https://example.test/filler/%d" % index} for index in range(9)]
+        index, source_id = self.indexed(lambda root: write_card(
+            root, "A 缩写", "temp-section-ACRONYM", "A", items))
+        built = ResearchPlan(index=index, settings=self.settings).build(
+            source_id, "书签 AI", include_wiki=False, include_archive=False)
+        self.assertTrue(built["relevance"]["accepted"], built["relevance"])
+        self.assertIn("AI", built["relevance"]["meaningful_terms"])
+
+    def test_a_single_weak_cjk_term_is_rejected(self):
+        items = [{"type": "bookmark", "title": "量子位 | AI", "url": "https://www.qbitai.com/"}]
+        items += [{"type": "bookmark", "title": "unrelated %d" % index,
+                   "url": "https://example.test/unrelated/%d" % index} for index in range(9)]
+        index, source_id = self.indexed(lambda root: write_card(
+            root, "W 弱词", "temp-section-W", "W", items))
+        built = ResearchPlan(index=index, settings=self.settings).build(
+            source_id, "量子纠缠在农业育种中的应用",
+            include_wiki=False, include_archive=False)
+        self.assertGreater(built["relevance"]["score"], built["relevance"]["min_relevance"])
+        self.assertFalse(built["relevance"]["accepted"], built["relevance"])
+        self.assertEqual([], built["cards"])
+        self.assertIsNone(built["route"])
+
+    def test_a_stale_missing_card_does_not_take_a_top_slot_but_keeps_its_urls(self):
+        def build(root):
+            write_card(root, "A-10-2 缺失", "temp-section-M", "A-10-2",
+                       [{"type": "bookmark", "title": "Agent Runtime docs",
+                         "url": "https://docs.example.test/agent-runtime"}])
+            write_card(root, "A-10 当前", "temp-section-C", "A-10",
+                       [{"type": "bookmark", "title": "Agent Runtime home",
+                         "url": "https://example.test/"}])
+        index, source_id = self.indexed(build)
+        record = json.loads(index.connection.execute(
+            "SELECT record_json FROM source_records WHERE source_id=?", (source_id,)).fetchone()[0])
+        package = Path(record["input_path"])
+        (package / "临时栏目" / "常规链式" / "A-10-2 缺失.json").unlink()
+        scope = index.plan_scope(source_id, "Agent Runtime 云厂商", max_cards=2, max_urls=4)
+        self.assertEqual(["A-10"], [card["label"] for card in scope["cards"]])
+        self.assertEqual(["临时栏目/常规链式/A-10-2 缺失.json"], scope["stale_missing_files"])
+        stale = [row for row in scope["urls"] if row["stale"]]
+        self.assertEqual(["https://docs.example.test/agent-runtime"],
+                         [row["url"] for row in stale])
+        self.assertEqual("docs", stale[0]["url_kind"])
+
+    def test_url_kind_prefers_documentation_over_homepage_and_login(self):
+        index, source_id = self.indexed(lambda root: write_card(
+            root, "K 类型", "temp-section-K", "K", [
+                {"type": "bookmark", "title": "Lumen", "url": "https://example.test/"},
+                {"type": "bookmark", "title": "Lumen", "url": "https://docs.example.test/guide"},
+                {"type": "bookmark", "title": "Lumen", "url": "https://github.com/acme/repo"},
+                {"type": "bookmark", "title": "Lumen", "url": "https://login.example.test/auth"},
+            ]))
+        scope = index.plan_scope(source_id, "Lumen", max_urls=8)
+        kinds = [row["url_kind"] for row in scope["urls"]]
+        self.assertEqual({"docs", "repo"}, set(kinds[:2]))
+        self.assertEqual({"homepage", "login"}, set(kinds[2:]))
+        self.assertEqual("docs", url_kind("https://docs.example.test/guide"))
+        self.assertEqual("repo", url_kind("https://github.com/acme/repo"))
+        self.assertEqual("login", url_kind("https://login.example.test/auth"))
+        self.assertEqual("homepage", url_kind("https://example.test/"))
+        self.assertEqual("local_file", url_kind("file:///tmp/report.pdf"))
+
+    def test_homepage_limit_caps_navigational_noise(self):
+        index, source_id = self.indexed(lambda root: write_card(
+            root, "H 首页", "temp-section-H", "H", [
+                {"type": "bookmark", "title": "Lumen", "url": "https://one.example.test/"},
+                {"type": "bookmark", "title": "Lumen", "url": "https://two.example.test/"},
+                {"type": "bookmark", "title": "Lumen", "url": "https://three.example.test/"},
+                {"type": "bookmark", "title": "Lumen", "url": "https://docs.example.test/guide"},
+            ]))
+        scope = index.plan_scope(source_id, "Lumen", max_urls=8, homepage_limit=1)
+        kinds = [row["url_kind"] for row in scope["urls"]]
+        self.assertEqual("docs", kinds[0])
+        self.assertEqual(1, kinds.count("homepage"))
+        self.assertEqual(2, len(scope["urls"]))
+
+    def test_freshness_keeps_high_and_low_confidence_time(self):
+        index, source_id = self.indexed(lambda root: write_card(
+            root, "F 时间", "temp-section-F", "F", [
+                {"type": "bookmark", "title": "Lumen", "url": "https://example.test/lumen",
+                 "dateAdded": 1577836800000}]))
+        built = ResearchPlan(index=index, settings=self.settings).build(
+            source_id, "Lumen 最新变化", include_wiki=False, include_archive=False)
+        self.assertTrue(built["freshness"]["intent"])
+        self.assertEqual("high", built["freshness"]["confidence"])
+        self.assertIsNotNone(built["freshness"]["newest_high"])
+        self.assertTrue(built["freshness"]["stale"])
+
+    def test_preflight_wires_wiki_and_archive_without_raw_text(self):
+        class FakeWiki:
+            terms = None
+            def search_terms(self, terms, limit=3):
+                self.terms = terms
+                return [{"page_id": "p1", "status": "current", "matched_terms": ["alpha"],
+                         "actions": ["wiki_get"]}]
+        class FakeRaw:
+            terms = None
+            def search_terms(self, terms, limit=5):
+                self.terms = terms
+                return [{"capture_id": "c1", "url": "https://example.test/alpha",
+                         "title": "alpha", "matched_terms": ["alpha"]}]
+        index, source_id = self.indexed()
+        wiki, raw = FakeWiki(), FakeRaw()
+        built = ResearchPlan(index=index, settings=self.settings, wiki=wiki, raw=raw).build(
+            source_id, "alpha", include_wiki=True, include_archive=True)
+        self.assertEqual(["alpha"], wiki.terms)
+        self.assertEqual(["alpha"], raw.terms)
+        self.assertEqual("p1", built["wiki"][0]["page_id"])
+        self.assertEqual("c1", built["archive"][0]["capture_id"])
+        self.assertNotIn("text", built["wiki"][0])
+
+    def test_wiki_search_terms_merges_terms_and_actions(self):
+        store = object.__new__(WikiStore)
+        def search(term, limit=10):
+            status = "needs_review" if term == "RAG" else "current"
+            issues = [{"code": "source_capture_expired"}] if status == "needs_review" else []
+            return {"results": [
+                {"page_id": "p1", "revision": 1, "title": "RAG 企业落地", "snippet": "RAG 企业",
+                 "validation": {"status": status, "issues": issues}},
+                {"page_id": "p2", "revision": 1, "title": "other", "snippet": "other",
+                 "validation": {"status": "current", "issues": []}},
+            ]}
+        store.search = search
+        rows = WikiStore.search_terms(store, ["RAG", "企业"], limit=3)
+        page = next(row for row in rows if row["page_id"] == "p1")
+        self.assertEqual(["RAG", "企业"], page["matched_terms"])
+        self.assertIn("wiki_refresh", page["actions"])
+        self.assertEqual(1, page["expired_count"])
+        self.assertEqual("needs_review", page["status"])
+
+    def test_archive_search_terms_merges_capture_pointers(self):
+        library = object.__new__(RawLibrary)
+        def search(term, limit=10, occurrence_limit=50):
+            return {"results": [{
+                "sha256": "s1", "url": "https://example.test/a", "title": "alpha doc",
+                "characters": 100, "occurrences": [{
+                    "kind": "archive", "capture_id": "cap1", "url": "https://example.test/a",
+                    "title": "alpha doc", "retrieved_at": "2026-10-01T00:00:00Z"}]}]}
+        library.search = search
+        rows = RawLibrary.search_terms(library, ["alpha", "doc"], limit=3)
+        self.assertEqual(1, len(rows))
+        self.assertEqual("cap1", rows[0]["capture_id"])
+        self.assertEqual(["alpha", "doc"], rows[0]["matched_terms"])
 
 
 if __name__ == "__main__":

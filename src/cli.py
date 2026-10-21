@@ -101,7 +101,7 @@ def _parser():
     setup.add_argument("--input", help="Partial preferences JSON file, or '-' for stdin; never put API keys here")
     setup.add_argument("--skip-checks", action="store_true", help="Only inspect local configuration and existing cache")
     setup.add_argument("--test-retrieval", action="store_true", help="One search and sample page read per provider; uses retrieval quota")
-    setup.add_argument("--host", choices=("codex", "claude_code", "pi", "dsh", "unknown"), default="unknown")
+    setup.add_argument("--host", choices=("codex", "claude_code", "dsh", "unknown"), default="unknown")
     setup.add_argument("--tool", action="append", help="Tool actually observed in the current host session; repeatable")
     readiness = commands.add_parser("readiness", help="Diagnose retrieval/auth availability; respects saved cache policy")
     readiness.add_argument("--provider", action="append", choices=Settings.PROVIDERS)
@@ -109,7 +109,7 @@ def _parser():
     readiness.add_argument("--refresh", action="store_true")
     readiness.add_argument("--offline", action="store_true")
     readiness.add_argument("--test-retrieval", action="store_true", help="Also spend retrieval quota on a sample search/read")
-    readiness.add_argument("--host", choices=("codex", "claude_code", "pi", "dsh", "unknown"), default="unknown")
+    readiness.add_argument("--host", choices=("codex", "claude_code", "dsh", "unknown"), default="unknown")
     readiness.add_argument("--tool", action="append", help="Tool actually observed in the current host session; repeatable")
     config = commands.add_parser("config", help="View or update persistent user preferences")
     config_commands = config.add_subparsers(dest="config_command", required=True)
@@ -196,7 +196,7 @@ def _parser():
     fetch.add_argument("--provider", choices=Settings.PROVIDERS)
     fetch.add_argument("--timeout", type=int, help="Per provider HTTP request timeout; discovery and fallback can take longer overall")
     fetch.add_argument("--max-characters", type=int)
-    fetch.add_argument("--max-total-characters", type=int, default=100000)
+    fetch.add_argument("--max-total-characters", type=int, default=None)
     fetch.add_argument("--capture-id", help="Read a saved capture without a new network request")
     fetch.add_argument("--offset", type=int, default=0)
     fetch.add_argument("--raw", action="store_true", help="Return full provider envelopes instead of one selected text per URL")
@@ -250,7 +250,7 @@ def _parser():
             view.add_argument("--filter", choices=("all", "missing", "unread", "unreviewed", "blocked", "excluded", "reviewed"))
     route = research_commands.add_parser("route", help="Select from observed host research capabilities; does not execute")
     route.add_argument("--input", help="JSON current host/tools/commands, or '-' for stdin")
-    route.add_argument("--host", choices=("codex", "claude_code", "pi", "dsh", "unknown"), default="unknown")
+    route.add_argument("--host", choices=("codex", "claude_code", "dsh", "unknown"), default="unknown")
     route.add_argument("--depth", choices=("auto", "quick", "agentic", "deep"))
     route.add_argument("--task-shape", choices=("lookup", "investigation", "batch_research"), default="investigation")
     route.add_argument("--tool", action="append")
@@ -509,21 +509,25 @@ def main(argv=None):
                 result = engine.probe(args.provider) if args.probe else engine.describe(args.provider)
             elif args.command == "fetch-web":
                 from archive import SourceArchive
-                if not 100 <= args.max_total_characters <= 800000:
+                prefs = settings.load()["fetch"]
+                total = prefs["max_total_characters"] if args.max_total_characters is None else args.max_total_characters
+                fair = prefs["fair_share_min"]
+                if not 100 <= total <= 800000:
                     raise ValueError("max_total_characters must be between 100 and 800000")
                 if args.capture_id is not None:
                     if args.raw or args.provider is not None or args.archive is not None or args.timeout is not None:
                         raise ValueError("capture_id reads a saved extract; omit raw, provider, archive and timeout")
                     result = SourceArchive(settings.load()["archive"]["directory"]).read_capture(
-                        args.capture_id, args.urls, max_characters=settings.load()["fetch"]["max_characters"]
+                        args.capture_id, args.urls, max_characters=prefs["max_characters"]
                             if args.max_characters is None else args.max_characters,
-                        max_total_characters=args.max_total_characters, offset=args.offset)
+                        max_total_characters=total, offset=args.offset, fair_share_min=fair)
                 else:
                     if args.offset:
                         raise ValueError("offset requires capture_id so continued reads use the same saved evidence")
                     result = engine.fetch(args.urls, args.provider, archive=args.archive, max_characters=args.max_characters)
                     if not args.raw:
-                        result = SourceArchive.compact_fetch(result, max_total_characters=args.max_total_characters)
+                        result = SourceArchive.compact_fetch(
+                            result, max_total_characters=total, fair_share_min=fair)
             else:
                 payload = _read_json(args.input) if args.input else {
                     "targets": [{"target": q, "query": q} for q in (args.target or [])],

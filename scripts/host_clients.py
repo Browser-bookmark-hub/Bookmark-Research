@@ -77,11 +77,11 @@ class HostClient:
                 raise ValueError("Project/local scope requires --project PATH")
             if not self.cwd.is_dir():
                 raise ValueError("Project directory does not exist: " + str(self.cwd))
-            variable, default = (("CLAUDE_CONFIG_DIR", Path.home() / ".claude") if host == "claude"
-                                 else ("PI_CODING_AGENT_DIR", Path.home() / ".pi/agent"))
-            self.home = Path(os.environ.get(variable, str(default))).expanduser().resolve()
+            if host != "claude":
+                raise ValueError("Unsupported host client: " + host)
+            self.home = Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude"))).expanduser().resolve()
             self.settings = (self.home / "settings.json" if self.scope == "user"
-                             else self.cwd / ".pi/settings.json")
+                             else self.cwd / ".claude/settings.local.json")
 
     @property
     def target(self):
@@ -137,27 +137,6 @@ class HostClient:
         settings = read_json(self.settings, {})
         if not isinstance(settings, dict):
             raise ValueError("Unexpected client settings object: " + str(self.settings))
-        if self.host == "pi":
-            packages = settings.get("packages", [])
-            if not isinstance(packages, list):
-                raise ValueError("Pi packages must be an array")
-            matches = []
-            for entry in packages:
-                source = entry.get("source") if isinstance(entry, dict) else entry
-                path = local_path(source, self.settings.parent)
-                if path == bundle.resolve():
-                    if isinstance(entry, dict) and (entry.get("skills") == [] or entry.get("autoload") is False):
-                        raise ValueError("The registered Pi package disables its Skill; enable it in Pi first")
-                    matches.append(entry)
-                elif path and path.is_dir():
-                    metadata = read_json(path / "package.json", {})
-                    if isinstance(metadata, dict) and metadata.get("name") == NAME:
-                        raise ValueError("Pi already registers Bookmark Research at another path")
-                elif isinstance(source, str) and ("/Bookmark-Research" in source or source.startswith("npm:" + NAME)):
-                    raise ValueError("Pi already registers another Bookmark Research source")
-            if len(matches) > 1:
-                raise ValueError("Duplicate Pi registrations; resolve them in Pi first")
-            return {"installed": bool(matches)}
         dependencies, dsh = settings.get("dependencies", {}), settings.get("dsh", {})
         if not isinstance(dependencies, dict) or not isinstance(dsh, dict) or not isinstance(dsh.get("profile", {}), dict):
             raise ValueError("Unexpected DSH profile manifest")
@@ -183,8 +162,6 @@ class HostClient:
             else:
                 commands.append(["plugin", "install", SELECTOR, "--scope", self.scope])
             return commands
-        if self.host == "pi":
-            return [] if registration["installed"] else [["install", str(bundle), *(["-l"] if self.scope == "project" else [])]]
         return [] if registration["installed"] and registration["enabled"] and not changed else [
             ["plugin", "--profile", self.profile, "add", str(bundle)]]
 

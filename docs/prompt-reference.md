@@ -4,7 +4,7 @@
 
 本文件完整说明共享工作流提示和 Codex 委派指令。实际执行使用英文 `hosts/shared/research-flow.js`、`hosts/shared/workflow.json` 和 `hosts/codex/delegate.md`。本文件及英文阅读版不注册额外 Skill 或工作流。执行 Skill 和全部方法参考见[指令索引](instructions.md)。
 
-下方花括号中的变量由真实任务填入，不是示例证据，也不能据此虚构 ID。Claude／DSH 通过 `agent`＋`pipeline`、Pi 通过 `runs.all` 执行同一共享指令；并发和生命周期由宿主管理。
+下方花括号中的变量由真实任务填入，不是示例证据，也不能据此虚构 ID。Claude／DSH 通过 `agent`＋`pipeline` 执行同一共享指令；并发和生命周期由宿主管理。
 
 ## 任务语言与参数
 

@@ -5,7 +5,7 @@
 [![GitHub Bookmark-Canvas](https://img.shields.io/badge/GitHub-Bookmark--Canvas-181717?logo=github&logoColor=white)](https://github.com/Browser-bookmark-hub/Bookmark-Canvas)
 [![npm version](https://img.shields.io/npm/v/bookmark-research/beta?logo=npm)](https://www.npmjs.com/package/bookmark-research)
 
-用联网查证来研究你的书签。给它一份书签 URL 列表或 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，它会逐条核对链接、搜索和阅读网页，写出带引用、可以接着做的研究报告。支持 **Codex、Claude Code、Pi、DSH（DeepSeek Harness）**。
+用联网查证来研究你的书签。给它一份书签 URL 列表或 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，它会逐条核对链接、搜索和阅读网页，写出带引用、可以接着做的研究报告。支持 **Codex、Claude Code、DSH（DeepSeek Harness）**。
 
 [安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
@@ -21,7 +21,7 @@
 ## 环境要求
 
 - Python 3.9+，含 SQLite FTS5（用 `bookmark-research doctor` 检查）
-- 至少一个宿主的 CLI：Codex、Claude Code、Pi 或 DSH。DSH 另需 `pnpm`；若用 DeepSeek Harness 桌面版自带 CLI，则它自带 pnpm，无需另装
+- 至少一个宿主的 CLI：Codex、Claude Code 或 DSH。DSH 另需 `pnpm`；若用 DeepSeek Harness 桌面版自带 CLI，则它自带 pnpm，无需另装
 - 安装发布版需要 Node 18+ 和 npm
 - 安装和本地查书签都不需要 API Key
 
@@ -31,7 +31,7 @@
 npx bookmark-research@beta install
 ```
 
-`@beta` 跟随最新测试版；要固定某个构建可写 `@0.5.0-beta.15`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
+`@beta` 跟随最新测试版；要固定某个构建可写 `@0.5.0-beta.16`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
@@ -56,19 +56,18 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | --- | --- | --- |
 | Codex | `npx bookmark-research@beta install codex --non-interactive` | `codex plugin add` |
 | Claude Code | `npx bookmark-research@beta install claude --scope user --non-interactive` | `claude plugin install` |
-| Pi | `npx bookmark-research@beta install pi --non-interactive` | `pi install` |
 | DSH | `npx bookmark-research@beta install dsh --profile web --non-interactive` | `dsh plugin add` |
 
-一次装多个：`npx bookmark-research@beta install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code、Pi）。全部参数见[安装说明](docs/installation.md)。
+一次装多个：`npx bookmark-research@beta install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code）。全部参数见[安装说明](docs/installation.md)。
 
-**让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code、Pi 或 DSH：
+**让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code 或 DSH：
 
 ```text
 请把 Bookmark Research 插件安装到你当前运行的这个宿主里。
 
-1. 先确认你自己是哪个宿主：codex、claude、pi 或 dsh。
+1. 先确认你自己是哪个宿主：codex、claude 或 dsh。
 2. 运行：npx bookmark-research@beta install <宿主> --non-interactive
-   - Claude Code 或 Pi：加 --scope user（或 --scope project --project <目录>）。
+   - Claude Code：加 --scope user（或 --scope project --project <目录>）。
    - DSH：加 --profile <名称>；profile 名称请先问我。
 3. 命令会输出 JSON。确认 "verified": true，有 "error" 就告诉我。
 4. 不要在对话里向我要 API Key。请让我在终端运行 `bookmark-research setup` 自己输入。
@@ -95,7 +94,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 没有全局安装时，在前面加 `npx bookmark-research@beta`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。
 
-**更新。** `bookmark-research update` 会按各自登记的来源刷新所有已安装宿主，并保留偏好、Key 和数据。重跑 `npx bookmark-research@beta install` 也会就地升级已装的 Claude Code、Pi 或 DSH。Codex 安装会保留登记时的来源与版本，要换版本需先移除该登记（`codex plugin marketplace remove bookmark-research`）再重新安装。
+**更新。** `bookmark-research update` 会按各自登记的来源刷新所有已安装宿主，并保留偏好、Key 和数据。重跑 `npx bookmark-research@beta install` 也会就地升级已装的 Claude Code 或 DSH。Codex 安装会保留登记时的来源与版本，要换版本需先移除该登记（`codex plugin marketplace remove bookmark-research`）再重新安装。
 
 **API Key 都是可选的。** 在 `bookmark-research setup` 里输入（隐藏显示，输完当场检查，保存在仅当前用户可读的本地文件），或者设置环境变量（优先于已保存的 Key）。
 
@@ -129,7 +128,7 @@ Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿�
 
 宿主模型负责规划、搜索／阅读、评估证据，再追查未解决的问题。Skill 指导这个循环，MCP 保存输入范围、证据、预算和进度；保存研究任务不会启动后台代理。
 
-对于分组报告，插件提供“阅读代理 → 新的验证代理 → 覆盖检查 → 补查 → 报告”的流程。Codex 使用原生子代理和附带的委派指南；Claude Code、DSH 使用已加载的宿主工作流接口；Pi 需要加载相应的子代理／工作流扩展。并发、取消和代理生命周期由宿主管理。每个子代理都需要拿到相关指令，并访问同一个研究存储。
+对于分组报告，插件提供“阅读代理 → 新的验证代理 → 覆盖检查 → 补查 → 报告”的流程。Codex 使用原生子代理和附带的委派指南；Claude Code、DSH 使用已加载的宿主工作流接口。并发、取消和代理生命周期由宿主管理。每个子代理都需要拿到相关指令，并访问同一个研究存储。
 
 工作流适配已有模拟接口测试，但安装成功不代表所有宿主都已跑通完整的多代理任务。所需条件见[宿主工作流](skills/bookmark-research/references/zh/host-workflows.md)，实际验证范围见[验证记录](docs/validation-0.4.0.md#host-and-provider-boundaries)。
 

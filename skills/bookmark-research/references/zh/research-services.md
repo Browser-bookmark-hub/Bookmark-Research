@@ -17,10 +17,10 @@ Deep research 从当前宿主模型的调查开始。专业服务可承担宿主
 有效设置的 `professional_research` 默认 `enabled:false, provider:null`。用户选择服务后可更新相应配置，例如：
 
 ```json
-{"changes":{"professional_research":{"enabled":true,"provider":"openai","openai":{"model":"o4-mini-deep-research","max_tool_calls":24}}}}
+{"changes":{"professional_research":{"enabled":true,"provider":"openai","openai":{"model":"gpt-5.6-sol","max_tool_calls":24}}}}
 ```
 
-另一个支持的 OpenAI 模型为 `o3-deep-research`；Parallel 默认 `processor:"pro"`。模型／processor 可用性、费用与配额以当前账户为准。单次请求可用 options 覆盖受支持字段；配置和显式 provider 选择不自动启动任务，也不默默切换到别家。
+默认模型为 `gpt-5.6-sol`；已下线的 `o3-deep-research` 和 `o4-mini-deep-research` 仍兼容旧配置。自定义 model ID 需设置 `allow_untested_model:true`；Parallel 默认 `processor:"pro"`。模型／processor 可用性、费用与配额以当前账户为准。单次请求可用 options 覆盖受支持字段；配置和显式 provider 选择不自动启动任务，也不默默切换到别家。
 
 ## 准备真实材料
 

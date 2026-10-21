@@ -1,6 +1,27 @@
 """Paginate context views without narrowing the frozen research inventory."""
 
 COLLECTIONS = ("sections", "items", "nodes", "groups", "edges", "related_nodes", "memberships")
+COMPACT_FIELDS = ("raw_json", "description_md", "revision")
+
+
+def compact_context(context):
+    """Drop raw/provenance blobs while keeping ids, labels and pagination.
+
+    This is a projection, not a different view: the frozen inventory and every
+    total stay unchanged. Use it with a collection when the caller needs the
+    result under a strict character budget; a full compact context still saves
+    about a third, not half.
+    """
+    def strip(value):
+        if isinstance(value, dict):
+            return {key: strip(item) for key, item in value.items() if key not in COMPACT_FIELDS}
+        if isinstance(value, list):
+            return [strip(item) for item in value]
+        return value
+    result = strip(context)
+    result["_compact"] = {"dropped_fields": list(COMPACT_FIELDS),
+                          "note": "Raw JSON, section descriptions and revisions are available with compact=false."}
+    return result
 
 
 def page_context(context, collection=None, offset=0, limit=200, scope_notes=None):

@@ -2,7 +2,7 @@
 
 **English** · [中文](zh/cli.md)
 
-Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<root>` with the actual absolute plugin path. Package paths, source/company names, node IDs and example.com URLs are placeholders for user input or actual query results; the plugin does not preload them. Global `--db` and `--config` options precede the subcommand. MCP provides the same core operations. Use the CLI in Pi or any host missing the required MCP tool.
+Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<root>` with the actual absolute plugin path. Package paths, source/company names, node IDs and example.com URLs are placeholders for user input or actual query results; the plugin does not preload them. Global `--db` and `--config` options precede the subcommand. MCP provides the same core operations. Use the CLI in any host missing the required MCP tool.
 
 | MCP | CLI command |
 | --- | --- |

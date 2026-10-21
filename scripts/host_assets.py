@@ -9,7 +9,6 @@ HOST_SOURCE_FILES = (
     "hosts/shared/discovery.json", "hosts/shared/discovery-flow.js",
     "hosts/claude/runtime.js", "hosts/dsh/runtime.js", "hosts/dsh/workflow-call.py", "hosts/dsh/plugin.js",
     "hosts/dsh/package.json",
-    "hosts/pi/runtime.js", "hosts/pi/register-workflow.py",
     "hosts/codex/delegate.md", "hosts/codex/prepare.py",
 )
 
@@ -33,7 +32,7 @@ WORKFLOWS = {"bookmark-research": ("hosts/shared/workflow.json", "hosts/shared/r
 
 
 def build_workflow(root, host, name="bookmark-research"):
-    if host not in ("claude", "dsh", "pi"):
+    if host not in ("claude", "dsh"):
         raise ValueError("Unknown workflow host: " + str(host))
     if name not in WORKFLOWS:
         raise ValueError("Unknown workflow: " + str(name))
@@ -48,8 +47,6 @@ def build_workflow(root, host, name="bookmark-research"):
 
 def export_host_assets(source, stage, host):
     """Return concrete, host-specific assets in the staged distribution."""
-    if host == "agent-plugin":
-        return []  # Do not mix client-specific components into the standard format.
     files = {"hosts/shared/research-call.py": read_asset(source, "hosts/shared/research-call.py")}
     if host == "codex":
         for name in ("delegate.md", "prepare.py"):
@@ -62,23 +59,14 @@ def export_host_assets(source, stage, host):
                 files["workflows/" + name + ".js"] = script.encode("utf-8")
                 continue
             files["workflows/" + name + "/script.js"] = script.encode("utf-8")
-            if host == "pi":
-                parameters = definition["parameters"]
-                parameters["bridge_path"]["required"] = True
-                workflow = {**definition["meta"], "parameters": parameters}
-                files["workflows/" + name + "/workflow.json"] = (
-                    json.dumps(workflow, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-            else:
-                # Scope ESM to the entry module so a package root may stay CommonJS
-                # (the npm package keeps a CommonJS bin and the pi field).
-                # Older releases predate the nested manifest. Supply the scope
-                # when absent, while still rejecting links or invalid file types.
-                files["workflows/" + name + "/meta.json"] = (
-                    json.dumps(definition["meta"], ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-        if host in ("pi", "dsh"):
-            relative = {"pi": "hosts/pi/register-workflow.py", "dsh": "hosts/dsh/workflow-call.py"}[host]
-            files[relative] = read_asset(source, relative)
+            # Scope ESM to the entry module so a package root may stay CommonJS
+            # (the npm package keeps a CommonJS bin).
+            # Older releases predate the nested manifest. Supply the scope
+            # when absent, while still rejecting links or invalid file types.
+            files["workflows/" + name + "/meta.json"] = (
+                json.dumps(definition["meta"], ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         if host == "dsh":
+            files["hosts/dsh/workflow-call.py"] = read_asset(source, "hosts/dsh/workflow-call.py")
             files["hosts/dsh/plugin.js"] = read_asset(source, "hosts/dsh/plugin.js")
             files["hosts/dsh/package.json"] = read_asset(
                 source, "hosts/dsh/package.json", default=b'{"type":"module"}\n')

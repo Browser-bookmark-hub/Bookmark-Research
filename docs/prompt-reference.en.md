@@ -4,7 +4,7 @@
 
 This is the complete reading reference for the shared workflow prompts and Codex delegation instructions. Execution uses the English sources `hosts/shared/research-flow.js`, `hosts/shared/workflow.json` and `hosts/codex/delegate.md`. This document and its Chinese counterpart do not register additional Skills or workflows. See the [instruction index](instructions.en.md) for the execution Skill and all method references.
 
-Names in braces below are filled with actual task data. They are not example evidence or permission to invent IDs. Host-specific adapters execute the same shared instructions through Claude/DSH `agent` + `pipeline` or Pi `runs.all`; the host owns concurrency and lifecycle.
+Names in braces below are filled with actual task data. They are not example evidence or permission to invent IDs. Host-specific adapters execute the same shared instructions through Claude/DSH `agent` + `pipeline`; the host owns concurrency and lifecycle.
 
 ## Task language and arguments
 

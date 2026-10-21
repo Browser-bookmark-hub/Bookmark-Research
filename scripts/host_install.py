@@ -265,7 +265,7 @@ def _manage(action, client, base, source, ref, dry_run):
 
 def manage_host(action, host, binary=None, timeout=60, source=None, ref=None, dry_run=False,
                 scope=None, project=None, profile=None, install_dir=None):
-    if host not in ("claude", "pi", "dsh"):
+    if host not in ("claude", "dsh"):
         raise ValueError("Unsupported host: " + host)
     client = HostClient(host, binary or host, timeout, scope, project, profile)
     client.require()

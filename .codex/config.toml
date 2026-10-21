@@ -4,17 +4,6 @@
 [mcp_servers.chrome-devtools]
 enabled = false
 
-# Canvas + direct web retrieval. The host composes these for agentic search.
-# History, settings, Wiki and persistent research remain available via CLI.
-# Add task-specific names or remove enabled_tools for the full catalog.
-[plugins."bookmark-research@bookmark-research".mcp_servers."bookmark-research"]
-enabled_tools = [
-  "index_status",
-  "sync_package",
-  "search_bookmarks",
-  "get_context",
-  "plan_research",
-  "search_web",
-  "fetch_web",
-  "discovery_bundle",
-]
+# Canvas + direct web retrieval + persistent research. The plugin is enabled
+# globally; this project keeps the full MCP catalog so all three stages remain
+# visible. Add enabled_tools here only when narrowing the tool surface.

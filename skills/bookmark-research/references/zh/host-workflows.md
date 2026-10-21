@@ -8,7 +8,6 @@
 | --- | --- | --- |
 | [Codex](https://developers.openai.com/codex/subagents) | 原生子代理，`hosts/codex/delegate.md` | 本次可见委派／等待工具且允许委派 |
 | [Claude Code](https://code.claude.com/docs/en/sub-agents) | `Agent`／旧 `Task`；可选 Dynamic Workflow | 当前工具访问；团队／工作流须宿主启用 |
-| [Pi](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent) | 已加载子代理扩展；可选 `pi_subagent_workflow` | 核心不内置子代理或 MCP |
 | [DSH](https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/workflow) | subagent 或 `workflow` | 当前 profile 提供工具及研究 MCP／CLI |
 
 给子代理传范围、问题、输出语言、Skill 路径、操作号前缀、实际工具入口和共享研究目录。除非另有指示，继承当前模型、推理与权限；不假定父会话或 Skill 自动传入。无法委派时继续本地工作，如实描述实际复核方式。
@@ -57,29 +56,6 @@ RID 换成真实研究 ID。遵守并发上限，等待已分配阶段结束并�
 发现脚本以 `/bookmark-research:bookmark-research-discovery` 调用，参数 `{question, source_id, run_key, output_language}`，返回结构见上文。
 
 通过 `/workflows` 管理运行。只能同会话恢复，重启可能重跑已完成子代理，因此复用证据和操作 ID。Claude 自带的深研不自动保证本插件冻结清单的覆盖。
-
-## Pi
-
-分组配方需要 Node 22.19+、Pi 0.83+、`pi-subagents` 0.43.0+ 和 `pi-subagents-workflows`。导出只声明 Skill；在预期的受信任项目中登记脚本：
-
-```sh
-python3 hosts/pi/register-workflow.py --project /absolute/path/to/project
-```
-
-登记器在项目 `.pi/subagent-workflows/` 下为每个工作流写两个文件：`bookmark-research/` 与 `bookmark-research-discovery/`，保留冲突内容，不安装扩展或更改设置。稳定导出搬迁后需重新登记绝对桥接路径。
-
-```js
-pi_subagent_workflow({
-  action: "run", name: "bookmark-research",
-  args: { research_id: "RID", run_key: "review-1", output_language: "zh" }
-});
-```
-
-发现流程用 `pi_subagent_workflow({action:"run", name:"bookmark-research-discovery", args:{question:"…", source_id:"SID", run_key:"discover-1", output_language:"zh"}})` 调用。
-
-扩展 detached 运行，须通过状态／附件工具等到终态并检查失败。使用结构化结果（`structuredOutput`、`run.error`、`ok`），不能重建被截断的显示文本；不支持跨会话 journal replay。
-
-子代理需原生 MCP 或通过 Bash 访问 `hosts/shared/research-call.py`，JSON 输入 `{name,arguments}`、输出 `{isError,result}`；除 `research_*` 外还提供 `plan_research`、`discovery_bundle`、`fetch_web`、`search_web` 与只读本地查询（`index_status`、`search_bookmarks`、`get_context`）。超时表示结果未知，继续前先查保存状态。
 
 ## DSH
 

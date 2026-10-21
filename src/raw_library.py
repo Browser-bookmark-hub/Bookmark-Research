@@ -419,3 +419,57 @@ class RawLibrary:
                 "note": "Literal matching over saved page text (knowledge archive and research evidence); "
                         "not web search and not semantic retrieval. Identical bodies are merged by SHA-256 and "
                         "each result pages its occurrences with occurrence_offset/occurrence_limit."}
+
+    def search_terms(self, terms, limit=5):
+        """Search several literal terms and merge them into one preflight list.
+
+        ``search`` requires every whitespace-separated term to occur, so a whole
+        question is a bad key. The preflight passes the terms extracted by
+        ``plan_terms`` instead; each term is searched independently and bodies
+        are merged by SHA-256. Only pointers (capture id, URL, title, size) come
+        back, never page text.
+        """
+        if not isinstance(terms, list) or not 1 <= len(terms) <= 16:
+            raise ValueError("terms must be a list of 1 to 16 literal terms")
+        if type(limit) is not int or not 1 <= limit <= 20:
+            raise ValueError("limit must be an integer from 1 to 20")
+        ordered = []
+        for term in terms:
+            if not isinstance(term, str) or not term.strip() or len(term) > 100:
+                raise ValueError("each term must be a nonempty string of at most 100 characters")
+            if term not in ordered:
+                ordered.append(term)
+        merged = {}
+        for term in ordered:
+            result = self.search(term, limit=limit, occurrence_limit=5)
+            for row in result["results"]:
+                entry = merged.setdefault(row["sha256"], {
+                    "sha256": row["sha256"], "url": row.get("url"), "title": row.get("title"),
+                    "characters": row.get("characters"), "capture_id": None,
+                    "retrieved_at": None, "score": 0.0, "matched_terms": [],
+                })
+                entry["score"] += len(term) + (5 if term.casefold() in (row.get("title") or "").casefold() else 0)
+                entry["matched_terms"].append(term)
+                occurrences = [item for item in row.get("occurrences") or []
+                               if item.get("kind") == "archive" and item.get("capture_id")]
+                if occurrences:
+                    best = max(occurrences, key=lambda item: (item.get("retrieved_at") or "",
+                                                              item.get("capture_id") or ""))
+                    if not entry["retrieved_at"] or (best.get("retrieved_at") or "") >= entry["retrieved_at"]:
+                        entry["capture_id"] = best.get("capture_id")
+                        entry["retrieved_at"] = best.get("retrieved_at")
+                        entry["url"] = best.get("url") or entry["url"]
+                        entry["title"] = best.get("title") or entry["title"]
+                elif entry["retrieved_at"] is None:
+                    other = next((item for item in row.get("occurrences") or []
+                                  if item.get("retrieved_at")), None)
+                    if other:
+                        entry["retrieved_at"] = other.get("retrieved_at")
+        for entry in merged.values():
+            entry["score"] = round(entry["score"], 6)
+            entry["matched_terms"] = list(dict.fromkeys(entry["matched_terms"]))
+        # A preflight entry must be reusable evidence: research-only occurrences
+        # have no capture_id and cannot be continued by fetch_web(capture_id).
+        reusable = [entry for entry in merged.values() if entry.get("capture_id")]
+        return sorted(reusable, key=lambda entry: (-entry["score"], -(entry["characters"] or 0),
+                                                   entry["url"] or ""))[:limit]

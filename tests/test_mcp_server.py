@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import sys
 import tempfile
 import types
@@ -88,6 +89,24 @@ class McpServerTests(unittest.TestCase):
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server._providers)
         self.assertEqual(self.server.handle(request("ping"))["result"], {})
+
+    def test_tool_scope_narrows_the_catalog_and_rejects_hidden_calls(self):
+        self.ready()
+        changed = self.call("update_settings", {"changes": {"tool_scope": ["get_context", "plan_research"]}})
+        self.assertIn("result", changed, changed)
+        self.assertFalse(changed["result"]["isError"], changed)
+        listing = self.server.handle(request("tools/list"))["result"]["tools"]
+        self.assertEqual(["get_context", "plan_research"], [tool["name"] for tool in listing])
+        hidden = self.call("fetch_web", {"urls": ["https://example.test/"]})
+        self.assertEqual(-32602, hidden["error"]["code"])
+        self.assertIn("tool_scope", hidden["error"]["message"])
+
+    def test_environment_tool_scope_overrides_the_saved_preference(self):
+        self.ready()
+        self.call("update_settings", {"changes": {"tool_scope": ["get_context"]}})
+        with mock.patch.dict(os.environ, {"BOOKMARK_RESEARCH_TOOL_SCOPE": "plan_research, search_web"}):
+            listing = self.server.handle(request("tools/list"))["result"]["tools"]
+        self.assertEqual(["plan_research", "search_web"], [tool["name"] for tool in listing])
 
     def test_all_protocols_and_version_specific_content(self):
         for protocol in PROTOCOLS:
@@ -323,7 +342,7 @@ class McpServerTests(unittest.TestCase):
     def test_readiness_is_available_without_creating_index_or_running_research(self):
         self.ready()
         result = decode_tool(self.call("research_readiness", {"offline": True, "providers": ["exa"],
-                                                             "host": "pi", "observed_tools": []}))
+                                                             "host": "claude_code", "observed_tools": []}))
         self.assertTrue(result["offline_ready"])
         self.assertFalse(result["network_checked"])
         self.assertEqual(result["research_jobs_started"], 0)

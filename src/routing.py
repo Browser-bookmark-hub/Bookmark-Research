@@ -7,7 +7,7 @@ from credentials import Credentials
 
 
 class ResearchRouting:
-    HOSTS = ("codex", "claude_code", "pi", "dsh", "unknown")
+    HOSTS = ("codex", "claude_code", "dsh", "unknown")
     METHODS = {
         "comparative_analysis": "skills/bookmark-research/references/research-methods.md",
         "fact_check": "skills/bookmark-research/references/research-methods.md",
@@ -83,13 +83,6 @@ class ResearchRouting:
                         "result_note": "Persist the canonical result; rendered text may be truncated."})
                 else:
                     missing.append("The loaded DSH profile does not expose a workflow tool")
-            elif host == "pi":
-                if self._has(tools, "pi_subagent_workflow"):
-                    candidates.append({"route": "host_workflow", "entrypoint": "pi_subagent_workflow",
-                        "available": True, "execution_owner": "pi_subagents_extension", "run_mode": "detached",
-                        "resume_scope": "registry_does_not_add_replay", "recipe": "hosts/pi/register-workflow.py"})
-                else:
-                    missing.append("Pi workflow extension tool is not observed; installed package names alone are insufficient")
             elif host == "codex":
                 missing.append("An equivalent standalone scripted workflow runtime was not established by the researched Codex docs")
             if selected_depth == "deep" and provider is None:
@@ -105,7 +98,7 @@ class ResearchRouting:
                             "availability_basis": "observed_tools", "authentication_verified": False,
                             "resume_note": "Keep the returned run ID. Resume or observe that run until terminal; a timeout is not a new submission."})
             native = {"codex": ("spawn_agent",), "claude_code": ("Agent", "Task", "subagent"),
-                      "pi": ("subagent",), "dsh": ("subagent", "agent"), "unknown": ()}[host]
+                      "dsh": ("subagent", "agent"), "unknown": ()}[host]
             native_tools = [tool for tool in tools if self._has([tool], *native)]
             if native_tools:
                 candidates.append({"route": "host_subagents", "entrypoint": native_tools[0],

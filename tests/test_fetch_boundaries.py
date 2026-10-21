@@ -80,6 +80,25 @@ class FetchBoundaryTests(unittest.TestCase):
             self.assertIsNone(rest["pages"][0]["next_offset"])
         self.assertEqual(fetched["result"], response)
 
+    def test_fair_share_gives_each_page_text_instead_of_starving_later_pages(self):
+        urls = ["https://example.test/a", "https://example.test/b"]
+        bodies = ["甲" * 350, "乙" * 400]
+        response = {"structuredContent": {"results": [
+            {"url": url, "text": body} for url, body in zip(urls, bodies)]}}
+        fetched = self.capture(response, urls)
+        view = SourceArchive.compact_fetch(fetched, max_total_characters=250, fair_share_min=1)
+        self.assertEqual([len(page["text"]) for page in view["pages"]], [125, 125])
+        self.assertEqual([page["read"] for page in view["pages"]], [True, True])
+        self.assertEqual(2, view["pages_with_text"])
+        self.assertEqual(0, view["pages_without_text"])
+        self.assertTrue(all(page["continuation"] for page in view["pages"]))
+
+    def test_fair_share_does_not_reserve_budget_for_pages_without_text(self):
+        pages = [{"text": "甲" * 400}, {"text": None}, {"text": "乙" * 400}]
+        SourceArchive._bounded_pages(pages, 400, 300, 0, fair_share_min=1)
+        self.assertEqual([len(page.get("text") or "") for page in pages], [150, 0, 150])
+        self.assertEqual([page["read"] for page in pages], [True, False, True])
+
     def test_read_capture_rejects_modified_evidence_and_invalid_capture_ids(self):
         url = "https://example.test/a"
         fetched = self.capture({"structuredContent": {"url": url, "text": "Evidence."}}, [url])

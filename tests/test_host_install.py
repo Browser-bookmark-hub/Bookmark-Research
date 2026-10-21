@@ -58,15 +58,6 @@ if host == 'claude':
         sys.exit('unexpected Claude command: ' + str(args))
     if args[:2] != ['plugin', 'list'] and args[:3] != ['plugin', 'marketplace', 'list']:
         write(state_path, state)
-elif host == 'pi':
-    if args[0] != 'install':
-        sys.exit('unexpected Pi command: ' + str(args))
-    path = Path.cwd() / '.pi/settings.json' if '-l' in args else Path(os.environ['PI_CODING_AGENT_DIR']) / 'settings.json'
-    settings = read(path, {'other': 'preserved'})
-    packages = settings.setdefault('packages', [])
-    if args[1] not in packages:
-        packages.append(args[1])
-    write(path, settings)
 elif host == 'dsh':
     profile = args[args.index('--profile') + 1]
     root = Path(os.environ['DSH_HOME']) / 'profiles' / profile
@@ -107,7 +98,7 @@ class HostInstallerTests(unittest.TestCase):
             shutil.copyfile(ROOT / relative, self.source / relative)
         self.bin = self.base / "bin"
         self.bin.mkdir()
-        for host in ("claude", "pi", "dsh"):
+        for host in ("claude", "dsh"):
             path = self.bin / host
             path.write_text("#!" + sys.executable + "\n" + FAKE_CLIENT)
             path.chmod(0o755)
@@ -122,7 +113,7 @@ class HostInstallerTests(unittest.TestCase):
         self.project.mkdir()
         environment = mock.patch.dict(os.environ, {
             "HOST_TEST_STATE": str(self.base), "CLAUDE_CONFIG_DIR": str(self.base / "claude-config"),
-            "PI_CODING_AGENT_DIR": str(self.base / "pi-config"), "DSH_HOME": str(self.base / "dsh-config"),
+            "DSH_HOME": str(self.base / "dsh-config"),
             "BOOKMARK_RESEARCH_DATA_DIR": str(self.base / "personal-data"),
             "BOOKMARK_RESEARCH_CONFIG": str(self.base / "personal-settings.json"),
             "PYTHONDONTWRITEBYTECODE": "1", "EXA_API_KEY": "must-not-appear-in-install-receipts",
@@ -148,7 +139,7 @@ class HostInstallerTests(unittest.TestCase):
         (self.bin / "python3").symlink_to(sys.executable)
         with mock.patch.dict(os.environ, {"PATH": str(self.bin)}):
             self.assertIsNone(shutil.which("codex"))
-            for host in ("claude", "pi", "dsh"):
+            for host in ("claude", "dsh"):
                 with self.subTest(host=host):
                     first = self.manage(host)
                     self.assertTrue(first["verified"])
@@ -181,7 +172,7 @@ class HostInstallerTests(unittest.TestCase):
         from test_npm_source import Registry
         registry = Registry(self.source)
         with registry.active():
-            for index, host in enumerate(("claude", "pi", "dsh")):
+            for index, host in enumerate(("claude", "dsh")):
                 with self.subTest(host=host):
                     first = self.manage(host, source="npm:bookmark-research")
                     self.assertEqual(first["source"], {
@@ -223,27 +214,14 @@ class HostInstallerTests(unittest.TestCase):
             self.assertEqual(second["release_version"], "0.5.0-beta.12")
 
     def test_dry_run_does_not_register_or_create_persistent_state(self):
-        for host in ("claude", "pi", "dsh"):
+        for host in ("claude", "dsh"):
             plan = self.manage(host, dry_run=True)
             self.assertTrue(plan["dry_run"])
             self.assertNotIn("verified", plan)
         self.assertFalse(self.home.exists())
-        self.assertFalse((self.base / "pi-config").exists())
         self.assertFalse((self.base / "dsh-config").exists())
         self.assertFalse((self.base / "claude-state.json").exists())
 
-    def test_project_scope_uses_explicit_project_and_preserves_other_settings(self):
-        settings_path = self.project / ".pi/settings.json"
-        settings_path.parent.mkdir()
-        settings_path.write_text('{"other":"untouched","packages":[]}')
-        result = self.manage("pi", scope="project", project=self.project)
-        settings = json.loads(settings_path.read_text())
-        self.assertEqual(settings["other"], "untouched")
-        self.assertEqual(settings["packages"], [result["bundle_path"]])
-        self.assertTrue(self.manage("pi", "verify", scope="project", project=self.project)["verified"])
-        self.assertFalse((self.base / "pi-config/settings.json").exists())
-        with self.assertRaisesRegex(ValueError, "--project"):
-            self.manage("pi", scope="project")
 
     def test_failed_update_restores_old_package_and_can_resume(self):
         first = self.manage("claude")
@@ -256,44 +234,13 @@ class HostInstallerTests(unittest.TestCase):
         self.assertEqual(json.loads(Path(first["receipt_path"]).read_text())["state"], "needs_verification")
         self.assertTrue(self.manage("claude", "update")["verified"])
 
-    def test_failed_first_install_keeps_registered_paths_for_recovery(self):
-        with mock.patch.dict(os.environ, {"HOST_TEST_FAIL": "pi"}):
-            with self.assertRaisesRegex(RuntimeError, "injected failure"):
-                self.manage("pi")
-        settings = json.loads((self.base / "pi-config/settings.json").read_text())
-        self.assertTrue(Path(settings["packages"][0]).is_dir())
-        self.assertTrue(self.manage("pi")["verified"])
 
-    def test_install_allows_overwriting_and_updating_source_and_ref(self):
-        first = self.manage("pi")
-        updated = self.manage("pi", source=ROOT)
-        self.assertTrue(updated["verified"])
-        self.assertEqual(updated["source"]["sourceType"], "local")
-        installed = Path(first["bundle_path"]) / "src/cli.py"
-        installed.write_text("user edit\n")
-        with self.assertRaisesRegex(RuntimeError, "differs"):
-            self.manage("pi", "update")
-        self.assertEqual(installed.read_text(), "user edit\n")
-        reinstalled = self.manage("pi")
-        self.assertTrue(reinstalled["verified"])
-        self.assertNotEqual(installed.read_text(), "user edit\n")
 
-    def test_native_source_conflicts_stop_before_installation(self):
-        other = self.base / "foreign-package"
-        other.mkdir()
-        (other / "package.json").write_text('{"name":"bookmark-research"}')
-        settings = self.base / "pi-config/settings.json"
-        settings.parent.mkdir()
-        settings.write_text(json.dumps({"packages": [str(other)]}))
-        with self.assertRaisesRegex(ValueError, "another path"):
-            self.manage("pi")
-        self.assertFalse(self.calls())
-        self.assertEqual(json.loads(settings.read_text())["packages"], [str(other)])
 
     def test_verification_survives_removal_of_original_checkout(self):
-        self.manage("pi")
+        self.manage("claude")
         shutil.rmtree(self.source)
-        self.assertTrue(self.manage("pi", "verify")["verified"])
+        self.assertTrue(self.manage("claude", "verify")["verified"])
 
     def test_dsh_profile_is_required_and_does_not_accept_scope(self):
         with self.assertRaisesRegex(ValueError, "--profile"):
@@ -339,15 +286,15 @@ class HostInstallerTests(unittest.TestCase):
         repository = "https://github.com/example/Bookmark-Research.git"
         git("config", "--file", environment["GIT_CONFIG_GLOBAL"], "url." + self.source.as_uri() + ".insteadOf", repository)
         with mock.patch.dict(os.environ, environment):
-            first = self.manage("pi", source=repository, ref="v1")
+            first = self.manage("claude", source=repository, ref="v1")
             (self.source / "src/later.py").write_text("later = True\n")
             git("add", ".")
             git("commit", "--quiet", "-m", "Later")
-            updated = self.manage("pi", "update")
+            updated = self.manage("claude", "update")
             self.assertEqual(first["revision"], updated["revision"])
             self.assertFalse((Path(updated["bundle_path"]) / "src/later.py").exists())
-            self.assertEqual(self.manage("pi", source=repository)["source"]["ref"], "v1")
-            updated_ref = self.manage("pi", source=repository, ref="main")
+            self.assertEqual(self.manage("claude", source=repository)["source"]["ref"], "v1")
+            updated_ref = self.manage("claude", source=repository, ref="main")
             self.assertEqual(updated_ref["source"]["ref"], "main")
             self.assertTrue(updated_ref["verified"])
 
@@ -445,7 +392,7 @@ class MultiHostInstallerTests(unittest.TestCase):
                 mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", errors):
             code = install.main(["install", "--non-interactive", "--skip-checks", "--source", str(self.source),
                                  "--install-dir", str(self.home), "--timeout", "30",
-                                 "--claude", str(self.bin / "claude"), "--pi", str(self.bin / "pi"),
+                                 "--claude", str(self.bin / "claude"),
                                  "--dsh", str(self.bin / "dsh"), *arguments])
         return code, output.getvalue(), errors.getvalue(), setup
 
@@ -467,19 +414,19 @@ class MultiHostInstallerTests(unittest.TestCase):
                                      "claude_code" if row["host"] == "claude" else row["host"])
 
     def test_single_host_keeps_the_historical_result_shape(self):
-        code, output, errors, setup = self.main("--host", "pi")
+        code, output, errors, setup = self.main("--host", "claude")
         self.assertEqual(code, 0, errors)
         result = json.loads(output)
         self.assertNotIn("results", result)
-        self.assertEqual(result["host"], "pi")
+        self.assertEqual(result["host"], "claude")
         self.assertTrue(result["verified"])
         self.assertTrue(result["setup"]["completed"])
-        self.assertEqual(result["getting_started"]["host"], "pi")
+        self.assertEqual(result["getting_started"]["host"], "claude")
         setup.assert_called_once()
 
     def test_mismatched_host_options_are_rejected_before_installation(self):
-        for arguments, expected in ((["--host", "pi,dsh", "--profile", "web", "--scope", "local"], "local"),
-                                    (["--host", "claude,pi", "--profile", "web"], "--profile"),
+        for arguments, expected in ((["--host", "dsh", "--profile", "web", "--scope", "local"], "scope"),
+                                    (["--host", "claude", "--profile", "web"], "--profile"),
                                     (["--host", "codex,dsh", "--profile", "web", "--scope", "user"], "--scope"),
                                     (["--host", "claude,nope"], "--host")):
             with self.subTest(arguments=arguments):
@@ -491,20 +438,20 @@ class MultiHostInstallerTests(unittest.TestCase):
 
     def test_one_failing_host_does_not_stop_the_next(self):
         with mock.patch.dict(os.environ, {"HOST_TEST_FAIL": "claude"}):
-            code, output, errors, setup = self.main("--host", "claude", "--host", "pi")
+            code, output, errors, setup = self.main("--host", "claude", "--host", "dsh", "--profile", "web")
         self.assertEqual(code, 1)
         result = json.loads(output)
         self.assertIn("injected failure", result["results"][0]["error"])
         self.assertEqual(result["results"][0]["host"], "claude")
         self.assertTrue(result["results"][1]["verified"])
         setup.assert_called_once()
-        self.assertEqual(setup.call_args.args[2], "pi")
+        self.assertEqual(setup.call_args.args[2], "dsh")
 
     def test_multi_host_dry_run_plans_each_host(self):
-        code, output, errors, setup = self.main("--host", "pi,dsh", "--profile", "web", "--dry-run")
+        code, output, errors, setup = self.main("--host", "claude,dsh", "--profile", "web", "--dry-run")
         self.assertEqual(code, 0, errors)
         result = json.loads(output)
-        self.assertEqual([row["host"] for row in result["results"]], ["pi", "dsh"])
+        self.assertEqual([row["host"] for row in result["results"]], ["claude", "dsh"])
         self.assertTrue(all(row["dry_run"] for row in result["results"]))
         self.assertNotIn("setup", result)
         setup.assert_not_called()
@@ -532,14 +479,14 @@ class NativeClaudeInstallationTests(unittest.TestCase):
 class NativePackageInstallationTests(unittest.TestCase):
     setUp = HostInstallerTests.setUp
 
-    def test_native_pi_and_dsh_install_repeat_update_verify(self):
+    def test_native_dsh_install_repeat_update_verify(self):
         native_bin = Path(os.environ["BOOKMARK_NATIVE_HOST_BIN"])
         environment = {"PATH": str(native_bin) + os.pathsep + os.environ["PATH"],
                        "npm_config_store_dir": str(self.base / "pnpm-store"),
                        "XDG_CACHE_HOME": str(self.base / "cache"),
                        "PI_TELEMETRY_DISABLED": "1", "DO_NOT_TRACK": "1"}
         with mock.patch.dict(os.environ, environment):
-            for host in ("pi", "dsh"):
+            for host in ("dsh",):
                 with self.subTest(host=host):
                     options = {"host": host, "binary": str(native_bin / host), "timeout": 60,
                                "install_dir": self.home}

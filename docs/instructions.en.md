@@ -25,7 +25,7 @@ Bookmark Research has one execution Skill and one runtime. The execution Skill a
 
 Only the root `skills/bookmark-research/SKILL.md` is a discoverable Skill. Files under `references/zh/` are Markdown reading copies, without a second Skill entry point or manifest. Read the relevant reference in one language; loading both is unnecessary.
 
-Codex delegation and the shared Claude/Pi/DSH prompt templates execute in English. The paired prompt reference covers shared context, inventory, readers, independent verifiers, coverage, reporting, parent checks and native Codex delegation. Its placeholders are explained task data, not invented research evidence.
+Codex delegation and the shared Claude/DSH prompt templates execute in English. The paired prompt reference covers shared context, inventory, readers, independent verifiers, coverage, reporting, parent checks and native Codex delegation. Its placeholders are explained task data, not invented research evidence.
 
 ## Output language
 

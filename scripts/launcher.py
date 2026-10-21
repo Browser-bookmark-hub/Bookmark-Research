@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 USAGE = """usage: bookmark-research [--lang auto|en|zh] [COMMAND] [ARGS...]
 
   (no command)          Open the menu in a terminal; print status JSON otherwise
-  install [HOST...]     Install into hosts: codex, claude, pi, dsh (wizard when omitted)
+  install [HOST...]     Install into hosts: codex, claude, dsh (wizard when omitted)
   update [HOST...]      Update installed hosts (all when omitted)
   verify [HOST...]      Verify installed hosts (all when omitted)
   setup                 Preferences, services, hidden API-key entry and checks

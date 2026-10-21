@@ -72,7 +72,10 @@ def evidence_bundle(sources, max_characters=DEFAULT_MAX_CHARACTERS, excerpt_char
         if state == "usable" and isinstance(row.get("text"), str) and row["text"].strip():
             usable.append(row)
         else:
-            reason = row.get("content_state") or row.get("error") or row.get("extraction_status") or "unavailable"
+            if state == "usable":
+                reason = "no_text"
+            else:
+                reason = row.get("error") or row.get("extraction_status") or state or "unavailable"
             unavailable.append({"url": url, "reason": str(reason), "title": row.get("title") or ""})
     bundle, level = None, LEVELS[-1]
     for level in LEVELS:
@@ -98,6 +101,11 @@ def _bundle_at(level, usable, unavailable, excerpt_characters):
         entry = {"id": "e%d" % index, "url": row["url"], "title": row.get("title") or "",
                  "published_at": row.get("published_at") or row.get("provider_published_at"),
                  "characters": len(row["text"])}
+        if row.get("capture_id") or row.get("text_origin"):
+            entry["source_characters"] = len(row["text"])
+        for name in ("capture_id", "text_sha256", "text_origin", "quote_verified"):
+            if row.get(name) is not None:
+                entry[name] = row[name]
         if level != "list":
             entry["excerpt"] = row["text"][:limit]
             entry["excerpt_truncated"] = len(row["text"]) > limit

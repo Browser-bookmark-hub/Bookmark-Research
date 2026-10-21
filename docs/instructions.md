@@ -25,7 +25,7 @@ Bookmark Research 共用一个执行 Skill 和一套运行时。执行 Skill 及
 
 只有根目录 `skills/bookmark-research/SKILL.md` 会被发现为 Skill。`references/zh/` 是 Markdown 阅读对照，没有第二个 Skill 入口或 manifest。按需读一种语言的参考即可，不必同时加载两份。
 
-Codex 委派和 Claude／Pi／DSH 的共享提示模板以英文执行。双语提示说明覆盖共同上下文、清单、阅读、独立核验、覆盖、报告、主代理复核和 Codex 原生委派。文中的占位符对应真实任务数据，不是研究证据。
+Codex 委派和 Claude／DSH 的共享提示模板以英文执行。双语提示说明覆盖共同上下文、清单、阅读、独立核验、覆盖、报告、主代理复核和 Codex 原生委派。文中的占位符对应真实任务数据，不是研究证据。
 
 ## 输出语言
 

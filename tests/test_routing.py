@@ -42,14 +42,6 @@ class RoutingTests(unittest.TestCase):
         absent = self.router.route(host="codex", task_shape="batch_research")
         self.assertEqual(absent["selected"]["route"], "host_iterative_research")
 
-    def test_pi_installed_names_do_not_prove_tools_are_loaded(self):
-        installed = ["pi-subagents", "pi-subagents-workflows"]
-        result = self.router.route(host="pi", installed_extensions=installed)
-        self.assertEqual(result["selected"]["route"], "host_iterative_research")
-        result = self.router.route(host="pi", installed_extensions=installed, task_shape="batch_research",
-                                   observed_tools=["pi_subagent_workflow"])
-        self.assertEqual(result["selected"]["run_mode"], "detached")
-        self.assertEqual(result["selected"]["resume_scope"], "registry_does_not_add_replay")
 
     def test_dsh_keeps_blocking_result_and_no_claim_of_resume(self):
         result = self.router.route(host="dsh", task_shape="batch_research", observed_tools=["mcp__dsh__workflow"])
@@ -116,7 +108,7 @@ class RoutingTests(unittest.TestCase):
 
     def test_agentic_first_pass_uses_the_current_model_in_every_host(self):
         for host, tools in (("codex", ["spawn_agent"]), ("claude_code", ["Workflow", "Agent"]),
-                            ("pi", ["pi_subagent_workflow", "subagent"]), ("dsh", ["workflow", "subagent"])):
+                            ("dsh", ["workflow", "subagent"])):
             with self.subTest(host=host):
                 result = self.router.route(host=host, depth="agentic", observed_tools=tools)
                 self.assertEqual(result["selected"]["route"], "host_iterative_research")

@@ -11,10 +11,10 @@ Call `research_services` to inspect status offline. Each provider reports `ready
 Effective `professional_research` defaults to `enabled:false, provider:null`. After the user selects a service, update its settings as needed:
 
 ```json
-{"changes":{"professional_research":{"enabled":true,"provider":"openai","openai":{"model":"o4-mini-deep-research","max_tool_calls":24}}}}
+{"changes":{"professional_research":{"enabled":true,"provider":"openai","openai":{"model":"gpt-5.6-sol","max_tool_calls":24}}}}
 ```
 
-Another supported OpenAI model is `o3-deep-research`; Parallel defaults to `processor:"pro"`. Model/processor access, fees and quotas depend on the current account. Per-request options can override supported fields. Configuration and an explicit provider choice do not automatically start a task or silently select a different service.
+The default is `gpt-5.6-sol`; the retired `o3-deep-research` and `o4-mini-deep-research` remain accepted for legacy configs. A custom model ID requires `allow_untested_model:true`; Parallel defaults to `processor:"pro"`. Model/processor access, fees and quotas depend on the current account. Per-request options can override supported fields. Configuration and an explicit provider choice do not automatically start a task or silently select a different service.
 
 ## Prepare actual material
 

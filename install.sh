@@ -18,12 +18,12 @@ main() (
 用法：bash install.sh [install|update|verify] [选项]
 
 四个宿主统一使用 npm 发布包，由各宿主原生命令登记。
-  --host HOST           codex、claude、pi、dsh；可重复或逗号分隔
+  --host HOST           codex、claude、dsh；可重复或逗号分隔
   --lang auto|en|zh      安装器语言
   --interactive         打开终端向导
   --non-interactive     不提示输入；请指定 --host
   --profile NAME        DSH 目标 profile
-  --scope SCOPE         Claude/Pi 的安装作用域
+  --scope SCOPE         Claude 的安装作用域
   --project PATH        项目目录
   --source npm:bookmark-research@VERSION  固定插件版本
   --dry-run             预览，不修改宿主登记
@@ -37,12 +37,12 @@ HELP
 Usage: bash install.sh [install|update|verify] [options]
 
 All four hosts use the npm release and their native registration commands.
-  --host HOST           codex, claude, pi, dsh; repeat or comma-separate
+  --host HOST           codex, claude, dsh; repeat or comma-separate
   --lang auto|en|zh      Installer language
   --interactive         Open the terminal wizard
   --non-interactive     No prompts; specify --host
   --profile NAME        DSH profile
-  --scope SCOPE         Claude/Pi installation scope
+  --scope SCOPE         Claude installation scope
   --project PATH        Project directory
   --source npm:bookmark-research@VERSION  Pin the plugin version
   --dry-run             Preview without changing host registration

@@ -31,7 +31,7 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 - `task_mcp_access_verified`：Parallel Task MCP 接受了密钥，不证明 Task API 的执行权限。
 - `failed`：按认证／网络／契约错误修复，再刷新受影响服务；其他路线仍可使用。
 
-可选原生研究 MCP 返回对应端点的 `setup` 指引。先检查已有登记，避免重复添加。Codex 使用 `codex mcp list --json`、`codex mcp add NAME --url URL`，支持 OAuth 的端点用 `codex mcp login NAME`；Claude 使用 `claude mcp list`、`claude mcp add --scope user --transport http NAME URL`，再在 `/mcp` 授权。采用实际 scope 和已存在的名称。Pi 不假定安装任何 MCP 扩展，宿主自行进行的普通／深度研究使用同包 CLI。DSH 通过官方 MCP client 在所选 profile 配置 `transport: streamable-http`、端点及环境变量引用的 headers；该桥接器文档尚未确立 OAuth 支持。工具可见不证明登录成功，不用启动付费任务来测试授权。
+可选原生研究 MCP 返回对应端点的 `setup` 指引。先检查已有登记，避免重复添加。Codex 使用 `codex mcp list --json`、`codex mcp add NAME --url URL`，支持 OAuth 的端点用 `codex mcp login NAME`；Claude 使用 `claude mcp list`、`claude mcp add --scope user --transport http NAME URL`，再在 `/mcp` 授权。采用实际 scope 和已存在的名称。DSH 通过官方 MCP client 在所选 profile 配置 `transport: streamable-http`、端点及环境变量引用的 headers；该桥接器文档尚未确立 OAuth 支持。工具可见不证明登录成功，不用启动付费任务来测试授权。
 
 向导展示宿主步骤，不执行它们或导入宿主 token。`needs_attention` 列出失败检查和所选服务必需但缺失的密钥。缓存保留时间戳与过期时间，失败最多缓存 60 秒；文件位于数据目录的 `readiness/`，不含原始密钥。修改配置或轮换密钥会使对应证据失效。
 
@@ -54,6 +54,7 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
   "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5,
     "strategy": "hedged", "grace_seconds": 2, "deadline_seconds": 10, "cache_seconds": 0},
   "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000,
+    "max_total_characters": 24000, "fair_share_min": 500,
     "strategy": "staggered", "grace_seconds": 25, "deadline_seconds": null, "reuse_seconds": 0},
   "server": {"network_workers": 4, "max_pending_calls": 16},
   "archive": {"enabled": true, "directory": "/absolute/path/to/knowledge"},
@@ -64,11 +65,15 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
   "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest", "max_source_age_days": 30},
+  "wiki_preflight": true,
+  "freshness_days": 30,
+  "plan": {"max_characters": 8000, "min_relevance": 0.05, "homepage_limit": 2},
+  "tool_scope": [],
   "output": {"mode": "central", "directory": "/absolute/path/to/research"}
 }
 ```
 
-优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
+优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；`max_total_characters` 默认 24000，超过 `fair_share_min`（默认 500）时按页分配。提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki_preflight`（默认 true）让 `plan_research` 检查 Wiki 与归档；`freshness_days`（默认 30）是本地过期阈值；`plan.min_relevance`（默认 0.05）、`plan.max_characters`（默认 8000）与 `plan.homepage_limit` 控制预检的相关性门槛、输出大小和首页配额。`tool_scope` 是服务端 MCP 目录白名单：空列表表示全部工具；设为 8 个名称（`plan_research`、`search_bookmarks`、`get_context`、`search_web`、`fetch_web`、`discovery_bundle`、`wiki_search`、`wiki_get`）可在宿主不支持工具过滤时缩小目录。 DSH 插件默认把这份 8 项列表作为 `BOOKMARK_RESEARCH_TOOL_SCOPE` 传给 MCP 子进程；可用逗号分隔的其他列表覆盖，设为空字符串则恢复完整目录。环境变量不存在时才读取保存的 `tool_scope`。被隐藏的工具会拒绝调用，需改设置文件或在仍可见时用 `update_settings` 调整。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
 
 `search.cache_seconds`（0–3600，默认 0）让短时间内的相同搜索直接返回进程内缓存，不再调用提供商；这些批次标记 `cached:true`，保留原 `retrieved_at`，不消耗提供商额度。`fetch.reuse_seconds`（0–86400，默认 0）让 `research_fetch` 对窗口内已保存正文的 URL 直接返回 `reused_sources`（保留原 ID 与检索时间，不追加新快照），不再联网，也不占抓取预算。`server.network_workers`（1–16）与 `server.max_pending_calls`（1–64，且不小于 worker 数）设置 stdio 服务端并发，重启服务后生效。
 
@@ -92,7 +97,7 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 
 `fetch_web` 自动保存它自己收到的实际 provider 响应。搜索命中本身不触发抓取或存档，宿主另外配置的 Exa／GitHub MCP 响应也不会被本插件自动截获。
 
-普通输出同时执行每页 `max_characters` 与整批 `max_total_characters` 限制（整批默认 100000，范围 100–800000）。`characters`／`text_sha256` 对应当前切片，`source_characters`／`sha256` 对应完整归档正文；`output_truncated`、`next_offset` 和 `continuation` 明确标出未返回部分。带 `capture_id` 和 offset 续读同一快照时不联网，并省略 provider、archive、raw。`raw:true` 用于诊断原始响应，仍受 MCP 总返回上限约束。
+普通输出同时执行每页 `max_characters` 与整批 `max_total_characters` 限制（整批默认 24000，范围 100–800000）。多 URL 时按剩余页数分配预算（`fetch.fair_share_min`，默认 500），不再把额度全部耗在前几页；`pages_with_text`／`pages_without_text` 与 `successful_url_count` 只统计有正文的页。`characters`／`text_sha256` 对应当前切片，`source_characters`／`sha256` 对应完整归档正文；`output_truncated`、`next_offset` 和 `continuation` 明确标出未返回部分。带 `capture_id` 和 offset 续读同一快照时不联网，并省略 provider、archive、raw。`raw:true` 用于诊断原始响应，仍受 MCP 总返回上限约束。
 
 stdio 服务最多同时执行 4 个网络调用，运行与排队合计最多 16 个。本地书签 SQLite 查询留在连接线程，可在抓取期间先返回；响应按 request ID 对应，可能乱序。队列满时明确报错，取消只能停止尚未开始的请求，已发出的 HTTP 调用按提供商超时结束并保留结果／操作回执。正常 stdin EOF 会处理完已接受请求。
 

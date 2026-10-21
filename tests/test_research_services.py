@@ -131,6 +131,7 @@ class ResearchServicesTests(unittest.TestCase):
         self.settings.update({"professional_research": {"enabled": True}})
         prepared = self.service.prepare(self.rid, "Public research question")
         self.assertEqual(prepared["next_action"], "research_service_start")
+        self.assertEqual(prepared["payload"]["tools"], [{"type": "web_search"}])
         self.assertTrue(prepared["payload"]["background"])
         self.assertFalse(prepared["payload"]["store"])
         started = self.start()
@@ -145,7 +146,7 @@ class ResearchServicesTests(unittest.TestCase):
         first = self.start()
         original = Path(first["request_path"]).read_bytes()
         self.settings.update({"professional_research": {"enabled": False, "provider": "parallel",
-                                                       "openai": {"model": "o3-deep-research", "max_tool_calls": 2}}})
+                                                       "openai": {"model": "gpt-5.6-sol", "max_tool_calls": 2}}})
         self.sessions.finish(self.rid, "Continue later.", status="incomplete")
         with patch.dict(os.environ, {"OPENAI_API_KEY": "", "PARALLEL_API_KEY": ""}):
             replay = self.reopen().start(self.rid, "start-once", "Public research question", question_id="q1")

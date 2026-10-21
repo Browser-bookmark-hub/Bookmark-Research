@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from bookmark_index import BookmarkIndex
+from context_output import compact_context
 from mcp_server import MAX_RESULT_CHARS, StdioMcpServer
 from settings import Settings
 from source_manager import SourceManager
@@ -48,6 +49,9 @@ class ContextPaginationTests(unittest.TestCase):
         first = context()
         self.assertEqual(200, len(first["nodes"]))
         self.assertEqual(5000, first["pagination"]["nodes"]["total"])
+        compact = context(compact=True)
+        self.assertIn("_compact", compact)
+        self.assertNotIn("raw_json", compact["nodes"][0])
         identifiers, offset = [], 0
         while offset is not None:
             page = context(collection="nodes", offset=offset, limit=333)
@@ -116,6 +120,19 @@ class ContextPaginationTests(unittest.TestCase):
         self.assertEqual(result["results"], result["targets"][0]["results"])
         self.assertEqual(1, sum("SELECT label,file_path FROM sections" in sql for sql in statements))
         self.assertEqual(1, sum("count(*) OVER ()" in sql for sql in statements))
+
+    def test_compact_projection_drops_raw_fields_without_changing_counts(self):
+        context = {"sections": [{"section_id": "s", "label": "A", "raw_json": {"big": "x" * 1000},
+                                 "description_md": "desc", "revision": 3}],
+                   "pagination": {"sections": {"total": 1, "returned": 1}}}
+        compact = compact_context(context)
+        self.assertEqual("A", compact["sections"][0]["label"])
+        self.assertNotIn("raw_json", compact["sections"][0])
+        self.assertNotIn("description_md", compact["sections"][0])
+        self.assertNotIn("revision", compact["sections"][0])
+        self.assertEqual(1, compact["pagination"]["sections"]["total"])
+        self.assertIn("_compact", compact)
+        self.assertIn("raw_json", context["sections"][0])
 
 
 if __name__ == "__main__":

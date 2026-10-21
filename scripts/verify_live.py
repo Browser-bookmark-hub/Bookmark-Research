@@ -26,12 +26,12 @@ def main():
     settings.update({"archive": {"enabled": True, "directory": str(output / "knowledge")}})
     engine = SearchProviders(timeout=30, settings=settings)
     search = {"successful_provider_count": 0, "batches": [], "targets": []} if args.fetch_only else engine.search([
-        {"target": "Agent Plugins", "query": "Agent Plugins official specification plugin.json MCP skills"},
+        {"target": "Model Context Protocol", "query": "Model Context Protocol official tools specification"},
         {"target": "DeepSeek Harness", "query": "DeepSeek Harness official plugin bundle MCP client"},
     ], limit_per_target=3)
     (output / "live-search.json").write_text(json.dumps(search, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     try:
-        fetch = engine.fetch(args.fetch_url or ["https://agent-plugins.org/specification"],
+        fetch = engine.fetch(args.fetch_url or ["https://modelcontextprotocol.io/specification/2026-07-28/server/tools"],
                              provider=args.provider, max_characters=args.max_characters)
         fetch_ok = True
     except (RuntimeError, ValueError, OSError) as error:

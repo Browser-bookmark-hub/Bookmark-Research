@@ -147,13 +147,13 @@ class ReadinessTests(SetupFixture):
     def test_openai_probe_is_a_model_get_not_a_research_job(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": "openai"}})
         self.credentials.save("OPENAI_API_KEY", "test-openai-key")
-        self.transport.request.return_value = {"id": "o4-mini-deep-research", "object": "model"}
+        self.transport.request.return_value = {"id": "gpt-5.6-sol", "object": "model"}
         result = self.engine.check(providers=["exa"])
         check = next(row for row in result["checks"] if row["id"] == "service:openai")
         self.assertTrue(check["authentication_verified"])
         self.assertFalse(check["execution_verified"])
         self.assertEqual(result["research_jobs_started"], 0)
-        self.transport.request.assert_called_once_with("openai", "GET", "/v1/models/o4-mini-deep-research")
+        self.transport.request.assert_called_once_with("openai", "GET", "/v1/models/gpt-5.6-sol")
         self.transport.request.side_effect = ServiceError("authentication_required", "unsafe provider text", http_status=401)
         failed = self.engine.check(providers=["exa"], refresh=True)
         check = next(row for row in failed["checks"] if row["id"] == "service:openai")
@@ -191,7 +191,7 @@ class ReadinessTests(SetupFixture):
 
     def test_missing_optional_keys_and_host_tools_do_not_claim_logged_in(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": "openai"}})
-        result = self.engine.check(providers=["jina"], offline=True, host="pi", observed_tools=[])
+        result = self.engine.check(providers=["jina"], offline=True, host="claude_code", observed_tools=[])
         self.assertEqual(result["checks"][0]["operations"]["search"]["missing"], ["JINA_API_KEY"])
         self.assertEqual(result["checks"][1]["status"], "missing_credentials")
         self.assertTrue(result["offline_ready"])
@@ -204,7 +204,7 @@ class ReadinessTests(SetupFixture):
         self.transport.request.assert_not_called()
 
     def test_host_remediation_uses_each_hosts_supported_connection_format(self):
-        for host in ("codex", "claude_code", "pi", "dsh"):
+        for host in ("codex", "claude_code", "dsh"):
             with self.subTest(host=host):
                 result = self.engine.check(providers=["exa"], offline=True, host=host, observed_tools=[])
                 for row in result["host_integrations"]["native_research_mcps"]:
@@ -376,25 +376,25 @@ class InstallTargetTests(SetupFixture):
         return directory
 
     def args(self, **values):
-        base = dict(host=None, scope=None, project=None, profile=None, codex="codex", claude=None, pi=None, dsh=None)
+        base = dict(host=None, scope=None, project=None, profile=None, codex="codex", claude=None, dsh=None)
         base.update(values)
         return argparse.Namespace(**base)
 
     def test_detected_hosts_are_preselected_and_missing_disabled(self):
-        self.tool("pi", "codex")
+        self.tool("claude", "codex")
         output = io.StringIO()
         args = self.args()
         targets = Console(io.StringIO("\n\n\n"), output).install_targets(args)
-        self.assertEqual([row["host"] for row in targets], ["codex", "pi"])
+        self.assertEqual([row["host"] for row in targets], ["codex", "claude"])
         self.assertEqual(targets[1]["scope"], "user")
-        self.assertIn("CLI not found", output.getvalue())
+        self.assertIn("needs the dsh CLI", output.getvalue())
         self.assertEqual((args.host, args.scope), ("codex", None))
         with self.assertRaises(KeyboardInterrupt):
             Console(io.StringIO("2\n"), io.StringIO()).install_targets(self.args())
 
     def test_multi_host_with_project_scope_and_profile_validation(self):
         self.tool("claude", "dsh", "pnpm")
-        answers = "2,4\n2\n" + str(self.base / "missing") + "\n" + str(self.base) + "\n.bad\nweb\ny\n"
+        answers = "2,3\n2\n" + str(self.base / "missing") + "\n" + str(self.base) + "\n.bad\nweb\ny\n"
         output = io.StringIO()
         targets = Console(io.StringIO(answers), output).install_targets(self.args())
         self.assertEqual(targets, [{"host": "claude", "scope": "project", "project": str(self.base), "profile": None},
@@ -403,18 +403,18 @@ class InstallTargetTests(SetupFixture):
         self.assertIn("do not start with a dot", output.getvalue())
 
     def test_disabled_host_cannot_be_chosen_and_no_hosts_raises(self):
-        self.tool("pi")
+        self.tool("claude")
         output = io.StringIO()
-        targets = Console(io.StringIO("1\n3\n\n\n"), output).install_targets(self.args())
-        self.assertEqual([row["host"] for row in targets], ["pi"])
-        (self.bin / ("pi.cmd" if os.name == "nt" else "pi")).unlink()
-        with self.assertRaisesRegex(ValueError, "--pi"):
+        targets = Console(io.StringIO("1\n2\n\n\n"), output).install_targets(self.args())
+        self.assertEqual([row["host"] for row in targets], ["claude"])
+        (self.bin / ("claude.cmd" if os.name == "nt" else "claude")).unlink()
+        with self.assertRaisesRegex(ValueError, "Codex, Claude Code or DSH"):
             Console(io.StringIO(""), io.StringIO()).install_targets(self.args())
 
     def test_dsh_without_pnpm_is_disabled_with_install_hint(self):
         self.tool("claude", "dsh")
         output = io.StringIO()
-        targets = Console(io.StringIO("4\n\n\n\n"), output).install_targets(self.args())
+        targets = Console(io.StringIO("2\n\n\n\n"), output).install_targets(self.args())
         self.assertEqual([row["host"] for row in targets], ["claude"])
         self.assertIn("needs pnpm", output.getvalue())
 
@@ -488,7 +488,7 @@ class InstallTargetTests(SetupFixture):
         self.assertNotIn("desktop", output.getvalue().split("Install into which DSH profile?")[-1])
 
     def test_explicit_host_list_skips_host_prompt(self):
-        args = self.args(host=["codex", "pi"], scope="user")
+        args = self.args(host=["codex", "claude"], scope="user")
         output = io.StringIO()
         target = Console(io.StringIO("\n"), output).install_target(args)
         self.assertEqual(target["host"], "codex")
@@ -496,10 +496,10 @@ class InstallTargetTests(SetupFixture):
         self.assertEqual((args.host, args.scope), ("codex", None))
 
     def test_rich_mode_key_stream(self):
-        self.tool("pi")
+        self.tool("claude")
         console = Console(io.StringIO(" \x1b[B \r\r\r"), io.StringIO(), rich=True)
         self.assertTrue(console.rich)
-        self.assertEqual([row["host"] for row in console.install_targets(self.args())], ["pi"])
+        self.assertEqual([row["host"] for row in console.install_targets(self.args())], ["claude"])
 
 
 class RecheckTests(SetupFixture):

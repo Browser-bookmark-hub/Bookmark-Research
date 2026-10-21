@@ -35,22 +35,20 @@ class HostWorkflowTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("node"), "Node is required for script syntax/contract tests")
     def test_choreography_preserves_207_ids_failures_and_complete_results(self):
-        scripts = {host: host_assets.build_workflow(ROOT, host)[1] for host in ("claude", "dsh", "pi")}
+        scripts = {host: host_assets.build_workflow(ROOT, host)[1] for host in ("claude", "dsh")}
         result = subprocess.run([shutil.which("node"), str(ROOT / "tests/host-workflows.test.js")],
                                 input=json.dumps(scripts), text=True, capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(json.loads(result.stdout)["checks"], 63)
-        self.assertNotRegex(scripts["pi"], r"\basync\b", "Pi rejects nested async helpers; use Promise chains")
+        self.assertEqual(json.loads(result.stdout)["checks"], 42)
 
     @unittest.skipUnless(shutil.which("node"), "Node is required for script syntax/contract tests")
     def test_discovery_choreography_obeys_the_budget_and_degrades(self):
         scripts = {host: host_assets.build_workflow(ROOT, host, "bookmark-research-discovery")[1]
-                   for host in ("claude", "dsh", "pi")}
+                   for host in ("claude", "dsh")}
         result = subprocess.run([shutil.which("node"), str(ROOT / "tests/host-discovery.test.js")],
                                 input=json.dumps(scripts), text=True, capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(json.loads(result.stdout)["checks"], 60)
-        self.assertNotRegex(scripts["pi"], r"\basync\b", "Pi rejects nested async helpers; use Promise chains")
+        self.assertEqual(json.loads(result.stdout)["checks"], 40)
 
     def test_dsh_call_contains_plain_script_meta_and_object_args(self):
         output = self.base / "dsh export"
@@ -190,43 +188,7 @@ process.stdout.write(JSON.stringify({registered}));
                 self.assertEqual(result.stdout, "")
                 self.assertIn("output-language", result.stderr)
 
-    def test_pi_registration_is_project_scoped_idempotent_and_preserves_conflicts(self):
-        output = self.base / "pi export"
-        export_bundle.export_bundle("pi", output)
-        project = self.base / "project 中文 $(literal)"
-        project.mkdir()
-        script = output / "hosts/pi/register-workflow.py"
-        first = self.run_python(script, "--project", str(project))
-        self.assertTrue(json.loads(first.stdout)["changed"])
-        target = project / ".pi/subagent-workflows/bookmark-research"
-        manifest = json.loads((target / "workflow.json").read_text())
-        self.assertEqual(manifest["parameters"]["bridge_path"]["default"], str(output / "hosts/shared/research-call.py"))
-        self.assertEqual(manifest["parameters"]["output_language"]["default"], "auto")
-        self.assertIn("runs.all", (target / "script.js").read_text())
-        discovery = project / ".pi/subagent-workflows/bookmark-research-discovery"
-        discovery_manifest = json.loads((discovery / "workflow.json").read_text())
-        self.assertEqual(discovery_manifest["name"], "bookmark-research-discovery")
-        self.assertEqual(discovery_manifest["parameters"]["max_steps"]["default"], 6)
-        self.assertEqual(discovery_manifest["parameters"]["bridge_path"]["default"],
-                         str(output / "hosts/shared/research-call.py"))
-        self.assertIn("discovery_bundle", (discovery / "script.js").read_text())
-        self.assertFalse((project / ".pi/settings.json").exists())
-        second = self.run_python(script, "--project", str(project))
-        self.assertFalse(json.loads(second.stdout)["changed"])
-        (target / "script.js").write_text("keep my workflow")
-        conflict = self.run_python(script, "--project", str(project), success=False)
-        self.assertIn("Existing workflow differs", conflict.stderr)
-        self.assertEqual((target / "script.js").read_text(), "keep my workflow")
 
-    def test_pi_registration_rejects_symlink_destination(self):
-        project = self.base / "project"
-        project.mkdir()
-        elsewhere = self.base / "elsewhere"
-        elsewhere.mkdir()
-        (project / ".pi").symlink_to(elsewhere, target_is_directory=True)
-        result = self.run_python(ROOT / "hosts/pi/register-workflow.py", "--project", str(project), success=False)
-        self.assertIn("symlink", result.stderr)
-        self.assertEqual(list(elsewhere.iterdir()), [])
 
     def test_shared_bridge_calls_real_mcp_and_preserves_domain_errors(self):
         bridge = ROOT / "hosts/shared/research-call.py"
@@ -271,15 +233,15 @@ process.stdout.write(JSON.stringify({registered}));
             (source / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / relative, source / relative)
         shutil.copy2(ROOT / "LICENSE", source / "LICENSE")
-        asset = source / "hosts/pi/runtime.js"
+        asset = source / "hosts/dsh/plugin.js"
         asset.unlink()
         output = self.base / "incomplete"
         with self.assertRaisesRegex(ValueError, "Required host asset"):
-            export_bundle.export_bundle("pi", output, source)
+            export_bundle.export_bundle("dsh", output, source)
         self.assertFalse(output.exists())
-        asset.symlink_to(ROOT / "hosts/pi/runtime.js")
+        asset.symlink_to(ROOT / "hosts/dsh/plugin.js")
         with self.assertRaisesRegex(ValueError, "symlinks"):
-            export_bundle.export_bundle("pi", output, source)
+            export_bundle.export_bundle("dsh", output, source)
         self.assertFalse(output.exists())
 
     def test_codex_prepare_consumes_real_inventory_pagination(self):

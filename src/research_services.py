@@ -206,7 +206,7 @@ class ResearchServices:
         options = {} if options is None else copy.deepcopy(options)
         if not isinstance(options, dict):
             raise ValueError("Research service options must be an object")
-        allowed = {"model", "max_tool_calls", "store", "vector_store_ids"} if provider == "openai" else {"processor", "output_schema"}
+        allowed = {"model", "max_tool_calls", "allow_untested_model", "store", "vector_store_ids"} if provider == "openai" else {"processor", "output_schema"}
         if set(options) - allowed:
             raise ValueError("Unsupported " + provider + " research options")
         source_scope = copy.deepcopy(state.get("source_scope", {}))
@@ -240,14 +240,21 @@ class ResearchServices:
         if provider == "openai":
             model = options.get("model", defaults["model"])
             maximum = options.get("max_tool_calls", defaults["max_tool_calls"])
-            if model not in ("o3-deep-research", "o4-mini-deep-research"):
-                raise ValueError("Use a documented OpenAI deep research model")
+            allow_untested = options.get("allow_untested_model", defaults.get("allow_untested_model", False))
+            if type(allow_untested) is not bool:
+                raise ValueError("allow_untested_model must be boolean")
+            if (not isinstance(model, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,80}", model)
+                    or (model not in Settings.OPENAI_RESEARCH_MODELS and not allow_untested)):
+                raise ValueError("Use a tested OpenAI research model or set allow_untested_model=true")
             if type(maximum) is not int or not 1 <= maximum <= 1000:
                 raise ValueError("max_tool_calls must be between 1 and 1000")
             store = options.get("store", False)
             if type(store) is not bool:
                 raise ValueError("store must be boolean")
-            tools = [{"type": "web_search_preview"}]
+            # gpt-5.6-sol uses the current web_search tool; the retired deep
+            # research models used web_search_preview.
+            search_tool = "web_search_preview" if model in ("o3-deep-research", "o4-mini-deep-research") else "web_search"
+            tools = [{"type": search_tool}]
             if "vector_store_ids" in options:
                 stores = options["vector_store_ids"]
                 if (not isinstance(stores, list) or not 1 <= len(stores) <= 2

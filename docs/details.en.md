@@ -10,13 +10,13 @@ Reference material moved from the README: components, data model, research modes
 | --- | --- | --- |
 | **Skill** | [`skills/bookmark-research/SKILL.md`](../skills/bookmark-research/SKILL.md) | Guides package reading, local queries, source verification, and research reports |
 | **MCP server** | [`src/mcp_server.py`](../src/mcp_server.py), started with `python3 src/cli.py serve` | One local `bookmark-research` server with the [shared tool catalog](#mcp-tools) |
-| **Python CLI** | [`src/cli.py`](../src/cli.py) | Runs the same queries and research workflows directly, including from Pi |
+| **Python CLI** | [`src/cli.py`](../src/cli.py) | Runs the same queries and research workflows directly, including from a host without MCP |
 | **Web providers** | [`config/providers.json`](../config/providers.json), [`src/provider_adapters.py`](../src/provider_adapters.py), [`src/jina.py`](../src/jina.py) | Exa, Parallel, Jina HTTP and Tavily behind one MCP; schema checks, session reuse and visible partial failures |
 | **Research and coverage** | [`src/research.py`](../src/research.py), [`src/research_coverage.py`](../src/research_coverage.py) | Complete source inventory, all bookmark instances, budgets, evidence, substantive review and reports |
-| **Host workflows** | [`hosts/`](../hosts/) and [`src/routing.py`](../src/routing.py) | Native Codex delegation, Claude workflow, Pi extension recipe and DSH workflow adapter |
+| **Host workflows** | [`hosts/`](../hosts/) and [`src/routing.py`](../src/routing.py) | Native Codex delegation, Claude workflow and DSH workflow adapter |
 | **Professional research** | [`src/research_services.py`](../src/research_services.py) | Optional provider-owned background tasks, saved run IDs and secondary-report import |
 | **Wiki and evaluation** | [`src/wiki.py`](../src/wiki.py), [`src/evaluation.py`](../src/evaluation.py) | Reviewed knowledge, immutable revisions, source/link lint and metrics from explicit labels |
-| **Client integrations** | Native manifests, [`bin/bookmark-research.js`](../bin/bookmark-research.js), [`scripts/launcher.py`](../scripts/launcher.py), [`install.sh`](../install.sh), [`scripts/install.py`](../scripts/install.py) and [`scripts/export_bundle.py`](../scripts/export_bundle.py) | The `bookmark-research` command (alias `bookmark`, or `bookmark research`), guided installation and native install/update/verify for all four hosts |
+| **Client integrations** | Native manifests, [`bin/bookmark-research.js`](../bin/bookmark-research.js), [`scripts/launcher.py`](../scripts/launcher.py), [`install.sh`](../install.sh), [`scripts/install.py`](../scripts/install.py) and [`scripts/export_bundle.py`](../scripts/export_bundle.py) | The `bookmark-research` command (alias `bookmark`, or `bookmark research`), guided installation and native install/update/verify for all three hosts |
 
 The runtime requires Python 3.9+ and SQLite with FTS5; `doctor` checks these requirements. It uses the Python standard library and does not require a separate database service.
 
@@ -26,12 +26,9 @@ The runtime requires Python 3.9+ and SQLite with FTS5; `doctor` checks these req
 | --- | --- | --- | --- | --- |
 | **Codex** | Included | MCP | Native plugin and marketplace | Native install/update and stdio checks in isolated profiles |
 | **Claude Code** | Included | MCP | Persistent marketplace/plugin plus Dynamic Workflow | Native install/update/cache checks in isolated profiles; model execution is separate |
-| **Pi** | Included through `pi.skills` | CLI / stdio bridge | Persistent package plus project workflow registrar | Installer/adapter scenarios; subagent workflows require optional extensions |
 | **DSH / DeepSeek Harness** | Included through Skill provider | MCP through the official client | Relocatable `dsh.bundle` plus optional workflow adapter | Installer/adapter scenarios; workflows require a configured service, engine and tool |
 
-Install verification does not mean all four live clients completed a research task. Pi's basic Skill + CLI works without subagent extensions. DSH's bundle registers the Skill and resolves the bundled Python path after installation; its legacy `cordis.patch.yml` export remains specific to its original location. See [host workflows](../skills/bookmark-research/references/host-workflows.md) for optional collaboration and actual resume limits.
-
-**Agent Plugins 1.0.0** is also available as a separate standard export: root `plugin.json` + `mcp.json`. It is a package format, not another client or the Codex native manifest. See [export formats](#export-formats) for commands and the [compatibility notes (Chinese)](harness-compatibility.md) for first-party references and verification boundaries.
+Install verification does not mean all three live clients completed a research task. DSH's bundle registers the Skill and resolves the bundled Python path after installation; its legacy `cordis.patch.yml` export remains specific to its original location. See [host workflows](../skills/bookmark-research/references/host-workflows.md) for optional collaboration and actual resume limits.
 
 ## Data and query model
 
@@ -123,7 +120,7 @@ These modes follow [OpenAI's web search guide](https://developers.openai.com/api
 
 One MCP entry point aggregates several backend services, and one Skill executes all three workflows. Reading starts with Exa under `fetch.strategy` (staggered by default: the next provider joins once the current one stalls past `fetch.grace_seconds`; hedged and sequential are the alternatives; abandoned providers are listed in `abandoned_providers`), then concurrent Parallel + Jina Reader fallback for unresolved URLs; Tavily extraction can be added to `fetch.providers`. `fetch.reuse_seconds` can return text saved within that window as `reused_sources` without a new request, and `search.cache_seconds` serves a repeated identical search from a short-lived cache. Search starts with Exa + Parallel under `search.strategy` (hedged by default, with staggered, sequential and wait_all alternatives) and the `search.grace_seconds` / `search.deadline_seconds` bounds; dropped or uncalled providers are listed in `routing`. Then `search.fallback_providers` (Tavily + keyed Jina) run concurrently only for queries with no usable URL. Missing fallback credentials are skipped; successful results stay intact. Set the search fallback list to `[]` to disable it. An existing saved search provider list without a fallback field retains its original service scope.
 
-The host model leads both research modes. Codex native subagents, Claude ordinary subagents or enabled teams, Pi extensions, and configured DSH subagents/workflows supply collaboration; see [host capabilities](harness-compatibility.md). The grouped package scripts are optional for batch research. Exa `agent_run`, complete Parallel Task MCP tools and enabled OpenAI/Parallel APIs can handle scoped external work after host assessment. A saved API preference orders these optional services; an explicit provider selects it exclusively. On confirmed failure, use cumulative `failed_routes` to continue the same investigation, preserving running/unknown/cancelled jobs. API execution follows prepare → start → status → result → import and requires separate credentials. Scrapling, Firecrawl and MarkItDown remain researched projects. A public GitHub README fetch does not inspect the whole repository.
+The host model leads both research modes. Codex native subagents, Claude ordinary subagents or enabled teams, and configured DSH subagents/workflows supply collaboration; see [host capabilities](harness-compatibility.md). The grouped package scripts are optional for batch research. Exa `agent_run`, complete Parallel Task MCP tools and enabled OpenAI/Parallel APIs can handle scoped external work after host assessment. A saved API preference orders these optional services; an explicit provider selects it exclusively. On confirmed failure, use cumulative `failed_routes` to continue the same investigation, preserving running/unknown/cancelled jobs. API execution follows prepare → start → status → result → import and requires separate credentials. Scrapling, Firecrawl and MarkItDown remain researched projects. A public GitHub README fetch does not inspect the whole repository.
 
 Read the [deep research guide](../skills/bookmark-research/references/deep-research.md) for inputs and CLI examples. `research_start` freezes the complete indexed packages selected by `source_ids`; a subset requires explicit `scope_mode:"subset"`. Paginate `research_inventory` to the end. `bookmark_refs` identify focus items without silently narrowing whole-package scope.
 
@@ -184,11 +181,11 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | `source_history` | List reusable source snapshots and recovery paths |
 | `source_remove` / `source_merge` | Preview or confirm removal and merging of registered sources |
 | `search_bookmarks` | Query bookmarks for multiple targets while retaining item context |
-| `get_context` | Read section, card, group, connection, and item-ancestor context |
-| `plan_research` | Rank the cards and bookmarks one question touches, locally, and suggest a research route; a URL inside the question is returned for direct reading |
+| `get_context` | Read section, card, group, connection, and item-ancestor context; `compact:true` drops raw JSON, descriptions and revisions |
+| `plan_research` | Local preflight for one question: ranked cards and bookmarks, Wiki and archive pointers, relevance, freshness, fetch ownership, and a route; missing-file cards are flagged and their URLs are kept |
 | `search_providers` | List configured web providers |
 | `search_web` | Search through Exa / Parallel / Tavily / keyed Jina and merge results per target |
-| `fetch_web` | Read known URLs and optionally archive responses and page text |
+| `fetch_web` | Read known URLs under a per-page and batch budget, optionally archive text, and continue a saved extract with `capture_id`/`offset` |
 | `search_archive` | Literal full-text search over saved page text in the knowledge archive and all research evidence, merged by content hash |
 | `get_settings` | Read current settings and storage paths |
 | `update_settings` | Update persistent settings |
@@ -230,13 +227,15 @@ Analysis rules are included in the Skill. The [package reading protocol](../skil
 
 Routine analysis of supported formats does not require rereading the entire package `AGENTS.md`, and the runtime does not depend on it. Consult relevant original instructions for new formats, field conflicts, or package-specific conventions. Applicable directory instructions already loaded by the client still apply.
 
+An exported guide may name this plugin as an optional read-only companion. That mention does not grant write access; the guide's hard constraints still govern any edit to the package.
+
 GitHub references and Git sync rules in a package's `AGENTS.md` do not automatically connect a GitHub service. See [GitHub and sync boundaries](../skills/bookmark-research/references/github-and-sync.md).
 
-The Skill currently produces answers and research reports. It does not generate importable bookmark packages or write changes back to source data. A future generation Skill could reuse the reading protocol with additional writing rules and validation.
+The Skill currently produces answers and research reports. It does not generate importable bookmark packages or write changes back to source data. A future generation Skill could reuse the reading protocol with additional writing rules and validation, but the package's exported guide remains the write protocol.
 
 ## Export formats
 
-This directory is the **Codex native plugin**, with its manifest at `.codex-plugin/plugin.json`. In Codex 0.153.4, the MCP configuration explicitly uses `cwd: "."` and runs `python3 src/cli.py serve` from the installed plugin directory. That native entry does not expand `${PLUGIN_ROOT}`; the Agent Plugins and Claude exports use their own path conventions.
+This directory is the **Codex native plugin**, with its manifest at `.codex-plugin/plugin.json`. In Codex 0.153.4, the MCP configuration explicitly uses `cwd: "."` and runs `python3 src/cli.py serve` from the installed plugin directory. That native entry does not expand `${PLUGIN_ROOT}`; the Claude export uses its own path convention.
 
 The Codex manifest forwards these environment variable names through `env_vars`: `BOOKMARK_RESEARCH_DATA_DIR`, `BOOKMARK_RESEARCH_CONFIG`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, and `OPENAI_API_KEY`. Actual paths and credentials come from the user's runtime environment.
 
@@ -245,17 +244,13 @@ Run the relevant command **from this directory** to generate another format:
 ```sh
 python3 scripts/export_bundle.py --format codex --output exports/codex/bookmark-research
 python3 scripts/export_bundle.py --format claude --output exports/claude/bookmark-research
-python3 scripts/export_bundle.py --format pi --output exports/pi/bookmark-research
 python3 scripts/export_bundle.py --format dsh --output exports/dsh/bookmark-research
-python3 scripts/export_bundle.py --format agent-plugin --output exports/agent-plugin/bookmark-research
 ```
 
 The destination must be new or empty. Exports include their own English setup README with links to bundled Chinese and English user guides, and exclude indexes, caches, tests, and credentials. The exporter writes files; follow the generated README or [installation guide](installation.en.md) to load them in your client.
 
 - **Claude Code:** plugin + marketplace manifests, `.mcp.json` and a Dynamic Workflow; supports persistent native installation or session loading with `--plugin-dir`.
-- **Pi:** `package.json` declares `pi.skills`; the Skill calls the CLI. Register the project workflow for the separately installed subagent extensions when available.
 - **DSH:** a relocatable `dsh.bundle` that connects the Skill and MCP, plus the legacy absolute-path patch and workflow call generator. Workflow components remain optional and host-managed.
-- **Agent Plugins 1.0.0:** root `plugin.json` + `mcp.json`, for clients implementing that specification; generated separately from Codex's native manifest.
 
 See the [client support table](#client-support) for verification status and [compatibility notes (Chinese)](harness-compatibility.md) for format differences and official sources.
 
@@ -275,6 +270,6 @@ python3 scripts/build_zip.py --include-tests --output dist/bookmark-research-tes
 
 The fixture verifier checks independent bookmark counts, copy-card semantics, scoped queries, unchanged source hashes, incremental sync, and a two-round research lifecycle with a failed page and resumed operation. To additionally validate your own package, append `--package /absolute/path/to/package`; this stays offline and writes derived files only to the new output directory.
 
-Network verification is explicit: `python3 tests/live_provider_smoke.py --run-live --output /tmp/provider-smoke.json` makes at most three searches and three fetches. The [0.4.0 validation record](validation-0.4.0.md) combines source lifecycle, whole-package research, bilingual instructions and host/service boundaries; [0.2.0](validation-0.2.0.md) retains the earlier provider evidence.
+Network verification is explicit: `python3 tests/live_provider_smoke.py --run-live --output /tmp/provider-smoke.json` makes at most three searches and three fetches. The [0.4.0 validation record](validation-0.4.0.md) combines source lifecycle, whole-package research, bilingual instructions and host/service boundaries; 0.2.0 (`docs/archive/validation-0.2.0.md`) retains the earlier provider evidence.
 
 The local stdio server exposes fixed tools. Its remote client implements the selected providers' Streamable HTTP lifecycle, bounded paginated tool discovery and limited session recovery; it is not a general OAuth client or a complete MCP SDK.

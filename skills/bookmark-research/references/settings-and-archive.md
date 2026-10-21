@@ -31,7 +31,7 @@ Read the scope of each result:
 - `task_mcp_access_verified`: the Parallel Task MCP accepted the key; this does not establish Task API execution permission.
 - `failed`: address the classified auth/network/contract failure, then refresh that provider. Other routes remain available.
 
-Optional native research MCPs return endpoint-specific `setup` guidance. Inspect existing registrations before adding one to avoid duplicates. Codex uses `codex mcp list --json`, `codex mcp add NAME --url URL` and, for OAuth-capable endpoints, `codex mcp login NAME`; Claude uses `claude mcp list`, `claude mcp add --scope user --transport http NAME URL`, then `/mcp` to authorize. Use the actual scope and existing name. Pi has no assumed MCP extension; ordinary/deep host-led work uses the bundled CLI. DSH uses its official MCP client with `transport: streamable-http`, the endpoint and environment-backed headers in the selected profile; OAuth support is not established by that bridge's documentation. Do not infer login from tool presence or start a paid task just to test authorization.
+Optional native research MCPs return endpoint-specific `setup` guidance. Inspect existing registrations before adding one to avoid duplicates. Codex uses `codex mcp list --json`, `codex mcp add NAME --url URL` and, for OAuth-capable endpoints, `codex mcp login NAME`; Claude uses `claude mcp list`, `claude mcp add --scope user --transport http NAME URL`, then `/mcp` to authorize. Use the actual scope and existing name. DSH uses its official MCP client with `transport: streamable-http`, the endpoint and environment-backed headers in the selected profile; OAuth support is not established by that bridge's documentation. Do not infer login from tool presence or start a paid task just to test authorization.
 
 The wizard displays these host steps; it does not execute them or import host login tokens. Its `needs_attention` lists failed checks or missing required service keys. Cached checks retain timestamps and expire; failures are cached for at most 60 seconds. Cache files live under the data directory's `readiness/` and contain no raw keys. Configuration and key rotation invalidate the relevant evidence.
 
@@ -54,6 +54,7 @@ The effective configuration shape is below. Replace example `directory` values w
   "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5,
     "strategy": "hedged", "grace_seconds": 2, "deadline_seconds": 10, "cache_seconds": 0},
   "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000,
+    "max_total_characters": 24000, "fair_share_min": 500,
     "strategy": "staggered", "grace_seconds": 25, "deadline_seconds": null, "reuse_seconds": 0},
   "server": {"network_workers": 4, "max_pending_calls": 16},
   "archive": {"enabled": true, "directory": "/absolute/path/to/knowledge"},
@@ -64,11 +65,15 @@ The effective configuration shape is below. Replace example `directory` values w
     "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
   "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest", "max_source_age_days": 30},
+  "wiki_preflight": true,
+  "freshness_days": 30,
+  "plan": {"max_characters": 8000, "min_relevance": 0.05, "homepage_limit": 2},
+  "tool_scope": [],
   "output": {"mode": "central", "directory": "/absolute/path/to/research"}
 }
 ```
 
-Precedence is per-call arguments → saved preferences → built-in defaults. `fetch_web.archive=false` disables saving for one call; `update_settings` changes the future default. `max_characters` ranges from 100 to 100000 and is forwarded only when the provider supports the corresponding limit. Archives record actual request parameters. `character_limit_applied:false` means the provider has no length parameter supported by this adapter. A larger limit does not guarantee a complete page.
+Precedence is per-call arguments → saved preferences → built-in defaults. `fetch_web.archive=false` disables saving for one call; `update_settings` changes the future default. `max_characters` ranges from 100 to 100000 and is forwarded only when the provider supports the corresponding limit; `max_total_characters` defaults to 24000 and is divided over pages when it exceeds `fair_share_min` (default 500). Archives record actual request parameters. `character_limit_applied:false` means the provider has no length parameter supported by this adapter. A larger limit does not guarantee a complete page. `wiki_preflight` (default true) lets `plan_research` check the Wiki and archive; `freshness_days` (default 30) is the local stale threshold; `plan.min_relevance` (default 0.05), `plan.max_characters` (default 8000) and `plan.homepage_limit` control the preflight's relevance floor, size and homepage quota. `tool_scope` is the server-side MCP catalog allowlist: empty lists all tools; setting it to eight names (`plan_research`, `search_bookmarks`, `get_context`, `search_web`, `fetch_web`, `discovery_bundle`, `wiki_search`, `wiki_get`) keeps the catalog small on hosts that cannot filter MCP tools. The DSH plugin passes that eight-name list as `BOOKMARK_RESEARCH_TOOL_SCOPE` by default; set the variable to a different comma-separated list, or to an empty string to restore the full catalog. A saved `tool_scope` is used when the environment variable is absent. Hidden tools reject calls until the scope is changed in the settings file or through `update_settings` while it is still visible.
 
 `search.cache_seconds` (0–3600, default 0) serves a repeated identical search from a short-lived in-process cache instead of calling providers again; those batches are marked `cached:true`, keep the original `retrieved_at`, and consume no provider quota. `fetch.reuse_seconds` (0–86400, default 0) makes `research_fetch` return extracted text saved within that window as `reused_sources` (original ids and retrieval times, no new snapshot) instead of fetching again; reused URLs reserve no fetch budget. `server.network_workers` (1–16) and `server.max_pending_calls` (1–64, at least the worker count) set stdio server concurrency and apply after the server restarts.
 
@@ -90,7 +95,7 @@ Output language precedence is the current request → `research.response_languag
 
 ## What a page read saves
 
-Ordinary `fetch_web` output always enforces `max_characters` per page and `max_total_characters` across the batch (default 100000, range 100–800000), even when a provider ignores its requested limit. `characters` and `text_sha256` describe the returned slice; `source_characters` and `sha256` describe the complete saved extract. `output_truncated`, `next_offset` and `continuation` make omitted text explicit. Repeat the returned `capture_id` and offset to read the same immutable capture without network; omit provider/archive/raw options on such reads. `raw:true` is diagnostic provider output, still subject to the MCP result-size ceiling.
+Ordinary `fetch_web` output always enforces `max_characters` per page and `max_total_characters` across the batch (default 24000, range 100–800000), even when a provider ignores its requested limit. With more than one URL it divides the budget over the remaining pages (`fetch.fair_share_min`, default 500) instead of spending it all on the first pages; `pages_with_text`/`pages_without_text` and `successful_url_count` count only text-bearing pages. `characters` and `text_sha256` describe the returned slice; `source_characters` and `sha256` describe the complete saved extract. `output_truncated`, `next_offset` and `continuation` make omitted text explicit. Repeat the returned `capture_id` and offset to read the same immutable capture without network; omit provider/archive/raw options on such reads. `raw:true` is diagnostic provider output, still subject to the MCP result-size ceiling.
 
 The stdio server runs up to four network-capable calls with at most 16 accepted calls pending. Local bookmark SQLite work remains on the connection thread and can return while a fetch is pending. Responses may arrive out of order and retain request IDs. Queue overflow returns an explicit error. Cancellation stops queued work; already issued HTTP calls finish under their provider timeout and retain their results/receipts. Normal stdin EOF drains accepted calls.
 

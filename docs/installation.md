@@ -4,7 +4,7 @@
 
 执行 Skill 和方法参考以英文维护，配完整中文阅读版及双语宿主提示说明，见[指令索引](instructions.md)。安装导出会携带这些文件。
 
-Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python 与要使用的客户端；运行 `python3 src/cli.py doctor` 可以离线检查 Python 和 FTS5。当前 checkout 的四宿主工作流及验证范围见 [宿主兼容说明](harness-compatibility.md)。正式发布统一使用 npm；源码与历史 ZIP 的本地验证仍可使用导出器。
+Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python 与要使用的客户端；运行 `python3 src/cli.py doctor` 可以离线检查 Python 和 FTS5。当前 checkout 的三宿主工作流及验证范围见 [宿主兼容说明](harness-compatibility.md)。正式发布统一使用 npm；源码与历史 ZIP 的本地验证仍可使用导出器。
 
 ## `bookmark-research` 命令（推荐）
 
@@ -18,7 +18,7 @@ Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
 ```
 
-终端向导检测可用 CLI，可多选 Codex、Claude Code、Pi、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选。DSH 在「PATH 中有可用的 `dsh`」或「找到自带 pnpm 的 DeepSeek Harness 桌面版」时都算检测到，因此桌面版自带 CLI 无需任何参数即可勾选；选中 DSH 后，向导会列出 `$DSH_HOME/profiles` 下已初始化的 profile，并标注本插件已登记的来源与是否已启用，也可另填新名称。随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。npm 安装器会在原生登记前检查所选宿主。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
+终端向导检测可用 CLI，可多选 Codex、Claude Code、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选。DSH 在「PATH 中有可用的 `dsh`」或「找到自带 pnpm 的 DeepSeek Harness 桌面版」时都算检测到，因此桌面版自带 CLI 无需任何参数即可勾选；选中 DSH 后，向导会列出 `$DSH_HOME/profiles` 下已初始化的 profile，并标注本插件已登记的来源与是否已启用，也可另填新名称。随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。npm 安装器会在原生登记前检查所选宿主。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
 
 首次安装选择 `npm:bookmark-research`（`latest`）。四个宿主都从该发布包导出所需格式，再由原生命令登记与验证。安装记录保存 npm 包名和版本选择，不保存临时下载或 npx 缓存路径；更新会重新取得同一选择器指向的发布包。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
 
@@ -27,14 +27,14 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 ```sh
 bash install.sh install --host codex
 bash install.sh install --host claude --scope user
-bash install.sh install --host pi --scope project --project /absolute/path/to/project
+bash install.sh install --host claude --scope project --project /absolute/path/to/project
 bash install.sh install --host dsh --profile web
 bash install.sh install --host claude --host dsh --profile web   # 等同 --host claude,dsh
 ```
 
-重复 `--host` 或用逗号分隔可一次安装多个宿主。此时 `--scope`／`--project` 作用于 Claude／Pi（选中 Pi 时拒绝 `local`），`--profile` 作用于 DSH；不匹配任何所选宿主的选项会被拒绝。各宿主依次安装，单个失败会记录在该宿主结果中，其余继续。偏好与密钥是用户级的，因此引导配置只在最后运行一次。单宿主时 JSON 结果格式不变；多宿主输出 `{"results": [...], "setup": {...}}`，任一宿主或配置失败时退出码为 1。
+重复 `--host` 或用逗号分隔可一次安装多个宿主。此时 `--scope`／`--project` 作用于 Claude，`--profile` 作用于 DSH；不匹配任何所选宿主的选项会被拒绝。各宿主依次安装，单个失败会记录在该宿主结果中，其余继续。偏好与密钥是用户级的，因此引导配置只在最后运行一次。单宿主时 JSON 结果格式不变；多宿主输出 `{"results": [...], "setup": {...}}`，任一宿主或配置失败时退出码为 1。
 
-Claude 支持 `user`／`project`／`local`，Pi 支持 `user`／`project`。project／local 需 `--project PATH`；DSH 需实际 `--profile NAME`。安装向导会询问未填写的目标。更新／验证时沿用同一 scope、project、profile 及自定义 `--install-dir`；`--codex`／`--claude`／`--pi`／`--dsh` 可指定 CLI 路径。
+Claude 支持 `user`／`project`／`local`，project／local 需 `--project PATH`；DSH 需实际 `--profile NAME`。安装向导会询问未填写的目标。更新／验证时沿用同一 scope、project、profile 及自定义 `--install-dir`；`--codex`／`--claude`／`--claude`／`--dsh` 可指定 CLI 路径。
 
 安装帮助和首次使用引导默认按 `LC_ALL` → `LC_MESSAGES` → `LANG` 判断语言：中文 locale 使用中文，其余或未设置时使用英文。显式选择中文可运行：
 
@@ -63,7 +63,7 @@ npx bookmark-research@latest install claude --source npm:bookmark-research@0.5.0
 
 再次安装和更新保留该选择器。默认 `latest` 随 npm 发布更新；显式版本保持固定。`--ref` 只用于显式 Git 开发来源，不再通过 bootstrap 选择发布版。已有 Git／本地安装保留原来源；如需转为 npm，先通过宿主命令处理旧登记，避免静默切换开发环境。
 
-Codex 分支管理 `bookmark-research@bookmark-research`。已通过 `personal` 等来源安装时沿用原更新流程。其他宿主也会检查来源冲突并保留原有设置。Claude 用内容派生的原生版本刷新缓存，同一发布版本下的源码变化也能生效；Pi 使用持久本地包；DSH 向指定 profile 安装可搬移 bundle。更新失败保留原包并记录待验证状态，之后可重试安装／更新。
+Codex 分支管理 `bookmark-research@bookmark-research`。已通过 `personal` 等来源安装时沿用原更新流程。其他宿主也会检查来源冲突并保留原有设置。Claude 用内容派生的原生版本刷新缓存，同一发布版本下的源码变化也能生效；DSH 向指定 profile 安装可搬移 bundle。更新失败保留原包并记录待验证状态，之后可重试安装／更新。
 
 **npm 是正式发布来源。** GitHub 提供源码、版本说明与安装清单；`install.sh` 调用 npm 入口。CI 只生成 npm `.tgz` 发布候选及校验文件。ZIP 与各宿主导出器用于本地开发、测试和历史兼容。见[发布约定与官方依据](distribution.md)。
 
@@ -80,7 +80,7 @@ python3 src/cli.py readiness --host codex --refresh
 python3 src/cli.py readiness --provider exa --test-retrieval
 ```
 
-Agent 可使用 `install --host pi --non-interactive --preferences FILE --skip-checks`。偏好文件是部分配置对象，例如：
+Agent 可使用 `install --host claude --non-interactive --preferences FILE --skip-checks`。偏好文件是部分配置对象，例如：
 
 ```json
 {"research":{"depth":"agentic","response_language":"zh"},"readiness":{"mode":"cached","ttl_seconds":900},"professional_research":{"enabled":false}}
@@ -90,7 +90,7 @@ Agent 可使用 `install --host pi --non-interactive --preferences FILE --skip-c
 
 每个联网研究新问题前，Skill 调用 `research_readiness`，传入实际宿主和已观察到的工具。`cached` 在首次、密钥／配置变化或 15 分钟过期后刷新；`always` 每个新问题检查；`manual` 等待手动 `--refresh`。同一调查复用检查，本地书签查询不联网；直接使用 CLI 时先执行 `readiness`，再调用搜索／读取命令。
 
-搜索／读取适配器已包含。可选 Exa Agent、Parallel Task、Tavily Research MCP 由宿主管理：向导展示对应的添加／授权步骤，检查结果也返回结构化指引。先检查已有登记并复用名称。Codex 用 `codex mcp list`，支持 OAuth 时用 `codex mcp login`；Claude 用 `claude mcp list` 和 `/mcp`。Pi 的原生研究 MCP 需另选 MCP 扩展；DSH 使用官方 MCP client 的 profile 配置和认证 header。工具可见不等于登录成功，插件保存的 Key 也不会自动授权另行登记的宿主 MCP。完整说明见[配置与排障](../skills/bookmark-research/references/zh/settings-and-archive.md)。
+搜索／读取适配器已包含。可选 Exa Agent、Parallel Task、Tavily Research MCP 由宿主管理：向导展示对应的添加／授权步骤，检查结果也返回结构化指引。先检查已有登记并复用名称。Codex 用 `codex mcp list`，支持 OAuth 时用 `codex mcp login`；Claude 用 `claude mcp list` 和 `/mcp`。DSH 使用官方 MCP client 的 profile 配置和认证 header。工具可见不等于登录成功，插件保存的 Key 也不会自动授权另行登记的宿主 MCP。完整说明见[配置与排障](../skills/bookmark-research/references/zh/settings-and-archive.md)。
 
 可选服务故障显示在 `setup.needs_attention`，不阻塞本地查询或其他服务。原生安装或配置失败返回非零，JSON 分别报告安装与 setup 状态。未主动请求新版向导时，缺少 setup 的历史版本仍可正常安装。
 
@@ -117,7 +117,7 @@ python3 scripts/install.py verify
 
 安装器会调用 Codex 原生 `plugin marketplace add`、`plugin add` 和 JSON 查询接口；Codex 管理其配置和安装缓存。当前 `main` 的安装器在成功后显示当前配置、首次提问模板和配置查询命令；已有配置会照实显示，读取失败时明确提示修正。stdout 保持 JSON，面向用户的引导写到 stderr，管道执行时也会显示。v0.2.0 固定快照保留当时的安装输出。
 
-本地源码、npm 包、解压目录和新 Git 来源均先导出干净插件目录，排除个人 `.claude/`、`.codex/`、`.pi/`、`.agent/`、`.git/` 和旧产物；仅保留插件所需声明和内容。导出旁记录原来源，`update` 从原来源重新导出；安装后对比宿主缓存的文件清单。本地来源需保留原源码和持久导出目录。Git 来源记录仓库和 ref：分支更新跟随分支，tag／commit 保持固定；重复安装省略 `--ref` 时沿用记录，显式指定不同 ref 时拒绝切换。
+本地源码、npm 包、解压目录和新 Git 来源均先导出干净插件目录，排除个人 `.claude/`、`.codex/`、`.agent/`、`.git/` 和旧产物；仅保留插件所需声明和内容。导出旁记录原来源，`update` 从原来源重新导出；安装后对比宿主缓存的文件清单。本地来源需保留原源码和持久导出目录。Git 来源记录仓库和 ref：分支更新跟随分支，tag／commit 保持固定；重复安装省略 `--ref` 时沿用记录，显式指定不同 ref 时拒绝切换。
 
 安装完成后新建 Codex thread，以载入新 Skill 和 MCP 工具。Python 必须能以 `python3` 被 Codex 的 MCP 子进程找到。需要支持这些子命令和 `--json` 的 Codex CLI；本仓库验证环境为 0.153.4。
 
@@ -210,31 +210,6 @@ claude --plugin-dir ./exports/claude/bookmark-research
 
 `RID` 替换为真实任务 ID，`run_key` 在新运行保持唯一，同一次恢复保持不变。需要 Claude Code 2.1.154+ 及已启用的 Dynamic Workflows；Pro 还需在 `/config` 开启。通过 `/workflows` 管理运行，恢复限于同一会话，退出后需重开。自带 `/deep-research` 为独立的显式入口，不自动保证本插件书签清单覆盖。参见 [Claude workflows](https://code.claude.com/docs/en/workflows)。
 
-### Pi
-
-持久安装可直接运行 `python3 scripts/install.py install --host pi`；基础 Skill + CLI 不需要子代理扩展。手动导出可使用：
-
-```sh
-python3 scripts/export_bundle.py --format pi --output exports/pi/bookmark-research
-pi --skill ./exports/pi/bookmark-research/skills/bookmark-research/SKILL.md
-```
-
-用 `/skill:bookmark-research` 加载 Skill。需要持久注册 Skill 时执行 `pi install /absolute/path/to/exports/pi/bookmark-research`；这条命令会修改 Pi settings。Pi 适配器声明 `pi.skills`，另附保存工作流及 Python stdio 工具桥；不提供 Pi 原生 MCP extension。
-
-保存工作流需要 Node 22.19+、Pi 0.83+、`pi-subagents` 0.43.0+，以及同一父会话加载的 `pi-subagents-workflows`。选定稳定导出位置后，只向指定项目登记：
-
-```sh
-python3 exports/pi/bookmark-research/hosts/pi/register-workflow.py --project /absolute/path/to/project
-```
-
-登记器创建 `.pi/subagent-workflows/bookmark-research/workflow.json` 和 `script.js`，不安装扩展或更改 settings。已有不同定义会保留并报冲突；重复相同登记幂等。项目须受信任，从该项目启动 Pi 后调用：
-
-```js
-pi_subagent_workflow({action:"run",name:"bookmark-research",args:{research_id:"RID",run_key:"review-1"}});
-```
-
-运行以 detached 模式启动，主代理须使用扩展的等待、状态和 artifacts 功能等到终态。`delegate` 需要 Bash 访问已绑定的 Python bridge，或已有研究 MCP 工具。搬迁包后需重新登记；注册表不提供跨会话 journal replay。参见 [Pi workflow registry](https://pi.dev/packages/pi-subagents-workflows)。
-
 ### DSH / DeepSeek Harness
 
 所选 DSH profile 需提供 Skill registry 和官方 `@deepseek-ai/dsh-mcp-client`。发布包自带 `bundle.patch.yml` 并声明 `dsh.bundle.patch`，因此除统一安装器之外，也可以直接从 registry 安装：`dsh plugin --profile <name> add bookmark-research@VERSION`，或在 DSH 插件管理界面按同一个 spec 安装；DSH 会把声明了 `dsh.bundle` 且 patch 存在的包自动加入 `dsh.profile.bundles`。层内不写死本机路径，Python 解释器、工作目录、MCP 参数与环境转发都由入口模块按安装位置解析。
@@ -262,15 +237,7 @@ python3 /absolute/path/to/bookmark-research-dsh/hosts/dsh/workflow-call.py --res
 
 结果由独立的 `meta`、无 export 的 `script`、对象 `args` 组成。DSH 等待完整流程后返回 `{runId,agentsStarted,result}`，取消是错误，渲染可能截断。报告子代理会通过共享研究工具保存完整分析附件并返回实际路径；不能假设宿主自动提供全文句柄。导出和生成参数均不启动宿主任务。
 
-本机已通过 Claude Code 2.1.247 原生 strict manifest 校验、宿主隔离检查与真实 MCP 分页/附件检查。Pi、DSH 未安装，本机 Node 22.17.0 低于 Pi workflow 要求；四宿主付费研究端到端均未运行。完整边界见 [验证记录](host-validation.json)。
-
-### Agent Plugins 1.0.0
-
-```sh
-python3 scripts/export_bundle.py --format agent-plugin --output exports/agent-plugin/bookmark-research
-```
-
-此格式使用根目录 `plugin.json` 和 `mcp.json`，供实现 [Agent Plugins 1.0.0](https://agent-plugins.org/specification) 的客户端使用。它与 Codex 原生格式分别导出。
+本机已通过 Claude Code 2.1.247 原生 strict manifest 校验、宿主隔离检查与真实 MCP 分页/附件检查。DSH 未安装；三宿主付费研究端到端均未运行。完整边界见 [验证记录](host-validation.json)。
 
 ## 首次使用与数据位置
 
@@ -332,8 +299,8 @@ python3 -m unittest discover -s tests
 python3 scripts/build_zip.py --output dist/bookmark-research-0.5.0-beta.3.zip
 ```
 
-ZIP 包含原生插件、marketplace、共享运行时、Skill、四宿主源文件及组装器、安装入口、导出器、文档和许可；不包含测试、数据库、页面归档、用户配置或书签数据包。加 `--include-tests` 可另建测试包，包含合成 fixture、宿主 JS 检查、`verify_fixture.py` 和 `verify_quality.py`，可解压后再次导出宿主包。
+ZIP 包含原生插件、marketplace、共享运行时、Skill、三宿主源文件及组装器、安装入口、导出器、文档和许可；不包含测试、数据库、页面归档、用户配置或书签数据包。加 `--include-tests` 可另建测试包，包含合成 fixture、宿主 JS 检查、`verify_fixture.py` 和 `verify_quality.py`，可解压后再次导出宿主包。
 
 构建结果打印 ZIP 的 SHA-256；相同内容以固定文件顺序、时间和权限打包，在相同 Python/zlib 环境中可重现相同字节。解压后的 `MANIFEST.sha256` 列出包内文件校验和，可在解压目录运行 `shasum -a 256 -c MANIFEST.sha256`。校验和用于发现损坏，来源真实性仍取决于你下载的仓库或发行渠道。
 
-构建只在本地生成文件。发布 GitHub Release、创建 tag 或推送 npm/PyPI 都不是构建器的行为。安装设计的参考依据和验证范围见 [0.2.0 安装设计](install-design-0.2.0.md)。
+构建只在本地生成文件。发布 GitHub Release、创建 tag 或推送 npm/PyPI 都不是构建器的行为。安装设计的参考依据和验证范围见 `docs/archive/install-design-0.2.0.md`。

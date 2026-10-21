@@ -544,7 +544,8 @@ class SourceArchive:
         return (bodies or candidates)[0]
 
     @classmethod
-    def compact_fetch(cls, fetched, max_characters=None, max_total_characters=100000, offset=0):
+    def compact_fetch(cls, fetched, max_characters=None, max_total_characters=100000, offset=0,
+                      fair_share_min=0):
         """Present one selected extract per URL, retaining every attempt's provenance.
 
         Raw MCP responses may repeat a body in text, structured data and excerpts.
@@ -614,33 +615,63 @@ class SourceArchive:
         limits = [attempt.get("requested_max_characters", 12000) for attempt in attempts]
         limit = max_characters if max_characters is not None else min(limits or [12000])
         ordered = [pages[url] for url in fetched.get("urls", []) if url in pages]
-        result.update(output_format="compact", pages=cls._bounded_pages(
-            ordered, limit, max_total_characters, offset),
+        bounded = cls._bounded_pages(ordered, limit, max_total_characters, offset,
+                                     fair_share_min=fair_share_min)
+        with_text = sum(1 for page in bounded if (page.get("characters") or 0) > 0)
+        result.update(output_format="compact", pages=bounded,
+            pages_with_text=with_text, pages_without_text=len(bounded) - with_text,
             output_budget={"max_characters_per_page": limit, "max_total_characters": max_total_characters,
-                           "offset": offset, "raw_archive_preserved": any(
+                           "offset": offset, "fair_share_min": fair_share_min,
+                           "raw_archive_preserved": any(
                                attempt.get("archive", {}).get("status") == "saved" for attempt in attempts)})
+        if "successful_url_count" in result:
+            result["successful_url_count"] = with_text
         return result
 
     @staticmethod
-    def _bounded_pages(pages, limit, total, offset):
+    def _bounded_pages(pages, limit, total, offset, fair_share_min=0):
         for name, value, low, high in (("max_characters", limit, 100, 100000),
                                        ("max_total_characters", total, 100, 800000),
                                        ("offset", offset, 0, 100000000)):
             if type(value) is not int or not low <= value <= high:
                 raise ValueError("%s must be between %s and %s" % (name, low, high))
+        if type(fair_share_min) is not int or fair_share_min < 0:
+            raise ValueError("fair_share_min must be a non-negative integer")
         remaining = total
+        # A multi-URL fetch used to consume the whole budget on the first pages;
+        # a later page then looked "usable" with zero characters. When asked for
+        # fairness, divide the remaining budget over the remaining pages. A
+        # continuation (offset > 0) is one page, so the old path is exact.
+        fair = fair_share_min > 0 and len(pages) > 1 and offset == 0
+        text_pages = sum(1 for page in pages if page.get("text") is not None)
+        text_seen = 0
         for page in pages:
             body = page.get("text")
             if body is None:
+                page["read"] = False
                 continue
+            text_seen += 1
             start = min(offset, len(body))
-            excerpt = body[start:start + min(limit, remaining)]
+            if fair:
+                left = text_pages - text_seen + 1
+                allowance = remaining // left if left else remaining
+                allowance = min(limit, max(1, allowance), remaining) if remaining else 0
+            else:
+                allowance = min(limit, remaining)
+            excerpt = body[start:start + allowance]
             end = start + len(excerpt)
             remaining -= len(excerpt)
             page.update(source_characters=len(body), characters=len(excerpt),
                         text=excerpt, text_sha256=hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
                         offset=start, next_offset=end if end < len(body) else None,
-                        output_truncated=start > 0 or end < len(body))
+                        output_truncated=start > 0 or end < len(body), read=bool(excerpt))
+            if not excerpt:
+                # Do not leave an empty page looking usable: the caller cannot
+                # cite text it did not receive. Preserve a more specific
+                # provider state (challenge, shell, paywall) when one exists.
+                if page.get("content_state") in (None, "usable"):
+                    page["content_state"] = "unavailable"
+                page["next_offset"] = 0
             if page["output_truncated"]:
                 page["possibly_truncated"] = True
             if page["next_offset"] is not None and page.get("capture_id"):
@@ -648,7 +679,8 @@ class SourceArchive:
                                         "offset": end, "max_characters": limit}
         return pages
 
-    def read_capture(self, capture_id, urls, max_characters=12000, max_total_characters=100000, offset=0):
+    def read_capture(self, capture_id, urls, max_characters=12000, max_total_characters=100000, offset=0,
+                     fair_share_min=0):
         """Read a stable archived extract without issuing another web request."""
         if not isinstance(capture_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", capture_id):
             raise ValueError("Invalid archive capture_id")
@@ -678,14 +710,19 @@ class SourceArchive:
                           "provider": manifest.get("provider"), "retrieved_at": manifest.get("retrieved_at"),
                           "manifest_path": str(manifest_path), "text": body,
                           "body_path": str(self.page_path(directory, record)) if body is not None else None})
-        successful = sum(page["text"] is not None for page in pages)
+        successful = sum(1 for page in pages if page["text"])
+        bounded = self._bounded_pages(pages, max_characters, max_total_characters, offset,
+                                      fair_share_min=fair_share_min)
+        with_text = sum(1 for page in bounded if (page.get("characters") or 0) > 0)
         return {"mode": "archive_read", "status": "ok" if successful == len(pages) else
                 "partial" if successful else "error", "urls": requested, "output_format": "compact",
-                "successful_url_count": successful,
+                "successful_url_count": with_text,
+                "pages_with_text": with_text, "pages_without_text": len(bounded) - with_text,
                 "network_request_performed": False,
-                "pages": self._bounded_pages(pages, max_characters, max_total_characters, offset),
+                "pages": bounded,
                 "output_budget": {"max_characters_per_page": max_characters,
-                                  "max_total_characters": max_total_characters, "offset": offset}}
+                                  "max_total_characters": max_total_characters, "offset": offset,
+                                  "fair_share_min": fair_share_min}}
 
     @staticmethod
     def _write_json(path, value):

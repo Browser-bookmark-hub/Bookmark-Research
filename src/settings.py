@@ -15,6 +15,7 @@ class Settings:
     """Load on each operation so MCP clients can change preferences without restart."""
 
     PROVIDERS = ("exa", "parallel", "tavily", "jina")
+    OPENAI_RESEARCH_MODELS = ("gpt-5.6-sol", "o3-deep-research", "o4-mini-deep-research")
 
     def __init__(self, path=None):
         config_home = self._xdg_home("XDG_CONFIG_HOME", Path.home() / ".config")
@@ -59,6 +60,7 @@ class Settings:
                            "strategy": "hedged", "grace_seconds": 2, "deadline_seconds": 10,
                            "cache_seconds": 0},
                 "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000,
+                          "max_total_characters": 24000, "fair_share_min": 500,
                           "strategy": "staggered", "grace_seconds": 25, "deadline_seconds": None,
                           "reuse_seconds": 0},
                 # Stdio server concurrency; read at startup, so changes need a restart.
@@ -68,10 +70,17 @@ class Settings:
                              "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
                 "readiness": {"mode": "cached", "ttl_seconds": 900, "timeout_seconds": 10},
                 "professional_research": {"enabled": False, "provider": None,
-                    "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
+                    "openai": {"model": "gpt-5.6-sol", "max_tool_calls": 24,
+                               "allow_untested_model": False},
                     "parallel": {"processor": "pro"}},
                 "wiki": {"directory": str(cls.data_directory() / "wiki"), "after_research": "suggest",
                          "max_source_age_days": 30},
+                "wiki_preflight": True,
+                "freshness_days": 30,
+                "plan": {"max_characters": 8000, "min_relevance": 0.05, "homepage_limit": 2},
+                # Empty means every tool; otherwise tools/list and tools/call
+                # expose only these names. Hosts that cannot filter MCP tools use it.
+                "tool_scope": [],
                 # Where new research task folders go; existing tasks are never moved.
                 "output": {"mode": "central", "directory": str(cls.data_directory() / "research")}}
 
@@ -92,7 +101,7 @@ class Settings:
         defaults = cls.defaults()
         if set(value) - set(defaults):
             raise ValueError("Unknown settings fields; credentials belong in the environment or private credential file")
-        for section in ("search", "fetch", "server", "archive", "research", "readiness", "professional_research", "wiki", "output"):
+        for section in ("search", "fetch", "server", "archive", "research", "readiness", "professional_research", "wiki", "plan", "output"):
             if not isinstance(value.get(section), dict) or set(value[section]) != set(defaults[section]):
                 raise ValueError("Invalid settings fields in " + section)
         for label, number, minimum, maximum in (
@@ -100,6 +109,11 @@ class Settings:
                 ("timeout_seconds", value["timeout_seconds"], 1, 60),
                 ("search.limit_per_target", value["search"]["limit_per_target"], 1, 20),
                 ("fetch.max_characters", value["fetch"]["max_characters"], 100, 100000),
+                ("fetch.max_total_characters", value["fetch"]["max_total_characters"], 100, 800000),
+                ("fetch.fair_share_min", value["fetch"]["fair_share_min"], 0, 100000),
+                ("freshness_days", value["freshness_days"], 1, 3650),
+                ("plan.max_characters", value["plan"]["max_characters"], 1000, 50000),
+                ("plan.homepage_limit", value["plan"]["homepage_limit"], 0, 8),
                 ("wiki.max_source_age_days", value["wiki"]["max_source_age_days"], 1, 3650),
                 ("readiness.ttl_seconds", value["readiness"]["ttl_seconds"], 60, 86400),
                 ("readiness.timeout_seconds", value["readiness"]["timeout_seconds"], 1, 30),
@@ -111,6 +125,18 @@ class Settings:
                 raise ValueError("%s must be an integer between %s and %s" % (label, minimum, maximum))
         if value["server"]["max_pending_calls"] < value["server"]["network_workers"]:
             raise ValueError("server.max_pending_calls must be at least server.network_workers")
+        if type(value["wiki_preflight"]) is not bool:
+            raise ValueError("wiki_preflight must be a boolean")
+        scope = value["tool_scope"]
+        if (not isinstance(scope, list) or len(scope) > 100
+                or any(not isinstance(name, str) or not name or len(name) > 128 for name in scope)
+                or len(set(scope)) != len(scope)):
+            raise ValueError("tool_scope must be a list of up to 100 unique tool names")
+        relevance = value["plan"]["min_relevance"]
+        if isinstance(relevance, bool) or not isinstance(relevance, (int, float)) or not 0 <= relevance <= 1:
+            raise ValueError("plan.min_relevance must be a number between 0 and 1")
+        if value["fetch"]["fair_share_min"] > value["fetch"]["max_characters"]:
+            raise ValueError("fetch.fair_share_min must not exceed fetch.max_characters")
         for label, number, minimum, maximum in (
                 ("search.grace_seconds", value["search"]["grace_seconds"], 0, 60),
                 ("search.deadline_seconds", value["search"]["deadline_seconds"], 0, 60),
@@ -160,8 +186,14 @@ class Settings:
             if (not isinstance(services[provider], dict)
                     or set(services[provider]) != set(defaults["professional_research"][provider])):
                 raise ValueError("Invalid professional_research fields for " + provider)
-        if services["openai"]["model"] not in ("o3-deep-research", "o4-mini-deep-research"):
-            raise ValueError("OpenAI research model must be o3-deep-research or o4-mini-deep-research")
+        model = services["openai"]["model"]
+        if not isinstance(model, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,80}", model):
+            raise ValueError("OpenAI research model must be a lowercase model ID")
+        allow_untested = services["openai"]["allow_untested_model"]
+        if type(allow_untested) is not bool:
+            raise ValueError("professional_research.openai.allow_untested_model must be boolean")
+        if model not in cls.OPENAI_RESEARCH_MODELS and not allow_untested:
+            raise ValueError("OpenAI research model is not in the tested set; set allow_untested_model=true to use " + model)
         limit = services["openai"]["max_tool_calls"]
         if type(limit) is not int or not 1 <= limit <= 1000:
             raise ValueError("professional_research.openai.max_tool_calls must be between 1 and 1000")

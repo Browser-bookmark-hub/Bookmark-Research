@@ -1,19 +1,18 @@
 # 宿主兼容、工作流与打包
 
-更新日期：2026-10-08。四宿主共用同一 Skill、Python CLI、stdio MCP 和研究档案。当前宿主模型负责规划、搜索／阅读、判断证据、按缺口补查及综合；原生协作支持独立分工。Deep Research 在这条流程上增加持续调查、独立核验、覆盖检查和报告。外部研究 API 可承担具体子问题，缺少它们仍能研究。
+更新日期：2026-10-21。**Pi 支持已移除；本文 Pi 相关段落仅作历史记录。** 三宿主共用同一 Skill、Python CLI、stdio MCP 和研究档案。当前宿主模型负责规划、搜索／阅读、判断证据、按缺口补查及综合；原生协作支持独立分工。Deep Research 在这条流程上增加持续调查、独立核验、覆盖检查和报告。外部研究 API 可承担具体子问题，缺少它们仍能研究。
 
-**正文依据、文件生成、隔离脚本检查、真实 MCP 调用和宿主端到端研究是不同验证层级。** 本轮在 DSH 桌面版 profile `desktop` 上完成了一次真实安装，并观察到 Skill 注册与 MCP 工具实际应答；Pi 仍未安装，未改全局配置，未启动付费研究模型。具体脚本调用和研究规则见 [宿主工作流参考](../skills/bookmark-research/references/host-workflows.md)。
+**正文依据、文件生成、隔离脚本检查、真实 MCP 调用和宿主端到端研究是不同验证层级。** 本轮在 DSH 桌面版 profile `desktop` 上完成了一次真实安装，并观察到 Skill 注册与 MCP 工具实际应答；未改全局配置，未启动付费研究模型。具体脚本调用和研究规则见 [宿主工作流参考](../skills/bookmark-research/references/host-workflows.md)。
 
 | 宿主 | 协作基础与本插件入口 | 生命周期与限制 |
 | --- | --- | --- |
 | Codex | `hosts/codex/delegate.md`＋原生子代理；`prepare.py` 读取全量分页、仅输出分组 | 使用当前会话原生工具，不假设有 JavaScript workflow runtime，不安装全局 agent 定义 |
 | Claude Code | 普通 `Agent`／旧版 `Task`；可选已启用的 Agent Teams；整包可用 `/bookmark-research:bookmark-research` | 普通子代理可继承受过滤的 MCP 工具，Skill 需预载或读取；团队默认关闭且不继承主代理历史；Dynamic Workflow 为独立可选入口 |
-| Pi | 已加载的 `subagent` 扩展；整包可用登记后的 `pi_subagent_workflow` | 核心不内置子代理或 MCP；官方扩展示例支持单任务、并发和链式任务；具体工具与等待方式以已加载扩展为准 |
 | DSH | 已配置的 subagent；整包可将 `hosts/dsh/workflow-call.py` 生成的 `{meta,script,args}` 交给 `workflow` | profile 需提供相应服务与工具；`workflow` 等完整流程后返回结果，不能当作后台 start/poll 接口 |
 
-本次通过插件的 Exa 检索并读取官方正文，新增依据为 [W12–W16]，并重读 [W3][W7]。这验证能力文档，没有执行四宿主完整研究。子代理须获得具体问题、范围、相关 Skill 内容和共享 MCP／CLI 数据入口，不能假定父代理上下文在四宿主间以相同方式继承。
+本次通过插件的 Exa 检索并读取官方正文，新增依据为 [W12–W16]，并重读 [W3][W7]。这验证能力文档，没有执行三宿主完整研究。子代理须获得具体问题、范围、相关 Skill 内容和共享 MCP／CLI 数据入口，不能假定父代理上下文在三宿主间以相同方式继承。
 
-本次默认流程调整通过 369 项单元测试、Skill／插件校验及新安装缓存的真实 stdio MCP 检查；5 个选路场景通过，61 个导出文件与缓存一致。这里只验证选路与工具接入，四宿主端到端研究仍未运行。记录见 [host-validation.json](host-validation.json) 的 `host_first_review`。
+本次默认流程调整通过 369 项单元测试、Skill／插件校验及新安装缓存的真实 stdio MCP 检查；5 个选路场景通过，61 个导出文件与缓存一致。这里只验证选路与工具接入，三宿主端到端研究仍未运行。记录见 [host-validation.json](host-validation.json) 的 `host_first_review`。
 
 `research_route` 对普通 Agentic Search 优先选择当前模型的搜索／阅读循环，不强制完整研究会话；深度任务优先原生协作，整包 `batch_research` 才按偏好选择分组脚本。已保存 API 偏好只排列外部服务，显式 provider 才直接指定服务。路由依据当前工具和已加载能力，不凭宿主名称推断；没有子代理时主代理继续，并准确说明复核方式。
 
@@ -26,10 +25,10 @@
 | Codex 0.153.4 | `multi_agent` 为 stable、enabled；实际委派仍以会话可见工具为准 |
 | Claude Code 2.1.247 | `claude plugin validate --strict` 通过、无警告；并未执行付费工作流 |
 | 本地宿主测试 | 8 项通过，含 36 项隔离脚本检查；真实 stdio MCP 验证 207 项完整分页和完整结果附件回读 |
-| Pi / DSH | PATH 中未安装；本机 Node 22.17.0 低于 Pi workflow 要求的 22.19 |
-| 端到端研究 | 本轮未运行；不能由上述检查推断四宿主的完整研究已通过 |
+| DSH | PATH 中未安装 |
+| 端到端研究 | 本轮未运行；不能由上述检查推断三宿主的完整研究已通过 |
 
-正文 SHA-256、原生校验和检查记录见 [host-validation.json](host-validation.json)。本轮 [W1–W8] 来自 2026-09-10 保存的 Exa 提取正文，完整性为 unknown，来源站实时新鲜度未建立；补充接口资料于 2026-09-11 读取。Pi 两项扩展的作者文档不等于 Pi 核心能力承诺。
+正文 SHA-256、原生校验和检查记录见 [host-validation.json](host-validation.json)。本轮 [W1–W8] 来自 2026-09-10 保存的 Exa 提取正文，完整性为 unknown，来源站实时新鲜度未建立；补充接口资料于 2026-09-11 读取。
 
 | ID | 已读依据 |
 | --- | --- |
@@ -50,17 +49,15 @@
 | W15 | [Pi usage](https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/usage.md)：核心不内置 MCP／子代理，通过扩展和包提供 |
 | W16 | [Pi 官方 subagent 示例](https://github.com/earendil-works/pi/tree/main/packages/coding-agent/examples/extensions/subagent)：单任务、并发和链式调用 |
 
-下文保留 2026-09-07 至 09-10 的基础打包核验及 Codex 路径规则。H / P / D 来源见 [harness-sources.json](harness-sources.json)，历史版本测试见 [0.2.0 验证记录](validation-0.2.0.md)。
+下文保留 2026-09-07 至 09-10 的基础打包核验及 Codex 路径规则。H / P / D 来源见 [harness-sources.json](harness-sources.json)，历史版本测试见 `docs/archive/validation-0.2.0.md`。
 
 | 目标 | 真实入口 | Skill／MCP 如何接入 | 本项目的最小路线 |
 | --- | --- | --- | --- |
 | OpenAI Codex 插件 | `.codex-plugin/plugin.json` | manifest 指向 skills、MCP 配置等组件 | 原生 Codex 包；具体安装与验证按本项目 README |
 | Claude Code 插件 | `.claude-plugin/plugin.json`；当前文档允许省略 manifest 后按约定发现组件 | 根 `skills/`、`.mcp.json` 或 manifest 配置 | 单独保留 Claude manifest／MCP 配置 |
-| Agent Plugins 1.0.0 标准包 | **根 `plugin.json`**，必填 `$schema` 与 `name` | 固定发现根 `skills/`、`mcp.json` | 从同一源码独立导出标准包 |
-| Pi | `package.json` 的 `pi` 字段，或资源目录约定 | 原生 skills／extensions；MCP 要靠扩展 | `pi.skills`＋Skill 调用 CLI；多组任务另登记项目工作流 |
 | DeepSeek Harness（DSH） | 包在 `package.json` 声明 `dsh.bundle.patch`，由 `dsh plugin` 或插件管理器安装；`--patch` 仍可手工加载 Cordis 配置 | 原生 Skill provider；官方 `dsh-mcp-client` 桥接 MCP tools | 发布包自带按安装位置解析的 `bundle.patch.yml`，registry 可直接安装；绝对路径 `cordis.patch.yml` 仅作手工适配 |
 
-这些入口不是同一文件的不同别名。符合 Agent Skills 的 `SKILL.md` 和 MCP 协议是主要复用边界；某个客户端能加载 Skill，并不表示它已经支持 Agent Plugins 的根 manifest。[H01][H04][H05][P02][D02]
+这些入口不是同一文件的不同别名。符合 Agent Skills 的 `SKILL.md` 和 MCP 协议是主要复用边界。
 
 **1．稳定数据位置与共用入口**
 
@@ -76,58 +73,7 @@ Codex 的 stdio MCP 需要显式允许转发自定义环境变量（[官方说�
 
 本项目五种导出均保留上述 CLI 行为，**不强制传入 `--db` 或 `${PLUGIN_DATA}`**。需要共库时，在各载体实际启动 MCP／CLI 子进程的环境中设置相同的 `BOOKMARK_RESEARCH_DATA_DIR`，或修改启动参数，显式指定同一 `--db` 路径。客户端可能过滤环境变量，不能仅凭外部终端已设置就断言子进程一定继承。
 
-Agent Plugins 标准的 `PLUGIN_DATA` 是**每个客户端管理的、属于该安装实例的数据目录**，规范要求升级时保留，但没有保证不同客户端的目录相同。如果使用者选择把数据库放入该目录，它可以跨该插件的升级保存，却不自动与 CLI 默认库或另一载体的库共享。[H01]
-
 Skill 中应通过当前载体实际提供的工具或 CLI 调用能力，不把模型固定工具名前缀当成可移植协议。尤其 DSH 会把 MCP 工具映射成 `mcp__<serverName>__<tool>`；其他客户端的呈现方式由它们决定。[D04]
-
-**2．Pi：Skill、CLI 与保存工作流**
-
-多组工作流需要 Node 22.19+、Pi 0.83+、`pi-subagents` 0.43.0+，以及同一父会话中加载的 `pi-subagents-workflows`。运行 `python3 hosts/pi/register-workflow.py --project PATH` 只登记该项目的 `.pi/subagent-workflows/bookmark-research/`，不修改 Pi settings 或安装扩展。项目必须受信任。相同定义幂等，不同定义保留并报冲突。[W5]
-
-脚本使用有序的 `runs.all` 结果，逐项检查 `run.error` 与 `ok`，从 `structuredOutput` 取结构化内容；声明参数为 `outputSchema`，不是 `schema`。脚本只使用顶层 await 与 Promise 链，避免运行时禁止的嵌套 async helper。`delegate` 需已有研究 MCP，或通过 Bash 调用本包 `hosts/shared/research-call.py`。该 Python 桥真实执行同一 stdio 服务，登记器把稳定包路径绑定到参数，迁移后须重新登记。[W10][W11]
-
-本轮 Pi 官网与官方仓库指向 `earendil-works/pi`，当前包名是 `@earendil-works/pi-coding-agent`。历史教程里的 `badlogic/pi-mono`、`@mariozechner/...` 不应无核验地作为当前安装示例。[P01][P02]
-
-Pi 的包声明可只包含共享 Skill：
-
-```json
-{
-  "name": "bookmark-research",
-  "version": "0.2.0",
-  "keywords": ["pi-package"],
-  "pi": {
-    "skills": ["./skills"]
-  }
-}
-```
-
-这会让 Pi 发现 `skills/bookmark-research/SKILL.md`，不意味着注册了名为 `search_bookmarks` 的 Pi 原生工具。Skill 可以引导模型调用已有 Python CLI；此时复用的是同一个查询程序和数据库。[P02][P03]
-
-先导出 Pi 的原生 Skill 包，再按实际导出路径单次加载：
-
-```sh
-python3 scripts/export_bundle.py --format pi --output /private/tmp/bookmark-research-pi
-pi --skill /private/tmp/bookmark-research-pi/skills/bookmark-research/SKILL.md
-```
-
-进入 Pi 后用 `/skill:bookmark-research` 加载工作流。若以后决定持久注册此本地包，可使用：
-
-```sh
-pi install /private/tmp/bookmark-research-pi
-```
-
-`pi install` 默认修改 `~/.pi/agent/settings.json`；`-l` 使用项目 `.pi/settings.json`。本地路径包不复制文件，只将位置加入设置。本文未执行这些命令。[P02]
-
-Pi 官方 `usage.md` 明确写明核心不内建 MCP；它希望通过扩展或包添加这种能力。不能把 Codex／Claude 的 `.mcp.json` 放进包里，就声称 Pi 会原生连接该服务器。[P05]
-
-将来需要模型直接调用结构化 Pi 工具时，有两个扩展方向：
-
-- 编写薄 Pi extension，通过 `pi.registerTool()` 调用本项目 CLI 或 MCP。官方扩展入口是接收 `ExtensionAPI` 的默认导出工厂函数；当前类型入口是 `@earendil-works/pi-coding-agent`，参数 schema 示例使用 `typebox`。[P04]
-- 明确选择并验证一个 MCP adapter 扩展。Pi 官方包目录可以列出第三方 adapter，但收录不等于 Pi 核心实现，更不等于本项目已经测试该 adapter。本版不自动引入某个第三方桥。
-
-只有实际提供相应文件后，才把 `pi.extensions` 指向扩展路径。当前包提供 Pi Skill、保存工作流与 Python 工具桥，没有声明一个 Pi 原生工具 extension。
-
-Pi 支持全局 `~/.pi/agent/skills/`、`~/.agents/skills/`、项目 `.pi/skills/`／`.agents/skills/`、包内 skills、设置路径与重复的 `--skill`。Pi 的递归发现比 Agent Plugins 标准宽松，但共享包仍应使用 `skills/<name>/SKILL.md` 的一层布局，并让目录名与 skill name 一致，兼顾更严格的客户端。[P03]
 
 **3．DeepSeek Harness：配置 bundle 和运行插件是两层**
 
@@ -155,7 +101,7 @@ DSH 的原生运行插件是 Cordis 模块，可导出 `name`、`inject` 和 `ap
         failOnStartupError: true
 ```
 
-`command` 与 `args` 分开传递。不要在这个 DSH 片段里假设 `${PLUGIN_ROOT}` 会像 Codex／Agent Plugins 一样展开；本轮核实的 MCP 客户端并未定义这种插件根占位符约定。绝对路径片段适合本机 checkout；搬迁或重新安装到其他位置后需要重新生成。DSH 的 patch 文件位置也不会改变模块路径解析所依据的 profile 目录。[D03][D05]
+`command` 与 `args` 分开传递。不要在这个 DSH 片段里假设 `${PLUGIN_ROOT}` 会像 Codex 一样展开；本轮核实的 MCP 客户端并未定义这种插件根占位符约定。绝对路径片段适合本机 checkout；搬迁或重新安装到其他位置后需要重新生成。DSH 的 patch 文件位置也不会改变模块路径解析所依据的 profile 目录。[D03][D05]
 
 发布包现在**自带** `bundle.patch.yml` 并在 `package.json` 声明 `dsh.bundle.patch`，因此 `dsh plugin --profile <name> add bookmark-research@<version>`（以及 DSH 插件管理界面）可以直接从 registry 安装；`dsh` 的 bundle 对账逻辑会把声明了 `dsh.bundle` 且 patch 存在的包自动加入 `dsh.profile.bundles`。层内不写死本机路径：`command`、`args`、`cwd` 与转发的环境变量都由入口模块 `hosts/dsh/plugin.js` 在加载时提供（`bookmarkResearchPaths.python/mcpArgs/env`），模块用与 npm 启动器相同的顺序发现 Python 3.9+／SQLite，所以导出副本、registry 安装和 Windows 都不需要重生成 patch。统一安装器仍导出带校验和的固定副本，用于可验证的托管安装；对不含该文件的旧发布包或旧 Git ref，导出器按模块的旧契约生成等价层，安装不回归。[D02][D03]
 
@@ -183,71 +129,6 @@ DSH 的 Skill 可直接复用共享 `SKILL.md`。本轮官方 Skill provider 的
 
 目录包采用 `<name>/SKILL.md`，不递归寻找任意层级的 `**/SKILL.md`。要加载源码树中的 `skills/`，应由现有 Skill provider 的 `customSkillDirs` 指向其绝对路径，或通过被识别的 skills 根分发。仅把 `skills/` 放到任意 DSH npm 包根目录，不会因为它同时是 Codex／Pi 的 Skill 目录就自动被发现。[D06][D07]
 
-**4．Agent Plugins 1.0.0：独立生成标准导出包**
-
-规范的入口是根 `plugin.json`，不是 `.agents/plugin.json`、`.codex-plugin/plugin.json` 或 `.claude-plugin/plugin.json`。根 manifest 的顶层字段是封闭 schema，不能在其中加 Codex 风格的 `skills`、`mcpServers`、`interface` 字段。标准包从固定位置发现 skills 与 MCP。[H01][H02]
-
-实际导出形状：
-
-```text
-bookmark-research-agent-plugins/
-├── plugin.json
-├── mcp.json
-├── skills/
-│   └── bookmark-research/
-│       └── SKILL.md
-├── src/
-│   ├── cli.py
-│   └── … 所需的共享 Python 模块
-├── config/
-│   └── providers.json
-└── README.md
-```
-
-根 `plugin.json`：
-
-```json
-{
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-  "name": "bookmark-research",
-  "version": "0.2.0",
-  "description": "Query Bookmark Canvas packages through reusable skills and MCP tools."
-}
-```
-
-根 `mcp.json`：
-
-```json
-{
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
-  "mcpServers": {
-    "bookmark-research": {
-      "type": "stdio",
-      "command": "python3",
-      "args": [
-        "${PLUGIN_ROOT}/src/cli.py",
-        "serve"
-      ]
-    }
-  }
-}
-```
-
-本示例与实际导出器一致，保留 CLI 的数据位置规则。标准提供 `PLUGIN_DATA` 这一能力，并不要求应用必须把数据库放在那里；本项目没有用它覆盖 `BOOKMARK_RESEARCH_DATA_DIR`。
-
-需要遵守的实际边界：
-
-- 标准 `mcp.json` 必须同时有 `$schema` 与 `mcpServers`，每个 stdio server 必须有 `type: "stdio"` 与 `command`。[H03]
-- `command` 是一个可执行名称或 `./` 开头的包内可执行路径；不会展开占位符。Python 是外部运行时，所以这里用裸名称 `python3`，脚本位置放入 args。
-- `args`、`env`、`cwd` 可以展开 `${PLUGIN_ROOT}`／`${PLUGIN_DATA}`。省略 cwd 时使用插件根；不能假定任意 `${ENV_VAR}` 都会被标准客户端展开。
-- 不在 env 中自行定义 `PLUGIN_ROOT`／`PLUGIN_DATA`；两者由客户端提供。客户端应在启动前创建并保留可写 `PLUGIN_DATA`。
-- 包内可发现／执行文件的真实路径应留在插件根内。导出要复制需要的文件，不能用指向开发工作区外部的 symlink 冒充自包含包。
-- `skills/` 只发现立即子目录中的 `SKILL.md`，标准不要求客户端递归寻找深层 Skill。
-- §8 要求客户端专用数据放在客户端拥有的 reverse-domain namespace 中。标准导出包应排除 `.codex-plugin/`、`.claude-plugin/`、Pi／DSH 专用入口和 `skills/*/agents/openai.yaml` 等元数据；后者是为避免把客户端特定文件混入规范包而采取的保守导出策略。不要自行冒用 `com.openai` 或 `com.anthropic` namespace。
-- 规范没有给整个文件系统根目录列一个封闭白名单；不能推导出通用 `src/`、`bin/`、`docs/` 被禁止。闭合的是 manifest JSON 字段，客户端专用文件另受 §8 约束。
-
-可共用同一源码树并生成多种包，但“标准包通过 schema 检查”不等于 Codex、Claude、Pi、DSH 的现有版本都能直接安装它。本文没有核实这些客户端已经将根 `plugin.json` 作为它们原生 manifest 的等价入口。[H01]
-
 **5．Codex 与 Claude：保留各自原生包装，不混用校验规则**
 
 OpenAI 官方文档要求 `.codex-plugin/plugin.json`。只把这个文件放进该隐藏目录，skills、MCP 配置、hooks 等留在插件根。当前官方文档对 MCP 文件示例采用 direct server map 或 `mcp_servers` wrapper；本地插件工具与客户端版本可能使用不同表示，应该分别验证实际生成的包装，不把一种文档示例自动当成所有客户端的通用形状。[H04]
@@ -264,9 +145,9 @@ OpenAI 官方文档要求 `.codex-plugin/plugin.json`。只把这个文件放进
 
 精确版本源码 [`rust-v0.153.4` 的 `plugin_config.rs`](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/codex-mcp/src/plugin_config.rs) 中，`normalize_plugin_mcp_server_value` 对 Host 来源只把显式相对 `cwd` 改成 `root.join(cwd)`，不展开 `command`／`args` 中的插件根占位符。Host 未设置 `cwd` 时，本函数保持未设置；executor-owned 分支另有默认根目录逻辑，不能把这一默认值套用于所有本机加载。官方文档对 hooks 的变量注入说明也不能直接用于原生 MCP。[H04][H06]
 
-这项修正用于 Codex 原生包装。Agent Plugins 标准格式由另一套解析器处理，Claude 也有自己的变量约定，因此保留这两种导出的既有路径配置。修复后的插件安装与实际调用结果以本项目的客户端验证记录为准。[H01][H05][H06]
+这项修正用于 Codex 原生包装。Claude 有自己独立的变量约定，因此保留其导出的既有路径配置。修复后的插件安装与实际调用结果以本项目的客户端验证记录为准。[H01][H05][H06]
 
-Claude 当前文档的 manifest 路径是 `.claude-plugin/plugin.json`；有 manifest 时 name 必填，manifest 本身可省略。它还支持更多客户端组件。Claude 的根 `.mcp.json` 配置与 `CLAUDE_PLUGIN_ROOT` 等约定属于其原生格式；canonical Agent Plugins 采用的文件名是无点前缀的 `mcp.json`，占位符是 `PLUGIN_ROOT`／`PLUGIN_DATA`，不能机械复制后宣称格式相同。[H05]
+Claude 当前文档的 manifest 路径是 `.claude-plugin/plugin.json`；有 manifest 时 name 必填，manifest 本身可省略。它还支持更多客户端组件。Claude 的根 `.mcp.json` 配置与 `CLAUDE_PLUGIN_ROOT` 等约定属于其原生格式。[H05]
 
 当前 Claude 导出还在 manifest 中声明 `workflows: "./workflows"`。脚本包含 `export const meta`，通过 `/bookmark-research:bookmark-research` 接收结构化 `args`。自带 `/deep-research` 从 2.1.218 起需要显式调用，不能自动保证插件的全量清单覆盖。把 `ultracode` 写进 Skill、普通 `-p` 输入或未标注 human origin 的 SDK 输入不能触发工作流；插件不修改用户的 effort 或启用设置。[W1]
 
@@ -287,15 +168,13 @@ Claude 当前文档的 manifest 路径是 `.claude-plugin/plugin.json`；有 man
 
 ```sh
 python3 scripts/export_bundle.py --format codex --output /private/tmp/bookmark-research-codex
-python3 scripts/export_bundle.py --format agent-plugin --output /private/tmp/bookmark-research-standard
 python3 scripts/export_bundle.py --format claude --output /private/tmp/bookmark-research-claude
-python3 scripts/export_bundle.py --format pi --output /private/tmp/bookmark-research-pi
 python3 scripts/export_bundle.py --format dsh --output /private/tmp/bookmark-research-dsh
 ```
 
 `--output` 必须是新目录或空目录。已存在的非空目录、文件及 symlink 会被拒绝；导出先在临时目录组装，再发布到输出路径，不向已有内容合并文件。要重新导出，请选择另一个新目录，或自行归档旧产物后使用空目录。
 
-导出范围仅为共享 `src/`、`config/`、`skills/` 及按格式生成的 manifest／README。导出器过滤数据库、常见缓存、隐藏文件、测试与构建产物，拒绝源目录中的可导出 symlink；四种跨客户端包均排除 `agents/openai.yaml` 这一 Codex 显示元数据。现有数据库、网页缓存和运行时 API key 不打包，也不会安装客户端或更改其配置。
+导出范围仅为共享 `src/`、`config/`、`skills/` 及按格式生成的 manifest／README。导出器过滤数据库、常见缓存、隐藏文件、测试与构建产物，拒绝源目录中的可导出 symlink；三种跨客户端包均排除 `agents/openai.yaml` 这一 Codex 显示元数据。现有数据库、网页缓存和运行时 API key 不打包，也不会安装客户端或更改其配置。
 
 本地验证命令：
 
@@ -303,4 +182,4 @@ python3 scripts/export_bundle.py --format dsh --output /private/tmp/bookmark-res
 python3 -B -m unittest discover -s tests -p test_export_bundle.py -v
 ```
 
-测试检查五种入口文件的形状，在移除源 fixture 后从独立工作目录运行导出 CLI，并验证 provider 配置、stdio MCP 初始化与工具发现、继承指定的数据目录、缓存过滤及不覆盖已有内容。四种跨客户端导出排除 Codex 显示元数据，Codex 导出保留它。它验证的是导出产物与共享运行时，不能替代 Pi／DSH／Claude 客户端的实际加载测试。
+测试检查五种入口文件的形状，在移除源 fixture 后从独立工作目录运行导出 CLI，并验证 provider 配置、stdio MCP 初始化与工具发现、继承指定的数据目录、缓存过滤及不覆盖已有内容。三种跨客户端导出排除 Codex 显示元数据，Codex 导出保留它。它验证的是导出产物与共享运行时，不能替代 DSH／Claude 客户端的实际加载测试。

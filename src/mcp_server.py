@@ -5,8 +5,10 @@ implements initialization, ping, tools/list and tools/call, not resources,
 prompts, sampling, tasks, HTTP transports or arbitrary SQL/command execution.
 """
 
+import hashlib
 import json
 import math
+import os
 import sys
 import threading
 from pathlib import Path
@@ -49,6 +51,8 @@ SETTINGS_SCHEMA = _object_schema({
     "fetch": _object_schema({"provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
         "providers": PROVIDERS,
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
+        "max_total_characters": {"type": "integer", "minimum": 100, "maximum": 800000},
+        "fair_share_min": {"type": "integer", "minimum": 0, "maximum": 100000},
         "strategy": {"type": "string", "enum": ["sequential", "staggered", "hedged"]},
         "grace_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
         "deadline_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
@@ -62,12 +66,19 @@ SETTINGS_SCHEMA = _object_schema({
         "methods": dict(_array_schema({"type": "string", "enum": ["comparative_analysis", "fact_check", "benchmark_review", "wiki_synthesis"]}, 4, 1), uniqueItems=True)}),
     "professional_research": _object_schema({"enabled": {"type": "boolean"},
         "provider": {"type": ["string", "null"], "enum": ["openai", "parallel", None]},
-        "openai": _object_schema({"model": {"type": "string", "enum": ["o3-deep-research", "o4-mini-deep-research"]},
-            "max_tool_calls": {"type": "integer", "minimum": 1, "maximum": 1000}}),
+        "openai": _object_schema({"model": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{1,80}$"},
+            "max_tool_calls": {"type": "integer", "minimum": 1, "maximum": 1000},
+            "allow_untested_model": {"type": "boolean"}}),
         "parallel": _object_schema({"processor": _text_schema(64)})}),
     "wiki": _object_schema({"directory": _text_schema(4096),
         "max_source_age_days": {"type": "integer", "minimum": 1, "maximum": 3650},
         "after_research": {"type": "string", "enum": ["suggest", "auto", "off"]}}),
+    "wiki_preflight": {"type": "boolean"},
+    "freshness_days": {"type": "integer", "minimum": 1, "maximum": 3650},
+    "plan": _object_schema({"max_characters": {"type": "integer", "minimum": 1000, "maximum": 50000},
+        "min_relevance": {"type": "number", "minimum": 0, "maximum": 1},
+        "homepage_limit": {"type": "integer", "minimum": 0, "maximum": 8}}),
+    "tool_scope": _array_schema(_text_schema(128), 100),
     "output": _object_schema({"mode": {"type": "string", "enum": ["central", "beside_input"]},
         "directory": _text_schema(4096)}),
     "readiness": _object_schema({"mode": {"type": "string", "enum": ["cached", "always", "manual"]},
@@ -81,7 +92,7 @@ TOOL_SCHEMAS = {
         "service": {"type": "string", "enum": ["openai", "parallel"]},
         "refresh": {"type": "boolean", "default": False}, "offline": {"type": "boolean", "default": False},
         "test_retrieval": {"type": "boolean", "default": False},
-        "host": {"type": "string", "enum": ["codex", "claude_code", "pi", "dsh", "unknown"]},
+        "host": {"type": "string", "enum": ["codex", "claude_code", "dsh", "unknown"]},
         "observed_tools": _array_schema(_text_schema(300), 1000)}),
     "sync_package": _object_schema({"package_path": _text_schema(4096), "source_id": IDENTIFIER,
         "mode": {"type": "string", "enum": ["snapshot", "live"]},
@@ -113,11 +124,16 @@ TOOL_SCHEMAS = {
         "collection": {"type": "string", "enum": ["sections", "items", "nodes", "groups", "edges", "related_nodes", "memberships"]},
         "offset": {"type": "integer", "minimum": 0, "maximum": 1000000000, "default": 0},
         "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
+        "compact": {"type": "boolean", "default": False},
     }, ["source_id"]),
     "plan_research": _object_schema({
         "source_id": IDENTIFIER, "question": _text_schema(2000),
         "max_cards": {"type": "integer", "minimum": 1, "maximum": 3, "default": 3},
         "max_urls": {"type": "integer", "minimum": 1, "maximum": 8, "default": 8},
+        "include_wiki": {"type": "boolean", "default": True},
+        "include_archive": {"type": "boolean", "default": True},
+        "max_wiki": {"type": "integer", "minimum": 1, "maximum": 5, "default": 3},
+        "max_archive": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5},
         "refresh": {"type": "boolean", "default": True},
     }, ["source_id", "question"]),
     "discovery_bundle": _object_schema({
@@ -165,7 +181,7 @@ TOOL_SCHEMAS = {
 }
 
 TOOL_DESCRIPTIONS = {
-    "get_settings": "Read saved preferences and config path without network access or file creation. Per-call options override preferences.",
+    "get_settings": "Read saved preferences and config path without network access or file creation. Per-call options override preferences. tool_scope is the server-side MCP catalog allowlist; empty means every tool.",
     "update_settings": "Save requested retrieval, output, research or Wiki preferences outside source packages. Applies to later calls; output changes affect new tasks. Does not store credentials or change host integrations.",
     "research_readiness": "Diagnose retrieval/auth availability or inspect an external research route; reuse current results. Respects cached/always/manual preferences; refresh forces checks, offline prevents network. Tool visibility is not login. test_retrieval uses quota; no research job starts.",
     "sync_package": "Import a directory, ZIP or section JSON into an external managed snapshot; originals stay unchanged. Reuse source_id for moved/partial exports. partial preserves absent cards; complete reconciles a full mirror. Single cards must be partial. Defaults: snapshots for exports, live for Git directories; existing modes persist.",
@@ -173,8 +189,8 @@ TOOL_DESCRIPTIONS = {
     "source_remove": "Preview deletion of an imported source, index rows and managed snapshots; confirm=true performs it. Frozen research inventories remain, but item resolution stops and citing Wiki pages need review. For identical duplicates, prefer source_merge.",
     "source_merge": "Preview merging an identical source into into_source_id; confirm=true transfers path aliases and drops the duplicate. Synchronized content versions must match; synchronize legacy sources first.",
     "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
-    "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default.",
-    "plan_research": "Rank the cards a question touches and the bookmarks inside them, then suggest a research route. Local and read-only: it never fetches and never widens the scope. Terms are literal and weighted by length over the number of cards they match, so a specific name outranks a common word that appears everywhere; a card's weight is then scaled by its density (hits/bookmarks), so a large tree cannot outrank a topic card on size alone, and one card per canonical tree is ranked so a copy anchor cannot fill two slots. Each card reports its score, density, file_path and the terms it matched, which also disambiguates repeated labels; term_cards counts the canonical trees each term points at, which is how a name (one tree) is told from a common word. A URL inside the question is returned in question_urls and stripped from the terms; read it directly. urls are the matched bookmarks of those cards, deduplicated by URL, each with the terms its own rows matched, ordered by the most specific of them, with the cards that contain them and the source-wide instance count, which is not the selected scope. task_shape and route use the same vocabulary research_route uses, depth follows the saved research.depth, and the route is a suggestion: confirm it there before running. A documentation or repository bookmark only makes this a lookup when the question names it (a term that reaches one card matched that URL's rows). Empty cards with no question_urls mean the package has nothing on the returned terms; read those terms before retrying, and note that an empty terms list reports a question with nothing searchable in it.",
+    "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default. compact=true drops raw_json, description_md and revision; pair it with a collection to reach the smallest budget.",
+    "plan_research": "Rank the cards a question touches and the bookmarks inside them, then suggest a research route. Local and read-only: it never fetches and never widens the scope. Terms are literal and weighted by length over the number of cards they match, so a specific name outranks a common word that appears everywhere; a card's weight is then scaled by its density (hits/bookmarks), so a large tree cannot outrank a topic card on size alone, and one card per canonical tree is ranked so a copy anchor cannot fill two slots. Each card reports its score, density, file_path and the terms it matched, which also disambiguates repeated labels; term_cards counts the canonical trees each term points at, which is how a name (one tree) is told from a common word. A URL inside the question is returned in question_urls and stripped from the terms; read it directly. urls are the matched bookmarks of those cards, deduplicated by URL, each with the terms its own rows matched, ordered by the most specific of them, with the cards that contain them and the source-wide instance count, which is not the selected scope. task_shape and route use the same vocabulary research_route uses, depth follows the saved research.depth, and the route is a suggestion: confirm it there before running. A documentation or repository bookmark only makes this a lookup when the question names it (a term that reaches one card matched that URL's rows). Empty cards with no question_urls mean the package has nothing on the returned terms; read those terms before retrying, and note that an empty terms list reports a question with nothing searchable in it. The preflight also returns wiki, archive, relevance, freshness, fetch ownership and a bounded budget; optional checks never hide the bookmark scope.",
     "discovery_bundle": "Assemble the route-② evidence bundle and decide the budget. Pass every source the host collected: only content_state=usable pages become evidence, the rest are listed with the reason they cannot be cited. The bundle is built at the richest level that fits max_characters (excerpts, then digest, then a plain URL list) and always keeps the URL list, so it degrades instead of returning nothing. steps, fetches, variants and elapsed_seconds are the host's own counters, and the plugin owns the decision: stop when budget.continue is false (steps ≤ 6, fetches ≤ 8, variants ≤ 3, 90 seconds). Cite evidence[].id in the answer; never cite a URL that has no evidence entry.",
     "index_status": "Read source modes, snapshots, counts, input availability, pending changes and monitor errors. No refresh or web fetch; unchecked means a live directory needs a recent check.",
     "search_web": "Discover sources for public queries with saved primary providers, then fallbacks for unresolved queries. search.strategy selects hedged (default), staggered, sequential or wait_all; search.grace_seconds and search.deadline_seconds bound the hedged and staggered runs, and dropped or uncalled providers are listed in routing. Explicit providers restrict the call. Targets accept target/query objects or plain query strings. Results are discovery snippets; pages are not fetched. Each result carries provider_count and corroborated: two or more providers returning one URL means link overlap, never confirmation of its content.",
@@ -311,7 +327,7 @@ WIKI_PAGE = _object_schema({
 TOOL_SCHEMAS.update({
     "research_route": _object_schema({
         "depth": {"type": "string", "enum": ["auto", "quick", "agentic", "deep"]},
-        "host": {"type": "string", "enum": ["codex", "claude_code", "pi", "dsh", "unknown"]},
+        "host": {"type": "string", "enum": ["codex", "claude_code", "dsh", "unknown"]},
         "task_shape": {"type": "string", "enum": ["lookup", "investigation", "batch_research"]},
         "observed_tools": _array_schema(_text_schema(300), 1000),
         "available_commands": _array_schema(_text_schema(300), 1000),
@@ -540,6 +556,81 @@ class StdioMcpServer:
         from raw_library import RawLibrary
         return RawLibrary(settings=self.settings)
 
+    def _tool_scope(self):
+        """Environment override first, then the saved preference.
+
+        DSH's plugin passes BOOKMARK_RESEARCH_TOOL_SCOPE to its child; an empty
+        value deliberately restores the full catalog. The preference remains
+        available for explicit profiles and tests.
+        """
+        override = os.environ.get("BOOKMARK_RESEARCH_TOOL_SCOPE")
+        if override is not None:
+            return [name.strip() for name in override.split(",") if name.strip()]
+        return self.settings.load().get("tool_scope") or []
+
+    def _tool_names(self):
+        """The tool surface this profile exposes; empty scope means all tools.
+
+        Some hosts (notably DSH's MCP client) register every advertised tool and
+        offer no allowlist. The server-side scope keeps the model-facing catalog
+        small without deleting any implementation.
+        """
+        scope = self._tool_scope()
+        return [name for name in TOOL_SCHEMAS if not scope or name in scope]
+
+    def _tool_enabled(self, name):
+        scope = self._tool_scope()
+        return not scope or name in scope
+
+    def _hydrate_sources(self, sources):
+        """Turn capture pointers into verified evidence before bundling.
+
+        A source may be a host-provided text (``text_origin=host``) or a saved
+        capture (``capture_id``). Archive text is read from the immutable
+        capture, hashed here, and checked against a caller-supplied
+        ``text_sha256``; a mismatch is reported as unavailable, never silently
+        accepted. The bundle itself stays pure and never opens a file.
+        """
+        if not isinstance(sources, list):
+            return sources
+        from archive import SourceArchive
+        archive = SourceArchive(self.settings.load()["archive"]["directory"])
+        hydrated = []
+        for source in sources:
+            if not isinstance(source, dict):
+                hydrated.append(source)
+                continue
+            row = dict(source)
+            capture_id = row.get("capture_id")
+            if not capture_id:
+                row.setdefault("text_origin", "host")
+                row["quote_verified"] = False
+                hydrated.append(row)
+                continue
+            try:
+                result = archive.read_capture(capture_id, [row["url"]],
+                    max_characters=100000, max_total_characters=800000)
+                page = result["pages"][0]
+                text = page.get("text")
+                if text is None:
+                    row.update(content_state="unavailable", error="no_text")
+                else:
+                    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                    expected = row.get("text_sha256")
+                    # A capture page may be longer than the per-page read cap.
+                    # Accept a caller hash of the complete saved body, while
+                    # still reporting the hash of the text actually returned.
+                    full_digest = page.get("sha256")
+                    if expected and expected not in (digest, full_digest):
+                        row.update(content_state="unavailable", error="sha256_mismatch")
+                    else:
+                        row.update(text=text, text_origin="archive", text_sha256=digest,
+                                   quote_verified=True, characters=len(text))
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                row.update(content_state="unavailable", error="capture_unreadable: " + str(exc)[:200])
+            hydrated.append(row)
+        return hydrated
+
     def _call(self, name, arguments):
         # Explicit dispatch ensures input can never select a Python method,
         # executable, SQL statement, or unadvertised capability.
@@ -564,7 +655,7 @@ class StdioMcpServer:
         if name == "discovery_bundle":
             from discovery import budget_check, evidence_bundle
             options = dict(arguments)
-            sources = options.pop("sources")
+            sources = self._hydrate_sources(options.pop("sources"))
             budget = budget_check(steps=options.pop("steps", 0), fetches=options.pop("fetches", 0),
                                   variants=options.pop("variants", 0),
                                   elapsed_seconds=options.pop("elapsed_seconds", 0))
@@ -593,7 +684,8 @@ class StdioMcpServer:
             options = dict(arguments)
             refresh = options.pop("refresh", True)
             pagination = {key: options.pop(key, default) for key, default in (
-                ("collection", None), ("offset", 0), ("limit", 200))} if name == "get_context" else None
+                ("collection", None), ("offset", 0), ("limit", 200), ("compact", False))
+                } if name == "get_context" else None
             scope_notes = None if name != "get_context" or "item_id" in options else {
                 "items": "get_context fills items only for one item_id; read a card's bookmarks with "
                          "search_bookmarks(section=...) or plan_research."}
@@ -609,8 +701,11 @@ class StdioMcpServer:
                     method = index.search if name == "search_bookmarks" else index.context
                     result = method(**options)
                     if pagination is not None:
-                        from context_output import page_context
+                        from context_output import compact_context, page_context
+                        compact = pagination.pop("compact", False)
                         result = page_context(result, scope_notes=scope_notes, **pagination)
+                        if compact:
+                            result = compact_context(result)
                 result["source"] = self._sources().source_status(options["source_id"])
             result["refresh"] = {"performed": bool(refresh and result["source"]["mode"] == "live"),
                 "index_updated": bool(update and update.get("performed")),
@@ -628,18 +723,21 @@ class StdioMcpServer:
             raw = options.pop("raw", False)
             capture_id = options.pop("capture_id", None)
             offset = options.pop("offset", 0)
-            total = options.pop("max_total_characters", 100000)
+            prefs = self.settings.load()["fetch"]
+            total = options.pop("max_total_characters", prefs["max_total_characters"])
+            fair = prefs["fair_share_min"]
             if capture_id is not None:
                 if raw or "provider" in options or "archive" in options:
                     raise ValueError("capture_id reads a saved extract; omit raw, provider and archive")
                 return SourceArchive(self.settings.load()["archive"]["directory"]).read_capture(
                     capture_id, options["urls"],
-                    max_characters=options.get("max_characters", self.settings.load()["fetch"]["max_characters"]),
-                    max_total_characters=total, offset=offset)
+                    max_characters=options.get("max_characters", prefs["max_characters"]),
+                    max_total_characters=total, offset=offset, fair_share_min=fair)
             if offset:
                 raise ValueError("offset requires capture_id so continued reads use the same saved evidence")
             result = self._web().fetch(**options)
-            return result if raw else SourceArchive.compact_fetch(result, max_total_characters=total)
+            return result if raw else SourceArchive.compact_fetch(
+                result, max_total_characters=total, fair_share_min=fair)
         if name == "search_archive":
             return self._raw().search(**arguments)
         if name == "search_providers":
@@ -668,6 +766,8 @@ class StdioMcpServer:
             name, arguments = params["name"], params.get("arguments", {})
             _validate(_text_schema(128), name, "name")
             if name not in TOOL_SCHEMAS:
+                return False
+            if not self._tool_enabled(name):
                 return False
             _validate(TOOL_SCHEMAS[name], arguments)
         except RpcError:
@@ -743,14 +843,17 @@ class StdioMcpServer:
                 _params(params, ("cursor",))
                 if "cursor" in params:
                     raise RpcError(-32602, "This tool list has no pagination cursor")
-                result = {"tools": [{"name": name, "description": TOOL_DESCRIPTIONS[name], "inputSchema": schema}
-                    for name, schema in TOOL_SCHEMAS.items()]}
+                result = {"tools": [{"name": name, "description": TOOL_DESCRIPTIONS[name],
+                                      "inputSchema": TOOL_SCHEMAS[name]}
+                                     for name in self._tool_names()]}
             else:
                 _params(params, ("name", "arguments"), ("name",))
                 name = params["name"]
                 _validate(_text_schema(128), name, "name")
                 if name not in TOOL_SCHEMAS:
                     raise RpcError(-32602, "Unknown tool: " + name)
+                if not self._tool_enabled(name):
+                    raise RpcError(-32602, "Tool is outside this profile's tool_scope: " + name)
                 arguments = params.get("arguments", {})
                 _validate(TOOL_SCHEMAS[name], arguments)
                 try:

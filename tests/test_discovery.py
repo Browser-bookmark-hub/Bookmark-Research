@@ -151,6 +151,32 @@ class DiscoveryToolTests(unittest.TestCase):
         self.assertEqual(["e1"], [row["id"] for row in payload["evidence"]])
         self.assertEqual(1, payload["unavailable_count"])
 
+    def test_capture_id_is_read_back_verified_and_exposed(self):
+        from archive import SourceArchive
+        import hashlib
+        url = "https://example.test/page"
+        text = "Verified archive evidence that a claim can quote."
+        archive = SourceArchive(self.settings.load()["archive"]["directory"])
+        saved = archive.save({"provider": "exa", "tool": "fixture_fetch", "urls": [url],
+            "request_arguments": {"urls": [url]},
+            "requested_max_characters": 12000, "retrieved_at": "2026-10-19T00:00:00Z",
+            "result": {"structuredContent": {"url": url, "text": text}}})
+        capture_id = saved["capture_id"]
+        response = self.call("discovery_bundle", {
+            "sources": [{"url": url, "capture_id": capture_id}]})
+        self.assertFalse(response["result"]["isError"], response)
+        entry = response["result"]["structuredContent"]["evidence"][0]
+        self.assertEqual(capture_id, entry["capture_id"])
+        self.assertEqual("archive", entry["text_origin"])
+        self.assertTrue(entry["quote_verified"])
+        self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), entry["text_sha256"])
+
+        wrong = self.call("discovery_bundle", {
+            "sources": [{"url": url, "capture_id": capture_id, "text_sha256": "0" * 64}]})
+        payload = wrong["result"]["structuredContent"]
+        self.assertEqual([], payload["evidence"])
+        self.assertEqual("sha256_mismatch", payload["unavailable_sources"][0]["reason"])
+
     def test_invalid_arguments_never_reach_the_tool(self):
         self.assertEqual(-32602, self.call("discovery_bundle", {})["error"]["code"])
         self.assertEqual(-32602, self.call("discovery_bundle", {"sources": "all"})["error"]["code"])
