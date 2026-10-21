@@ -8,7 +8,7 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 
 ## 终端向导与就绪检查
 
-运行 `python3 <root>/src/cli.py setup --host codex`（或 `claude_code`、`pi`、`dsh`）设置偏好、隐藏输入密钥并检查所选服务。`--lang auto|en|zh` 选择向导语言。`--non-interactive --input FILE` 无提示合并部分偏好，`--input -` 从 stdin 读取 JSON。Agent 通过环境变量提供密钥，不在聊天或偏好 JSON 中传递。`--skip-checks` 不联网；`--test-retrieval` 选择执行可能使用额度的样例搜索／阅读，两者互斥。向导和检查不会创建专业研究任务。
+运行 `python3 <root>/src/cli.py setup --host codex`（或 `claude_code`、`dsh`）设置偏好、隐藏输入密钥并检查所选服务。`--lang auto|en|zh` 选择向导语言。`--non-interactive --input FILE` 无提示合并部分偏好，`--input -` 从 stdin 读取 JSON。Agent 通过环境变量提供密钥，不在聊天或偏好 JSON 中传递。`--skip-checks` 不联网；`--test-retrieval` 选择执行可能使用额度的样例搜索／阅读，两者互斥。向导和检查不会创建专业研究任务。
 
 向导将密钥保存为配置旁的 `credentials.json`，或 `BOOKMARK_RESEARCH_CREDENTIALS` 指定的文件；文件为权限 `0600` 的本地明文，仅当前用户可读。运行时会重新读取文件，保存后不必重启插件；更改进程环境变量需重启对应进程。环境变量优先。宿主 OAuth token 留在宿主，插件密钥不会自动授权另外登记的宿主 MCP。
 

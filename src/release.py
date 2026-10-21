@@ -1,6 +1,6 @@
 """Release identity from the installed distribution's own manifest.
 
-The npm, Pi and DSH packages carry ``package.json``. Codex, Claude and Agent
+The npm and DSH packages carry ``package.json``. Codex, Claude and Agent
 Plugins exports retain the release version in their native plugin manifest.
 Read that identity for MCP and HTTP clients instead of hardcoding a version.
 An absent or invalid manifest reports an unknown version; an invalid preferred

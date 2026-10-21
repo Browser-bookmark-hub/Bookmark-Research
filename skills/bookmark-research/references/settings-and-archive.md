@@ -8,7 +8,7 @@ Providers are `exa`, `parallel`, `tavily` and `jina`. Search starts with `search
 
 ## Terminal setup and readiness
 
-Run `python3 <root>/src/cli.py setup --host codex` (or `claude_code`, `pi`, `dsh`) to guide preferences, hidden key entry and selected service checks. `--lang auto|en|zh` selects the wizard language. `--non-interactive --input FILE` merges partial preferences without prompts; `--input -` reads JSON from stdin. Use environment variables for agent-supplied keys, never chat or preference JSON. `--skip-checks` stays offline; `--test-retrieval` opts into sample search/read requests that can use provider quota. The flags conflict. No professional research job is started by setup/checks.
+Run `python3 <root>/src/cli.py setup --host codex` (or `claude_code`, `dsh`) to guide preferences, hidden key entry and selected service checks. `--lang auto|en|zh` selects the wizard language. `--non-interactive --input FILE` merges partial preferences without prompts; `--input -` reads JSON from stdin. Use environment variables for agent-supplied keys, never chat or preference JSON. `--skip-checks` stays offline; `--test-retrieval` opts into sample search/read requests that can use provider quota. The flags conflict. No professional research job is started by setup/checks.
 
 Keys saved by setup live in `credentials.json` next to the settings file, or `BOOKMARK_RESEARCH_CREDENTIALS`. The file is unencrypted and readable only by its owner (`0600`). Runtime tools reload it, so saving a key takes effect without restarting the plugin; changed process environment requires restarting that process. Environment variables take precedence. Host OAuth tokens remain in the host, and plugin keys do not automatically authenticate a separate host MCP.
 

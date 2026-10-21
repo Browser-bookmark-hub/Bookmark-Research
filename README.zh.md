@@ -76,7 +76,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 安装补充说明：
 
-- **npm 是四个宿主唯一的发布来源**，包内含共享运行时、Skill 和宿主适配文件。安装器下载发布包、生成该宿主需要的格式，再调用宿主原生命令登记。GitHub 提供源码、版本说明和安装清单；未发布源码用 Python 安装器。见[发布约定](docs/distribution.md)。
+- **npm 是三个宿主唯一的发布来源**，包内含共享运行时、Skill 和宿主适配文件。安装器下载发布包、生成该宿主需要的格式，再调用宿主原生命令登记。GitHub 提供源码、版本说明和安装清单；未发布源码用 Python 安装器。见[发布约定](docs/distribution.md)。
 - **DSH 可直接安装发布包。** 包内声明 `dsh.bundle.patch`，`dsh plugin --profile <名称> add bookmark-research@<版本>` 无需先导出即可安装。`desktop` profile 保留给 DeepSeek Harness 桌面版，请用桌面版自带 CLI 安装；安装器与向导会自行定位该 CLI。
 - **Windows** 上常常没有能用的 `python3`，所以安装器会把检测到的 Python 路径写进各宿主的 MCP 配置。Codex 请用 `bookmark-research install codex` 安装，不要直接把仓库加进 Codex；`bookmark-research status` 可以查看实际使用的 Python。
 

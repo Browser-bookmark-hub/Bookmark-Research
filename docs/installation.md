@@ -8,7 +8,7 @@ Bookmark Research 使用 Python 3.9+ 标准库和 SQLite FTS5。先安装 Python
 
 ## `bookmark-research` 命令（推荐）
 
-`npm install -g bookmark-research` 之后在终端输入 `bookmark-research`，即可打开主菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态；短别名 `bookmark` 与 `bookmark research` 等价（`bookmark` 单独输入即打开菜单，`bookmark research status` 等同 `bookmark-research status`）。也可以直接带子命令：`install [宿主…]`、`update`、`verify`、`setup`、`status`、`config show|set`、`doctor`。npm 是四个宿主共用的唯一正式发布包，包含 Python 安装器、运行时、Skill 和适配文件，因此仍需 Python 3.9+；Windows 原生、macOS、Linux 都可以用。发布版使用 `npx bookmark-research@latest install HOST`；未发布源码使用 Python 源码安装器。不带参数且不在终端中运行时（agent／CI），它只输出状态 JSON，不弹菜单。
+`npm install -g bookmark-research` 之后在终端输入 `bookmark-research`，即可打开主菜单：修改配置与 API Key、检查服务、安装到其他宿主、更新、查看状态；短别名 `bookmark` 与 `bookmark research` 等价（`bookmark` 单独输入即打开菜单，`bookmark research status` 等同 `bookmark-research status`）。也可以直接带子命令：`install [宿主…]`、`update`、`verify`、`setup`、`status`、`config show|set`、`doctor`。npm 是三个宿主共用的唯一正式发布包，包含 Python 安装器、运行时、Skill 和适配文件，因此仍需 Python 3.9+；Windows 原生、macOS、Linux 都可以用。发布版使用 `npx bookmark-research@latest install HOST`；未发布源码使用 Python 源码安装器。不带参数且不在终端中运行时（agent／CI），它只输出状态 JSON，不弹菜单。
 
 ## 一条命令引导安装
 
@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 终端向导检测可用 CLI，可多选 Codex、Claude Code、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选。DSH 在「PATH 中有可用的 `dsh`」或「找到自带 pnpm 的 DeepSeek Harness 桌面版」时都算检测到，因此桌面版自带 CLI 无需任何参数即可勾选；选中 DSH 后，向导会列出 `$DSH_HOME/profiles` 下已初始化的 profile，并标注本插件已登记的来源与是否已启用，也可另填新名称。随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。npm 安装器会在原生登记前检查所选宿主。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
 
-首次安装选择 `npm:bookmark-research`（`latest`）。四个宿主都从该发布包导出所需格式，再由原生命令登记与验证。安装记录保存 npm 包名和版本选择，不保存临时下载或 npx 缓存路径；更新会重新取得同一选择器指向的发布包。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
+首次安装选择 `npm:bookmark-research`（`latest`）。三个宿主都从该发布包导出所需格式，再由原生命令登记与验证。安装记录保存 npm 包名和版本选择，不保存临时下载或 npx 缓存路径；更新会重新取得同一选择器指向的发布包。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
 
 即使在 checkout 中运行以下脚本，默认也安装 npm 发布版：
 

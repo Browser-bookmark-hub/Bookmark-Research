@@ -17,7 +17,7 @@ main() (
           [zZ][hH]*) cat <<'HELP'
 用法：bash install.sh [install|update|verify] [选项]
 
-四个宿主统一使用 npm 发布包，由各宿主原生命令登记。
+三个宿主统一使用 npm 发布包，由各宿主原生命令登记。
   --host HOST           codex、claude、dsh；可重复或逗号分隔
   --lang auto|en|zh      安装器语言
   --interactive         打开终端向导
@@ -36,7 +36,7 @@ HELP
           *) cat <<'HELP'
 Usage: bash install.sh [install|update|verify] [options]
 
-All four hosts use the npm release and their native registration commands.
+All three hosts use the npm release and their native registration commands.
   --host HOST           codex, claude, dsh; repeat or comma-separate
   --lang auto|en|zh      Installer language
   --interactive         Open the terminal wizard

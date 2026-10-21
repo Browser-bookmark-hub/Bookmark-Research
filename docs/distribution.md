@@ -12,7 +12,7 @@
 
 统一的是发布内容和来源。不同宿主需要不同清单，安装器只生成所需格式，用户配置、宿主登记及缓存仍交给宿主命令。Claude Code、Codex 和 DSH 按各自适配提供 MCP 或 Skill。
 
-默认安装器记录 `npm:bookmark-research`（`latest`），更新时重新下载，不依赖已清理的 npx 缓存。显式 `--source npm:bookmark-research@VERSION` 会保留版本；要测试同一个固定发布版，在四个宿主使用相同参数。Codex 原生 marketplace 使用清单固定版本，跟随清单更新。需要新版安装器时运行 `npx bookmark-research@latest update`，或先更新全局 npm 安装。
+默认安装器记录 `npm:bookmark-research`（`latest`），更新时重新下载，不依赖已清理的 npx 缓存。显式 `--source npm:bookmark-research@VERSION` 会保留版本；要测试同一个固定发布版，在三个宿主使用相同参数。Codex 原生 marketplace 使用清单固定版本，跟随清单更新。需要新版安装器时运行 `npx bookmark-research@latest update`，或先更新全局 npm 安装。
 
 源码开发使用 `python3 scripts/install.py install --source PATH`，也可显式选择 Git 仓库和 `--ref`。旧 Git／本地安装保留来源，不静默转成 npm；切换时先用宿主命令处理旧登记。源码导出、ZIP 和测试包脚本保留为开发工具，CI 的验证产物仍可包含 npm `.tgz` 与 SHA-256 校验文件，但不作为 GitHub Release 下载入口。GitHub 自动生成的 Source code 压缩包是源码快照，不能单独关闭，不作为安装包。
 
