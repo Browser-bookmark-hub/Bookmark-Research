@@ -31,7 +31,7 @@ Research with bookmark context and retain reusable knowledge. Read a [Bookmark C
 npx bookmark-research@beta install
 ```
 
-`@beta` follows the newest prerelease; pin one build with `@0.5.0-beta.16`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
+`@beta` follows the newest prerelease; pin one build with `@0.5.0-beta.17`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
