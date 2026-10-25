@@ -157,7 +157,9 @@ def _check_source(marketplace, requested):
     elif current["sourceType"] == requested["sourceType"] == "git":
         equal = _repository(current["source"]) == requested["source"]
     elif current["sourceType"] == requested["sourceType"] == "npm":
-        equal = current == requested
+        equal = current["source"] == requested["source"] and (
+            current == requested or requested.get("ref") != "latest"
+        )
     else:
         equal = False
     if not equal:
@@ -401,8 +403,9 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
                 # Native list JSON omits the registered ref. Equal commit IDs
                 # cannot distinguish a moving branch from an immutable tag.
                 raise ValueError("An existing Git marketplace retains its registered ref. Reinstall without --ref, or explicitly change the source in Codex first")
-            if origin:
-                requested = origin
+            if origin and ref is None and requested["sourceType"] == "git":
+                if origin.get("sourceType") == "git" and requested["source"] == origin["source"] and origin.get("ref"):
+                    requested["ref"] = origin["ref"]
     else:
         if not current or not _installed(cli):
             raise ValueError("No existing bookmark-research installation; run install first")

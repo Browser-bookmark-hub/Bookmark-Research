@@ -428,6 +428,9 @@ class InstallerTests(unittest.TestCase):
             requested = install._export_source(origin, 20, "python3", install._local_home())
             self.assertEqual(install._export_origin(requested), origin)
             install._check_source({"marketplaceSource": origin}, origin)
+            install._check_source({"marketplaceSource": origin}, install._source("npm:bookmark-research@9.9.9"))
+            install._check_source({"marketplaceSource": install._source("npm:bookmark-research")},
+                                  install._source("npm:bookmark-research@9.9.9"))
             with self.assertRaisesRegex(ValueError, "different source"):
                 install._check_source({"marketplaceSource": origin}, install._source("npm:bookmark-research"))
         self.assertTrue((self.bundle / "src/cli.py").exists())
