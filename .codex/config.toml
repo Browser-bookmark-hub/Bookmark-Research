@@ -2,8 +2,10 @@
 # CodeGraph uses its existing host registration; Git uses the shell.
 # For browser debugging, set enabled = true below.
 [mcp_servers.chrome-devtools]
+command = "npx"
+args = ["-y", "chrome-devtools-mcp@latest"]
 enabled = false
 
-# Canvas + direct web retrieval + persistent research. The plugin is enabled
-# globally; this project keeps the full MCP catalog so all three stages remain
-# visible. Add enabled_tools here only when narrowing the tool surface.
+# The plugin's default quick preset exposes 21 tools for context, web research,
+# API jobs and Wiki storage. Select deep only for persistent collection audits.
+# Git history and reasoning use Codex's native capabilities.

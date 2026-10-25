@@ -111,8 +111,14 @@ class SearchProviders:
         with state.lock:
             if state.client is None or state.identity != identity:
                 if info.get("transport") == "http":
-                    from jina import JinaClient
-                    state.client = JinaClient(headers=headers, timeout=timeout)
+                    if info.get("client") == "deepseek":
+                        from deepseek import DeepSeekClient
+                        state.client = DeepSeekClient(headers=headers, timeout=timeout,
+                                                      search_url=info.get("search_url"),
+                                                      fetch_url=info.get("fetch_url"))
+                    else:
+                        from jina import JinaClient
+                        state.client = JinaClient(headers=headers, timeout=timeout)
                 else:
                     state.client = McpHttpClient(info["url"], headers=headers, timeout=timeout)
                 state.identity = identity
@@ -369,6 +375,8 @@ class SearchProviders:
                 if self.registry["providers"][provider].get("transport") == "http":
                     tool = {"name": self.registry["providers"][provider][purpose + "_tools"][0]}
                     arguments = {"query": query} if purpose == "search" else {"urls": urls}
+                    if purpose == "search":
+                        arguments["limit"] = limit
                     result = client.call(purpose, **arguments)
                 else:
                     catalog = self._catalog(provider, client, usage)

@@ -17,7 +17,7 @@ from tui import Option, Prompter
 
 
 HOSTS = (("codex", "Codex", "Codex"), ("claude", "Claude Code", "Claude Code"),
-         ("dsh", "DSH / DeepSeek Harness", "DSH / DeepSeek Harness"))
+         ("dsh", "DeepSeek Harness (dsh)", "DeepSeek Harness (dsh)"))
 
 
 def _profile_problem(value):
@@ -34,8 +34,8 @@ def _dsh_hint(client):
             return ("DeepSeek Harness Desktop CLI", "DeepSeek Harness 桌面版 CLI")
         return ("", None)
     if client["reason"] == "pnpm":
-        return ("needs pnpm: npm install -g pnpm, or corepack enable pnpm; the DSH Desktop CLI carries its own",
-                "需要 pnpm：npm install -g pnpm 或 corepack enable pnpm；DSH 桌面版 CLI 自带 pnpm")
+        return ("needs pnpm: npm install -g pnpm, or corepack enable pnpm; the DeepSeek Harness Desktop CLI carries its own",
+                "需要 pnpm：npm install -g pnpm 或 corepack enable pnpm；DeepSeek Harness 桌面版 CLI 自带 pnpm")
     return ("needs the dsh CLI: pass --dsh PATH (DeepSeek Harness Desktop keeps one under its app resources)",
             "需要 dsh CLI：请用 --dsh PATH 指定（DeepSeek Harness 桌面版的 CLI 位于其应用资源目录）")
 
@@ -128,7 +128,7 @@ class Console(Prompter):
             if not any(found.values()):
                 self.warn("No supported host CLI (codex, claude, dsh) was found on PATH.",
                           "PATH 中未找到任何受支持的宿主 CLI（codex、claude、dsh）。")
-                raise ValueError("No host CLI found; install Codex, Claude Code or DSH, "
+                raise ValueError("No host CLI found; install Codex, Claude Code or DeepSeek Harness (dsh), "
                                  "or pass --codex/--claude/--dsh PATH to point at its executable")
             hosts = self.multiselect("Install into which hosts?", "安装到哪些宿主？", [
                 Option(name, en, zh, *hints[name], disabled=not found[name]) for name, en, zh in HOSTS],
@@ -162,7 +162,7 @@ class Console(Prompter):
             lines.append((label + (": " + detail if detail else ""), label + ("：" + detail if detail else "")))
         self.note("Installation plan", "安装计划", lines)
         if client["source"] == "desktop" and any(target["host"] == "dsh" for target in targets):
-            self.note("DSH CLI", "DSH CLI", [(client["binary"], client["binary"])])
+            self.note("DeepSeek Harness (dsh) CLI", "DeepSeek Harness (dsh) CLI", [(client["binary"], client["binary"])])
         if not self.confirm("Install now?", "现在安装？", True):
             raise KeyboardInterrupt
         first = targets[0]
@@ -178,7 +178,7 @@ class Console(Prompter):
         is composed only by the Desktop CLI, so another carrier never offers it.
         """
         check = self._profile(desktop)
-        question = ("DSH profile name (for example web)", "DSH profile 名称（例如 web）")
+        question = ("DeepSeek Harness (dsh) profile name (for example web)", "DeepSeek Harness (dsh) profile 名称（例如 web）")
         rows = dsh_profiles()
         if not desktop:
             rows = [row for row in rows if row["name"].casefold() != "desktop"]
@@ -187,7 +187,7 @@ class Console(Prompter):
         options = [Option(row["name"], row["name"], row["name"], *_profile_hint(row)) for row in rows]
         options.append(Option("", "Another profile name…", "其他 profile 名称…"))
         default = "desktop" if any(row["name"] == "desktop" for row in rows) else None
-        chosen = self.select("Install into which DSH profile?", "安装到哪个 DSH profile？", options, default)
+        chosen = self.select("Install into which DeepSeek Harness (dsh) profile?", "安装到哪个 DeepSeek Harness (dsh) profile？", options, default)
         if chosen:
             return chosen
         return self.input(question[0], question[1], "desktop" if desktop else "", check)
@@ -231,7 +231,8 @@ class Onboarding:
             Option("en", "English", "英文")], current["research"]["response_language"])
         hints = {"exa": ("Exa search and reading", "Exa 搜索与阅读"), "parallel": ("Parallel search and extract", "Parallel 搜索与提取"),
                  "tavily": ("Tavily search and extract", "Tavily 搜索与提取"),
-                 "jina": ("Jina Reader; search needs a key", "Jina Reader；搜索需要密钥")}
+                 "jina": ("Jina Reader; search needs a key", "Jina Reader；搜索需要密钥"),
+                 "deepseek": ("DeepSeek Search / Fetch; needs a key", "DeepSeek 搜索／读取；需要密钥")}
         # One ordered list answers the former search, fallback-search and reader
         # questions: selected providers run concurrently and also read pages,
         # unselected providers stay as the fallback search tier.

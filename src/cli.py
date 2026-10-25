@@ -133,6 +133,8 @@ def _parser():
                            help="Return saved text for URLs already fetched within this window; 0 disables (default)")
     configure.add_argument("--server-workers", type=int, help="Concurrent network requests (1-16, default 4; restart to apply)")
     configure.add_argument("--server-max-pending", type=int, help="Queued network calls (1-64, default 16; restart to apply)")
+    configure.add_argument("--tool-scope-preset", choices=Settings.TOOL_SCOPE_PRESETS,
+                           help="all, quick (everyday) or deep (full catalog)")
     sync = commands.add_parser("sync", help="Import a directory, ZIP, or single card; keep a reusable snapshot")
     sync.add_argument("package")
     sync.add_argument("--source-id")
@@ -264,7 +266,7 @@ def _parser():
     describe.add_argument("--provider", choices=("openai", "parallel"))
     for name in ("prepare", "start", "attach"):
         action = service_commands.add_parser(name)
-        action.add_argument("--input", required=True, help="Explicit request JSON, including research_id")
+        action.add_argument("--input", required=True, help="Request JSON; research_id is optional for standalone API runs")
     for name in ("status", "result", "cancel", "import"):
         action = service_commands.add_parser(name)
         action.add_argument("external_id")
@@ -282,7 +284,7 @@ def _parser():
     wiki_commands = wiki.add_subparsers(dest="wiki_command", required=True)
     write = wiki_commands.add_parser("write")
     write.add_argument("page_id")
-    write.add_argument("--input", required=True, help="JSON {page,change_note,expected_revision?,reviewed_input_version?}")
+    write.add_argument("--input", required=True, help="JSON {page,sources?,change_note,expected_revision?,reviewed_input_version?}")
     acknowledge = wiki_commands.add_parser("acknowledge",
                                            help="Re-record that a page's sources were reviewed at their current input version")
     acknowledge.add_argument("page_id")
@@ -315,8 +317,6 @@ def _parser():
             view.add_argument("--source-url", help="Filter direct citations and linked dependents")
         view.add_argument("--offset", type=int, default=0)
         view.add_argument("--limit", type=int, default=20)
-    evaluation = commands.add_parser("evaluate", help="Compute research metrics from explicit benchmark outputs and judgments")
-    evaluation.add_argument("--input", required=True, help="JSON {suite,runs,judgments?}; '-' for stdin")
     commands.add_parser("serve", help="Run the stdio MCP tool server")
     return parser
 
@@ -457,9 +457,6 @@ def main(argv=None):
                 result = store.search(args.query, args.offset, args.limit)
             else:
                 result = store.lint(args.page_id)
-        elif args.command == "evaluate":
-            from evaluation import evaluate
-            result = evaluate(**_checked_input(args.input, "evaluate_research"))
         elif args.command == "config":
             if args.config_command == "show":
                 result = settings.describe()
@@ -486,6 +483,8 @@ def main(argv=None):
                         if not isinstance(changes.get(section, {}), dict):
                             raise ValueError("Settings section must be an object: " + section)
                         changes.setdefault(section, {})[field] = value
+                if args.tool_scope_preset is not None:
+                    changes["tool_scope_preset"] = args.tool_scope_preset
                 result = settings.update(changes)
         elif args.command == "doctor":
             connection = sqlite3.connect(":memory:")

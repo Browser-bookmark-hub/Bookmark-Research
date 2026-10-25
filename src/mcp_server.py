@@ -79,6 +79,7 @@ SETTINGS_SCHEMA = _object_schema({
         "min_relevance": {"type": "number", "minimum": 0, "maximum": 1},
         "homepage_limit": {"type": "integer", "minimum": 0, "maximum": 8}}),
     "tool_scope": _array_schema(_text_schema(128), 100),
+    "tool_scope_preset": {"type": "string", "enum": list(Settings.TOOL_SCOPE_PRESETS)},
     "output": _object_schema({"mode": {"type": "string", "enum": ["central", "beside_input"]},
         "directory": _text_schema(4096)}),
     "readiness": _object_schema({"mode": {"type": "string", "enum": ["cached", "always", "manual"]},
@@ -135,7 +136,7 @@ TOOL_SCHEMAS = {
         "max_wiki": {"type": "integer", "minimum": 1, "maximum": 5, "default": 3},
         "max_archive": {"type": "integer", "minimum": 1, "maximum": 8, "default": 5},
         "refresh": {"type": "boolean", "default": True},
-    }, ["source_id", "question"]),
+    }, ["question"]),
     "discovery_bundle": _object_schema({
         "sources": {"type": "array", "items": {"type": "object"}, "minItems": 0, "maxItems": 64},
         "max_characters": {"type": "integer", "minimum": 1000, "maximum": 50000, "default": 50000},
@@ -190,7 +191,7 @@ TOOL_DESCRIPTIONS = {
     "source_merge": "Preview merging an identical source into into_source_id; confirm=true transfers path aliases and drops the duplicate. Synchronized content versions must match; synchronize legacy sources first.",
     "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
     "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default. compact=true drops raw_json, description_md and revision; pair it with a collection to reach the smallest budget.",
-    "plan_research": "Rank the cards a question touches and the bookmarks inside them, then suggest a research route. Local and read-only: it never fetches and never widens the scope. Terms are literal and weighted by length over the number of cards they match, so a specific name outranks a common word that appears everywhere; a card's weight is then scaled by its density (hits/bookmarks), so a large tree cannot outrank a topic card on size alone, and one card per canonical tree is ranked so a copy anchor cannot fill two slots. Each card reports its score, density, file_path and the terms it matched, which also disambiguates repeated labels; term_cards counts the canonical trees each term points at, which is how a name (one tree) is told from a common word. A URL inside the question is returned in question_urls and stripped from the terms; read it directly. urls are the matched bookmarks of those cards, deduplicated by URL, each with the terms its own rows matched, ordered by the most specific of them, with the cards that contain them and the source-wide instance count, which is not the selected scope. task_shape and route use the same vocabulary research_route uses, depth follows the saved research.depth, and the route is a suggestion: confirm it there before running. A documentation or repository bookmark only makes this a lookup when the question names it (a term that reaches one card matched that URL's rows). Empty cards with no question_urls mean the package has nothing on the returned terms; read those terms before retrying, and note that an empty terms list reports a question with nothing searchable in it. The preflight also returns wiki, archive, relevance, freshness, fetch ownership and a bounded budget; optional checks never hide the bookmark scope.",
+    "plan_research": "Read local candidates for a question: matching bookmarks and canvas text/group/edge labels, independently searched Wiki pages and archived sources, and source dates. source_id is optional. Scores rank candidates without rejecting them; the host decides relevance, depth and whether to search. question_urls lists known URLs to read directly. No network or research task is started.",
     "discovery_bundle": "Assemble the route-② evidence bundle and decide the budget. Pass every source the host collected: only content_state=usable pages become evidence, the rest are listed with the reason they cannot be cited. The bundle is built at the richest level that fits max_characters (excerpts, then digest, then a plain URL list) and always keeps the URL list, so it degrades instead of returning nothing. steps, fetches, variants and elapsed_seconds are the host's own counters, and the plugin owns the decision: stop when budget.continue is false (steps ≤ 6, fetches ≤ 8, variants ≤ 3, 90 seconds). Cite evidence[].id in the answer; never cite a URL that has no evidence entry.",
     "index_status": "Read source modes, snapshots, counts, input availability, pending changes and monitor errors. No refresh or web fetch; unchecked means a live directory needs a recent check.",
     "search_web": "Discover sources for public queries with saved primary providers, then fallbacks for unresolved queries. search.strategy selects hedged (default), staggered, sequential or wait_all; search.grace_seconds and search.deadline_seconds bound the hedged and staggered runs, and dropped or uncalled providers are listed in routing. Explicit providers restrict the call. Targets accept target/query objects or plain query strings. Results are discovery snippets; pages are not fetched. Each result carries provider_count and corroborated: two or more providers returning one URL means link overlap, never confirmation of its content.",
@@ -298,14 +299,15 @@ TOOL_DESCRIPTIONS.update({
     "research_inventory": "Read frozen original URLs, stable inventory IDs, duplicate instances and context. Follow next_offset to cover the requested scope.",
     "research_coverage": "Compare frozen input with accounted, usable-text, reviewed and answered coverage. Paginate missing/unread/unreviewed IDs as needed. A completed provider run does not establish original-source coverage.",
     "research_import_evidence": "Save supplied text and provenance using an idempotent operation_id. Imports start unreviewed; external reports do not count as reading cited originals. No fetch or source-package changes.",
-    "research_finish": "Write report, source manifest and coverage. completed requires supported answers, reviewed original input and no unresolved conflicts, pending operations or active/unknown external runs. Exclusions stay in scope; use incomplete for material gaps. An incomplete or cancelled result also carries insufficiency (the fixed-shape gap list: question statuses and gaps, open conflicts, pending operations, coverage blockers; a question with no recorded gap gets a derived one and gap_source says which) and wiki_follow_up (candidate pages, eligible_claims with exact first quotes and inference marks, and draft: a page skeleton grouped by question whose sections are already split to wiki_write limits, so one confirmation plus one write completes it).",
+    "research_finish": "Write report, source manifest and coverage. completed requires supported answers, reviewed original input and no unresolved conflicts, pending operations or active/unknown external runs. Exclusions stay in scope; use incomplete for material gaps. An incomplete or cancelled result also carries insufficiency (the fixed-shape gap list: question statuses and gaps, open conflicts, pending operations, coverage blockers; a question with no recorded gap gets a derived one and gap_source says which) and wiki_follow_up (candidate pages, eligible_claims with exact first quotes and inference marks, and draft: a page skeleton grouped by question whose sections are already split to wiki_write limits, remaining_claim_ids identifies claims that need another page; write within existing authorization after review).",
 })
 
 
 OPEN_OBJECT = {"type": "object", "properties": {}, "additionalProperties": True}
 SERVICE_PROVIDER = {"type": "string", "enum": ["openai", "parallel"]}
 SERVICE_OPTIONS = _object_schema({
-    "model": {"type": "string", "enum": ["o3-deep-research", "o4-mini-deep-research"]},
+    "model": _text_schema(81),
+    "allow_untested_model": {"type": "boolean"},
     "max_tool_calls": {"type": "integer", "minimum": 1, "maximum": 1000},
     "store": {"type": "boolean"},
     "vector_store_ids": _array_schema(_text_schema(100), 2, 1),
@@ -319,7 +321,9 @@ WIKI_PAGE = _object_schema({
     "aliases": _array_schema(_text_schema(100), 30),
     "sections": _array_schema(_object_schema({"heading": _text_schema(300), "text": _text_schema(12000),
         "claims": _array_schema(_object_schema({"research_id": RESEARCH_ID, "claim_id": RESEARCH_ID},
-            ["research_id", "claim_id"]), 12, 1)}, ["heading", "text", "claims"]), 16, 1),
+            ["research_id", "claim_id"]), 12, 1),
+        "citations": _array_schema(_object_schema({"source_id": RESEARCH_ID, "quote": _text_schema(4000)},
+                                                  ["source_id", "quote"]), 12, 1)}, ["heading", "text"]), 16, 1),
     "links": _array_schema(_object_schema({"page_id": RESEARCH_ID, "relation": _text_schema(500)}, ["page_id", "relation"]), 32),
     "review": _object_schema({"method": {"type": "string", "enum": ["human", "model"]},
         "reviewer": _text_schema(300), "note": _text_schema(4000)}, ["method", "reviewer", "note"]),
@@ -336,9 +340,9 @@ TOOL_SCHEMAS.update({
         "provider": SERVICE_PROVIDER,
     }),
     "research_services": _object_schema({"provider": SERVICE_PROVIDER}),
-    "research_service_prepare": _object_schema(SERVICE_INPUT, ["research_id", "input"]),
+    "research_service_prepare": _object_schema(SERVICE_INPUT, ["input"]),
     "research_service_start": _object_schema({**SERVICE_INPUT, "operation_id": RESEARCH_ID},
-                                             ["research_id", "operation_id", "input"]),
+                                             ["operation_id", "input"]),
     "research_service_status": _object_schema({"external_id": RESEARCH_ID, "refresh": {"type": "boolean"}}, ["external_id"]),
     "research_service_result": _object_schema({"external_id": RESEARCH_ID, "refresh": {"type": "boolean"},
         "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
@@ -346,10 +350,14 @@ TOOL_SCHEMAS.update({
     "research_service_cancel": _object_schema({"external_id": RESEARCH_ID}, ["external_id"]),
     "research_service_attach": _object_schema({"research_id": RESEARCH_ID, "operation_id": RESEARCH_ID,
         "provider": SERVICE_PROVIDER, "run_id": _text_schema(200), "question_id": RESEARCH_ID},
-        ["research_id", "operation_id", "provider", "run_id"]),
+        ["operation_id", "provider", "run_id"]),
     "research_service_import": _object_schema({"external_id": RESEARCH_ID, "operation_id": RESEARCH_ID,
         "question_id": RESEARCH_ID}, ["external_id", "operation_id"]),
     "wiki_write": _object_schema({"page_id": RESEARCH_ID, "page": WIKI_PAGE, "change_note": _text_schema(4000),
+        "sources": _array_schema(_object_schema({"id": RESEARCH_ID, "url": _text_schema(8192),
+            "text": _text_schema(2000000), "capture_id": _text_schema(128), "title": _text_schema(2000),
+            "retrieved_at": _text_schema(64), "kind": {"type": "string", "enum": ["page", "local_document", "external_report"]}},
+            ["id", "url"]), 16, 1),
         "expected_revision": {"type": "integer", "minimum": 0, "maximum": 1000000},
         "reviewed_input_version": {**_text_schema(200), "description": "The already-synchronized input version this page was checked against; closes source_input_changed for cited tasks at that version."}},
         ["page_id", "page", "change_note"]),
@@ -374,20 +382,18 @@ TOOL_SCHEMAS.update({
     "wiki_search": _object_schema({"query": _text_schema(500), "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["query"]),
     "wiki_lint": _object_schema({"page_id": RESEARCH_ID}),
-    "evaluate_research": _object_schema({"suite": OPEN_OBJECT, "runs": _array_schema(OPEN_OBJECT, 1000, 1),
-        "judgments": _array_schema(OPEN_OBJECT, 1000)}, ["suite", "runs"]),
 })
 TOOL_DESCRIPTIONS.update({
     "research_route": "Describe available quick, agentic or deep routes without starting work. Collaboration and external services are optional; explicit provider is exclusive. failed_routes is cumulative and requires confirmed failures; observe active/unknown runs before choosing another route.",
     "research_services": "Describe optional OpenAI Deep Research and Parallel Task API configuration offline. Configured keys do not prove auth; anonymous Search MCP access is separate.",
-    "research_service_prepare": "Preview the exact provider payload and source scope offline. Only explicit input and URLs are shared; local notes, paths and files are not uploaded. Inspect before starting.",
-    "research_service_start": "Submit a reviewed payload to one configured research provider. operation_id prevents duplicate submission, including lost responses. The provider owns remote execution; this tool starts no polling loop.",
+    "research_service_prepare": "Preview a Deep Research API request without network. Pass input and optional provider/options. research_id is optional and adds an existing frozen scope; ordinary API research needs no local session.",
+    "research_service_start": "Submit a provider-managed research task once using input and a stable operation_id; research_id is optional. Requires the configured service and credentials. Reusing the same operation returns its receipt; unknown outcomes are observed or attached, never automatically resubmitted.",
     "research_service_status": "Read saved provider-run state; refresh=true observes that same run once. Timeouts preserve last known state and never create a new run.",
     "research_service_result": "Read a saved provider report with pagination, provenance and unverified citations. refresh requests its result once; Parallel waits at most one server-side second. Original-source reviews are unchanged.",
     "research_service_cancel": "Request provider cancellation. Supported for OpenAI; not established for Parallel Task. An observation failure does not mean the job was cancelled.",
     "research_service_attach": "Attach a known provider run ID without submitting work, including recovery after a lost create response. Status stays unverified until observed.",
     "research_service_import": "Import a completed provider report as unreviewed secondary evidence. Original-URL coverage stays unchanged; read cited originals separately.",
-    "wiki_write": "Write a topic/entity page backed by reviewed active claims, with an immutable revision. Updates need expected_revision. reviewed_input_version acknowledges review against that synced input version. Name the actual semantic reviewer. Stores outside source packages.",
+    "wiki_write": "Save an authored, reviewed Wiki page with versioned citations. For ordinary sources, pass sources:[{id,url,text or capture_id,title?,retrieved_at?,kind?}] and section citations:[{source_id,quote}]; exact quotes are checked and retained internally in one call. Existing research claims are also supported. Read the current expected_revision before updates; review must name the actual reviewer.",
     "wiki_acknowledge": "Write an unchanged Wiki revision acknowledging review against current input versions. expected_revision prevents overwrites; note records the review. Repair invalid evidence/links first; unavailable input still needs review. No network or semantic scoring.",
     "wiki_get": "Read Wiki text with evidence links and separate integrity/freshness checks. Newer snapshots, expired/failed captures and relevant bookmark or linked-page changes need review. Current does not guarantee the live origin is unchanged; no fetch occurs.",
     "wiki_list": "List paginated Wiki pages offline. source_url filters direct citations and linked dependents for reviewing a changed webpage.",
@@ -395,7 +401,6 @@ TOOL_DESCRIPTIONS.update({
     "wiki_refresh": "Fetch and archive up to 16 cited webpage URLs from one Wiki revision. Reports changed/unchanged/unverified captures and affected pages; follow continuation for more. Uses retrieval quota. Read saved captures and review new claims before wiki_write; authored text and bookmark packages stay unchanged.",
     "wiki_search": "Find authored Wiki text using an incremental character index, literal/spacing matching and explicit aliases. Validates matching candidates; invalid/retracted evidence is excluded. Freshness warnings remain visible. No embeddings or network calls.",
     "wiki_lint": "Audit all selected Wiki evidence, hashes, source freshness, crosslinks and history. Mechanical integrity and declared semantic review are reported separately; no network.",
-    "evaluate_research": "Compute metrics from supplied benchmark runs, rubric and reviewer labels: coverage, answer F1, citation labels, report scores and measured cost/latency/variance. Missing judgments stay unknown. Runs no models or providers.",
 })
 
 
@@ -522,7 +527,7 @@ class StdioMcpServer:
         with self._initialization_lock:
             if self._research_sessions is None:
                 from research import ResearchSessions
-                self._research_sessions = ResearchSessions(settings=self.settings, engine=self._web(), db_path=self.db_path)
+                self._research_sessions = ResearchSessions(settings=self.settings, engine=self._providers, db_path=self.db_path)
             return self._research_sessions
 
     def _log(self, message):
@@ -566,7 +571,13 @@ class StdioMcpServer:
         override = os.environ.get("BOOKMARK_RESEARCH_TOOL_SCOPE")
         if override is not None:
             return [name.strip() for name in override.split(",") if name.strip()]
-        return self.settings.load().get("tool_scope") or []
+        preferences = self.settings.load()
+        explicit = preferences.get("tool_scope") or []
+        if explicit:
+            return explicit
+        if preferences.get("tool_scope_preset", "quick") == "quick":
+            return list(Settings.QUICK_TOOLS)
+        return []
 
     def _tool_names(self):
         """The tool surface this profile exposes; empty scope means all tools.
@@ -626,6 +637,15 @@ class StdioMcpServer:
                     else:
                         row.update(text=text, text_origin="archive", text_sha256=digest,
                                    quote_verified=True, characters=len(text))
+                        # Carry the capture's own page metadata into the bundle.
+                        # Otherwise a verified archive read loses its title,
+                        # publication date and content state on the way out.
+                        for field in ("title", "published_at", "published_at_source",
+                                      "published_at_confidence", "provider", "retrieved_at"):
+                            if page.get(field) is not None and not row.get(field):
+                                row[field] = page[field]
+                        if page.get("content_state"):
+                            row["content_state"] = page["content_state"]
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 row.update(content_state="unavailable", error="capture_unreadable: " + str(exc)[:200])
             hydrated.append(row)
@@ -660,9 +680,6 @@ class StdioMcpServer:
                                   variants=options.pop("variants", 0),
                                   elapsed_seconds=options.pop("elapsed_seconds", 0))
             return {"budget": budget, **evidence_bundle(sources, **options)}
-        if name == "evaluate_research":
-            from evaluation import evaluate
-            return evaluate(**arguments)
         if name == "get_settings":
             return self.settings.describe()
         if name == "update_settings":
@@ -680,6 +697,11 @@ class StdioMcpServer:
             return self._sources().remove(**arguments)
         if name == "source_merge":
             return self._sources().merge(**arguments)
+        if name == "plan_research" and not arguments.get("source_id"):
+            from research_plan import ResearchPlan
+            options = dict(arguments)
+            options.pop("refresh", None)
+            return ResearchPlan(settings=self.settings, wiki=self._wiki(), raw=self._raw()).build(**options)
         if name in ("search_bookmarks", "get_context", "plan_research"):
             options = dict(arguments)
             refresh = options.pop("refresh", True)
@@ -696,7 +718,8 @@ class StdioMcpServer:
             with index.read_snapshot():
                 if name == "plan_research":
                     from research_plan import ResearchPlan
-                    result = ResearchPlan(index=index, settings=self.settings).build(**options)
+                    result = ResearchPlan(index=index, settings=self.settings,
+                                          wiki=self._wiki(), raw=self._raw()).build(**options)
                 else:
                     method = index.search if name == "search_bookmarks" else index.context
                     result = method(**options)
@@ -891,12 +914,11 @@ def serve(db_path, stdin=None, stdout=None, stderr=None, settings=None, workers=
     """Serve line-delimited JSON-RPC until EOF; stdout contains protocol only."""
     incoming = stdin if stdin is not None else sys.stdin
     outgoing = stdout if stdout is not None else sys.stdout
-    server = StdioMcpServer(db_path, stderr=stderr, settings=settings)
-
     def emit(value):
         outgoing.write(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")) + "\n")
         outgoing.flush()
 
+    server = StdioMcpServer(db_path, stderr=stderr, settings=settings)
     from mcp_dispatch import StdioRequestQueue
     queue = StdioRequestQueue(server, emit, workers=NETWORK_WORKERS if workers is None else workers,
                               max_pending=MAX_PENDING_CALLS if max_pending is None else max_pending)

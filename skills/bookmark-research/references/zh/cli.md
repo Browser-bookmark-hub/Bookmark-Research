@@ -148,7 +148,7 @@ python3 <root>/src/cli.py research service cancel <external-id>
 
 route 的 `--tool`、`--available-command`、`--extension` 可重复；填当前会话真实观察值，也可 `--input` 使用完整 MCP 参数。路由不执行工作流。prepare/start/attach JSON 包含 research_id；服务创建、查询、取消的语义见 [专业研究服务](research-services.md)。描述和准备不联网，`--refresh` 只观察已有远端任务一次；不要把超时后新建任务当作恢复。
 
-## Wiki 与评测
+## Wiki
 
 ```sh
 python3 <root>/src/cli.py wiki write <page-id> --input /path/to/page-and-change-note.json
@@ -161,7 +161,6 @@ python3 <root>/src/cli.py wiki work --research-id <research-id>
 python3 <root>/src/cli.py wiki work --kind page --status needs_review --limit 20
 python3 <root>/src/cli.py wiki search '研究执行' --limit 10
 python3 <root>/src/cli.py wiki lint
-python3 <root>/src/cli.py evaluate --input /path/to/suite-runs-judgments.json
 ```
 
-wiki write 输入为 `{page,change_note,expected_revision?}`，page_id 已由位置参数提供；更新须传当前 revision。Wiki 可在动作前加 `--directory`，非默认研究目录用 `--research-directory` 指定。evaluate 接收 `{suite,runs,judgments?}`，计算真实提供的数据，不自动启动模型评审。格式与质量边界见 [Wiki 与评测](wiki-and-evaluation.md)。
+wiki write 输入为 `{page,change_note,expected_revision?}`，page_id 已由位置参数提供；更新须传当前 revision。Wiki 可在动作前加 `--directory`，非默认研究目录用 `--research-directory` 指定。格式与边界见 [Wiki](wiki.md)。

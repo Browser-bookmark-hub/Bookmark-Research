@@ -19,7 +19,8 @@
 | 本地查询 | “这个书签在哪张卡片里？” | 查询本地元数据和画布关系。 |
 | 快速查证 | “读一下我收藏的官方页面，确认它是否支持 MCP。” | 读取已有 URL，必要时搜索发现来源，再带引用答复。 |
 | 主动搜索 | “比较这些卡片中的搜索工具，包括认证方式与研究能力。” | 根据卡片语境拆问题，搜索、读文，并沿证据缺口继续补查。 |
-| 深度研究 | “全量研究这个包，核验排行榜，与我们的插件比较，保存报告和 Wiki。” | 保留完整来源清单，组织持续调查，审阅证据、核验覆盖，保存交付物。 |
+| 深度研究 | “用已配置的研究 API 深入调查这个问题，核查关键原文并保存 Wiki。” | 直接提交 API 任务、观察进度、审阅报告与关键来源。 |
+| 完整资料审计 | “全量研究这个包，核验排行榜，与我们的插件比较，保存报告和 Wiki。” | 按需启用高级目录，保留完整清单，核验来源与覆盖。 |
 
 快速查证不会把宿主切换成非推理模型。深度与范围分别决定：深度研究可以只覆盖明确指定的卡片；要求研究整包时，保留每个原始 URL 和重复书签各自的语境。分页、分批和子代理数量不能缩小范围。搜索摘要和外部报告不能代替读取原始网页。
 
@@ -49,11 +50,11 @@ MCP 进程运行期间及查询前会检查 live 目录。一次性 CLI 命令�
 | 服务检查 | 缓存 15 分钟，配置／密钥变化后刷新 | “每次新问题前都检查服务可用性。” |
 | 专业研究 API | 关闭 | “显示启用 OpenAI 研究需要什么配置。” |
 
-搜索结果条数不限制数据包范围；长度参数不保证完整正文。深度研究始终保留任务证据，不受普通网页归档开关影响。
+搜索结果条数不限制数据包范围；长度参数不保证完整正文。API 结果与完整审计的任务证据独立保存，不受普通网页归档开关影响。
 
 可运行 `python3 <插件根目录>/src/cli.py setup` 引导设置偏好并隐藏输入密钥。密钥优先从宿主环境读取，其次读取配置旁的私有 `credentials.json`：`EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`；OpenAI 专业研究使用 `OPENAI_API_KEY`。访问和额度取决于服务方。宿主自身研究无需另配专业研究服务密钥。
 
-每个联网研究新问题前，Skill 用 `research_readiness` 检查所选服务和已观察到的宿主工具；cached／always／manual 控制频率，本地查询保持离线。setup 展示可选原生 MCP 的接入／授权步骤，实际 OAuth 由宿主管理。已填密钥、工具可见与实际操作成功分别报告，检查不会创建付费研究任务。详见[配置与就绪检查](../skills/bookmark-research/references/zh/settings-and-archive.md)。
+需要诊断访问问题时，可用高级 `research_readiness` 检查所选服务和已观察到的宿主工具；cached／always／manual 控制频率，本地查询保持离线。setup 展示可选原生 MCP 的接入／授权步骤，实际 OAuth 由宿主管理。已填密钥、工具可见与实际操作成功分别报告，检查不会创建付费研究任务。详见[配置与就绪检查](../skills/bookmark-research/references/zh/settings-and-archive.md)。
 
 默认配置位于 `~/.config/bookmark-research/settings.json`，数据位于 `~/.local/share/bookmark-research/`，支持 XDG 及插件的数据／配置路径覆盖。SQLite 保存本地查询索引，旁边保存来源快照、网页归档、研究档案与 Wiki 修订。多个宿主可以共享这些位置，用户数据应位于插件和原始画布包之外。
 
@@ -65,10 +66,10 @@ MCP 进程运行期间及查询前会检查 live 目录。一次性 CLI 命令�
 
 Skill 指令本身的语言不决定输出语言。安装器 `--lang auto|en|zh` 控制帮助与提示；向导另外询问并保存答复语言。`auto` 依次读取 `LC_ALL`、`LC_MESSAGES`、`LANG`；中文 locale 使用中文，其余或未设置时使用英文。`BOOKMARK_RESEARCH_INSTALL_LANG` 用于 Shell 向 Python 安装器传递界面语言。
 
-执行 Skill 和 11 篇方法参考已使用英文，配完整中文阅读对照，[指令索引](instructions.md)也包含双语宿主提示说明。宿主将输出语言保存在研究 brief 并传给子代理；脚本工作流支持 `output_language`。任务和对话都没有选择语言时默认英文。
+执行 Skill 和方法参考已使用英文，配完整中文阅读对照，[指令索引](instructions.md)也包含双语宿主提示说明。宿主将输出语言保存在研究 brief 并传给子代理；脚本工作流支持 `output_language`。任务和对话都没有选择语言时默认英文。
 
 原始 URL、标识符、正文证据和引用保留原样。工具／JSON 字段、技术诊断及报告／Wiki 的固定元数据标签仍使用英文，宿主编写的正文使用指定语言。历史研究记录保留原语言。
 
 旧会话只暴露部分 MCP 工具时，宿主可用同包 CLI 执行缺少的操作，新建会话后加载新版 Skill 和工具列表。仅选择路由或接入数据包不会启动后台研究。
 
-实现细节见[中文 Skill 说明](../skills/bookmark-research/references/zh/skill-guide.md)、[配置参考](../skills/bookmark-research/references/zh/settings-and-archive.md)和[Wiki／评测指南](wiki-quality.zh.md)；实际加载的是[英文执行 Skill](../skills/bookmark-research/SKILL.md)。
+实现细节见[中文 Skill 说明](../skills/bookmark-research/references/zh/skill-guide.md)、[配置参考](../skills/bookmark-research/references/zh/settings-and-archive.md)和[Wiki 指南](../skills/bookmark-research/references/zh/wiki.md)；实际加载的是[英文执行 Skill](../skills/bookmark-research/SKILL.md)。

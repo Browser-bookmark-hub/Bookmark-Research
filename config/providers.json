@@ -89,6 +89,21 @@
         "note": "May be advertised to keyless clients but requires an API key to execute. The aggregator routes search and extraction only."
       },
       "docs": "https://docs.tavily.com/documentation/mcp"
+    },
+    "deepseek": {
+      "label": "DeepSeek Search / Fetch",
+      "url": "https://api.deepseek.com",
+      "transport": "http",
+      "client": "deepseek",
+      "search_url": "https://api.deepseek.com/v1/tools/search",
+      "fetch_url": "https://api.deepseek.com/v1/tools/fetch",
+      "search_tools": ["deepseek_search"],
+      "fetch_tools": ["deepseek_fetch"],
+      "direct_client": true,
+      "optional_bearer_env": "DEEPSEEK_API_KEY",
+      "required_env": {"search": "DEEPSEEK_API_KEY", "fetch": "DEEPSEEK_API_KEY"},
+      "authentication": "Bearer DEEPSEEK_API_KEY. Raw JSON Search/Fetch API; OpenAI-compatible error shape. Search costs $0.75 per 1,000 successful requests (official docs).",
+      "docs": "https://api-docs.deepseek.com/guides/search/"
     }
   },
   "default_providers": [

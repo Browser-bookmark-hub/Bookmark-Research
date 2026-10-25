@@ -148,7 +148,7 @@ python3 <root>/src/cli.py research service cancel <external-id>
 
 Repeat route `--tool`, `--available-command` and `--extension` for capabilities actually observed in the session; `--input` also accepts complete MCP input. Routing does not execute a workflow. Prepare/start/attach JSON includes `research_id`. See [professional services](research-services.md) for creation, status and cancellation semantics. Describe/prepare are offline; `--refresh` observes an existing remote run once. Starting another task after a timeout is not recovery.
 
-## Wiki and evaluation
+## Wiki
 
 ```sh
 python3 <root>/src/cli.py wiki write <page-id> --input /path/to/page-and-change-note.json
@@ -161,7 +161,6 @@ python3 <root>/src/cli.py wiki work --research-id <research-id>
 python3 <root>/src/cli.py wiki work --kind page --status needs_review --limit 20
 python3 <root>/src/cli.py wiki search 'research execution' --limit 10
 python3 <root>/src/cli.py wiki lint
-python3 <root>/src/cli.py evaluate --input /path/to/suite-runs-judgments.json
 ```
 
-Wiki write input is `{page,change_note,expected_revision?}`; `page_id` is positional. Updates require the current revision. Put Wiki `--directory` before its action; use `--research-directory` for a nondefault research location. Evaluate accepts `{suite,runs,judgments?}` and calculates supplied data without starting a model judge. See [Wiki and evaluation](wiki-and-evaluation.md) for formats and limits.
+Wiki write input is `{page,change_note,expected_revision?}`; `page_id` is positional. Updates require the current revision. Put Wiki `--directory` before its action; use `--research-directory` for a nondefault research location. See [Wiki](wiki.md) for formats and limits.

@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sqlite3
 import uuid
 from contextlib import ExitStack, contextmanager
@@ -27,6 +28,10 @@ from source_versions import SourceVersions
 class WikiStore:
     """Publish immutable revisions, then atomically advance the current index."""
 
+    MAX_PAGE_CLAIMS = 24
+    MAX_SECTION_CLAIMS = 12
+    MAX_SECTIONS = 16
+    MAX_SECTION_CHARACTERS = 12000
     MAX_RECORD_BYTES = 900000
     ARTIFACT_FIELDS = ("body_file", "manifest_file", "response_file")
     REVIEW_RUBRIC = (
@@ -122,15 +127,15 @@ class WikiStore:
         value["title"] = self._text(value["title"], "Wiki title", 300, single_line=True)
         if value["kind"] not in ("topic", "entity"):
             raise ValueError("Wiki kind must be topic or entity")
-        if not isinstance(value["sections"], list) or not 1 <= len(value["sections"]) <= 16:
+        if not isinstance(value["sections"], list) or not 1 <= len(value["sections"]) <= self.MAX_SECTIONS:
             raise ValueError("A Wiki page needs 1 to 16 authored sections")
         references = []
         for section in value["sections"]:
             if not isinstance(section, dict) or set(section) != {"heading", "text", "claims"}:
                 raise ValueError("Each section needs heading, text and claims only")
             section["heading"] = self._text(section["heading"], "Section heading", 300, single_line=True)
-            section["text"] = self._text(section["text"], "Section text", 12000)
-            if not isinstance(section["claims"], list) or not 1 <= len(section["claims"]) <= 12:
+            section["text"] = self._text(section["text"], "Section text", self.MAX_SECTION_CHARACTERS)
+            if not isinstance(section["claims"], list) or not 1 <= len(section["claims"]) <= self.MAX_SECTION_CLAIMS:
                 raise ValueError("Each section needs 1 to 12 explicit claim references")
             seen = set()
             for reference in section["claims"]:
@@ -144,7 +149,7 @@ class WikiStore:
                 seen.add(pair)
                 if pair not in references:
                     references.append(pair)
-        if len(references) > 24:
+        if len(references) > self.MAX_PAGE_CLAIMS:
             raise ValueError("A Wiki page may cite at most 24 distinct claims")
         if not isinstance(value["links"], list) or len(value["links"]) > 32:
             raise ValueError("Wiki links must contain at most 32 page relationships")
@@ -409,8 +414,142 @@ class WikiStore:
         return [{"research_id": key, "input_version": value, "acknowledged_at": stamp, "note": note}
                 for key, value in sorted(selected.items())]
 
+    def _compile_page(self, page_id, page, sources, cleanup):
+        """Keep ordinary source retention inside the existing evidence store.
+
+        Callers supply authored sections, exact quotes and text they read (or
+        an immutable capture). They need no research IDs or intermediate calls.
+        Validate all inputs before creating a retained research record.
+        """
+        from archive import SourceArchive
+        if not isinstance(sources, list) or not 1 <= len(sources) <= 16:
+            raise ValueError("sources must contain 1 to 16 read sources")
+        prepared = {}
+        for source in sources:
+            if not isinstance(source, dict) or set(source) - {
+                    "id", "url", "text", "capture_id", "title", "retrieved_at", "kind"}:
+                raise ValueError("Invalid Wiki source fields")
+            identifier = ResearchSessions._identifier(source.get("id"), "Source id")
+            if identifier in prepared:
+                raise ValueError("Duplicate source id")
+            url = self._text(source.get("url"), "Source URL", 8192)
+            kind = source.get("kind", "page")
+            if kind not in ("page", "local_document", "external_report"):
+                raise ValueError("Invalid Wiki source kind")
+            if kind == "page" or (kind == "local_document" and not url.startswith("file://")):
+                SourceArchive._key(url)
+            capture_id = source.get("capture_id")
+            if capture_id and source.get("text") is not None:
+                raise ValueError("Use capture_id or source text, not both")
+            provenance = {"kind": kind, "provider": "host"}
+            text = source.get("text")
+            if capture_id:
+                archive = SourceArchive(self.settings.load()["archive"]["directory"])
+                saved = archive.read_capture(capture_id, [url])["pages"][0]
+                if saved.get("content_state") != "usable":
+                    raise ValueError("Wiki capture has no usable source text: " + url)
+                text = archive.read_page(Path(saved["manifest_path"]).parent, saved)
+                provenance.update(kind="archived_page", capture_id=capture_id,
+                                  provider=saved.get("provider") or "archive",
+                                  retrieved_at=saved.get("retrieved_at"))
+            elif source.get("retrieved_at") is not None:
+                provenance["retrieved_at"] = source["retrieved_at"]
+            prepared[identifier] = {"url": url, "text": self._text(text, "Source text", 2000000),
+                                    "title": self._text(source.get("title") or url, "Source title", 2000),
+                                    "provenance": provenance}
+        value = copy.deepcopy(page)
+        if not isinstance(value, dict) or not isinstance(value.get("sections"), list):
+            raise ValueError("page needs authored sections")
+        citations, statements = [], []
+        for section in value["sections"]:
+            if not isinstance(section, dict) or set(section) != {"heading", "text", "citations"}:
+                raise ValueError("With sources, each section needs heading, text and citations")
+            rows = section.pop("citations")
+            if not isinstance(rows, list) or not 1 <= len(rows) <= 12:
+                raise ValueError("Each section needs 1 to 12 exact citations")
+            for row in rows:
+                if not isinstance(row, dict) or set(row) != {"source_id", "quote"}:
+                    raise ValueError("Each citation needs source_id and quote")
+                source = prepared.get(row["source_id"])
+                quote = self._text(row["quote"], "Quote")
+                if source is None or quote not in source["text"]:
+                    raise ValueError("Quote is absent from the supplied source")
+            text = self._text(section["text"], "Section text", self.MAX_SECTION_CHARACTERS)
+            chunks = [chunk.strip() for start in range(0, len(text), 4000)
+                      if (chunk := text[start:start + 4000]).strip()]
+            section["claims"] = [{"research_id": "r-0000000000000000", "claim_id": "c%d" % (len(statements) + i + 1)}
+                                 for i in range(len(chunks))]
+            statements.extend(chunks)
+            citations.extend([rows] * len(chunks))
+        value, _ = self._page(value)
+        index = self._index()
+        for link in value["links"]:
+            if link["page_id"] == page_id or link["page_id"] not in index["pages"]:
+                raise ValueError("Wiki links must target an existing different page")
+            self._revision(index["pages"][link["page_id"]])
+        used = {row["source_id"] for rows in citations for row in rows}
+        if used != set(prepared):
+            raise ValueError("Every supplied source must be cited by a section")
+        # An explicit root keeps these internal records out of the task location
+        # registry. Failed writes can remove their private record completely.
+        retained = ResearchSessions(directory=self.research.directory, settings=self.settings)
+        started = retained.start("Wiki: " + value["title"], [{"id": "wiki", "question": value["title"]}],
+                                      budget={"max_search_calls": 0, "max_fetch_calls": 0})
+        research_id = started["research_id"]
+        cleanup.callback(self._discard_retained, page_id, retained._path(research_id))
+        ids, entries = {}, []
+        for number, (identifier, source) in enumerate(prepared.items()):
+            saved = retained.import_evidence(research_id, "wiki-source-%d" % number, "wiki", **source)
+            ids[identifier] = saved["sources"][0]["id"]
+            entries.append({"kind": "source_review", "source_id": ids[identifier], "verdict": "accepted",
+                            "text": value["review"]["note"]})
+        for text, rows in zip(statements, citations):
+            entries.append({"kind": "claim", "question_id": "wiki", "statement": text, "inference": True,
+                            "citations": [{"source_id": ids[row["source_id"]], "quote": row["quote"]} for row in rows]})
+        entries.append({"kind": "answer", "question_id": "wiki", "answer": value["title"],
+                        "claim_ids": ["c%d" % (number + 1) for number in range(len(statements))]})
+        retained.record(research_id, entries=entries)
+        retained.finish(research_id, "Retained reviewed Wiki sources: " + value["title"])
+        for section in value["sections"]:
+            for claim in section["claims"]:
+                claim["research_id"] = research_id
+        return value
+
+    def _discard_retained(self, page_id, path):
+        # An error after index publication must preserve the committed evidence.
+        try:
+            pointer = self._index()["pages"].get(page_id)
+            if pointer and any(reference["research_id"] == path.name
+                               for section in self._revision(pointer)["page"]["sections"]
+                               for reference in section["claims"]):
+                return
+        except (OSError, ValueError, KeyError, TypeError):
+            return
+        self.research._source_versions().discard_scope(path.name)
+        shutil.rmtree(path)
+
     def write(self, page_id, page, change_note, expected_revision=0, reviewed_input_version=None,
-              acknowledge_all=False):
+              acknowledge_all=False, sources=None):
+        if sources is None:
+            return self._write_page(page_id, page, change_note, expected_revision,
+                                    reviewed_input_version, acknowledge_all)
+        page_id = self._slug(page_id)
+        self._text(change_note, "Change note")
+        ResearchSessions._integer(expected_revision, "expected_revision", 0, 10000)
+        if reviewed_input_version is not None:
+            raise ValueError("reviewed_input_version applies to existing research claims, not new sources")
+        previous = self._index()["pages"].get(page_id)
+        if expected_revision != (previous["revision"] if previous else 0):
+            raise ValueError("Wiki revision changed; read the current page before updating")
+        with ExitStack() as cleanup:
+            compiled = self._compile_page(page_id, page, sources, cleanup)
+            result = self._write_page(page_id, compiled, change_note, expected_revision,
+                                      reviewed_input_version, acknowledge_all)
+            cleanup.pop_all()
+            return result
+
+    def _write_page(self, page_id, page, change_note, expected_revision=0, reviewed_input_version=None,
+                    acknowledge_all=False):
         """Create at revision 0, or update the explicit revision read by the caller.
 
         ``reviewed_input_version`` records that the page was checked against that
@@ -418,9 +557,9 @@ class WikiStore:
         for the cited tasks at that version.
         """
         page_id = self._slug(page_id)
-        page, references = self._page(page)
         change_note = self._text(change_note, "Change note")
         ResearchSessions._integer(expected_revision, "expected_revision", 0, 10000)
+        page, references = self._page(page)
         cache = {}
         for reference in references:
             self._evidence(*reference, cache)

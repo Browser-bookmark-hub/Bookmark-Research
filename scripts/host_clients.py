@@ -57,9 +57,9 @@ class HostClient:
         self.profile = profile
         if host == "dsh":
             if scope or project:
-                raise ValueError("DSH uses --profile, not --scope or --project")
+                raise ValueError("DeepSeek Harness (dsh) uses --profile, not --scope or --project")
             if not profile or not all(c.isalnum() or c in "._-" for c in profile) or profile.startswith("."):
-                raise ValueError("DSH requires --profile NAME (letters, numbers, dots, underscores or hyphens)")
+                raise ValueError("DeepSeek Harness (dsh) requires --profile NAME (letters, numbers, dots, underscores or hyphens)")
             # The default name resolves to PATH first and then to an installed
             # DeepSeek Harness Desktop, whose bundled CLI carries its own pnpm and
             # is the only carrier that composes the reserved `desktop` profile.
@@ -99,7 +99,7 @@ class HostClient:
                                  + self.binary + " is not it; pass the app's bundled CLI with --dsh (it carries its own pnpm), "
                                  "or choose another profile name")
             # A generic dsh forwards `plugin` to pnpm; fail before creating a profile.
-            raise ValueError("DSH installs profile plugins with pnpm, which was not found on PATH and is not bundled with "
+            raise ValueError("DeepSeek Harness (dsh) installs profile plugins with pnpm, which was not found on PATH and is not bundled with "
                              + self.binary + "; install it (npm install -g pnpm, or corepack enable pnpm) and retry, "
                              "or pass the DeepSeek Harness Desktop CLI with --dsh (it carries its own pnpm)")
 
@@ -139,13 +139,13 @@ class HostClient:
             raise ValueError("Unexpected client settings object: " + str(self.settings))
         dependencies, dsh = settings.get("dependencies", {}), settings.get("dsh", {})
         if not isinstance(dependencies, dict) or not isinstance(dsh, dict) or not isinstance(dsh.get("profile", {}), dict):
-            raise ValueError("Unexpected DSH profile manifest")
+            raise ValueError("Unexpected DeepSeek Harness (dsh) profile manifest")
         dependency = dependencies.get(NAME)
         if dependency and local_path(dependency, self.settings.parent) != bundle.resolve():
-            raise ValueError("DSH profile already installs Bookmark Research from another source")
+            raise ValueError("DeepSeek Harness (dsh) profile already installs Bookmark Research from another source")
         bundles = settings.get("dsh", {}).get("profile", {}).get("bundles", [])
         if not isinstance(bundles, list):
-            raise ValueError("DSH profile bundles must be an array")
+            raise ValueError("DeepSeek Harness (dsh) profile bundles must be an array")
         return {"installed": bool(dependency), "enabled": NAME in bundles}
 
     def commands(self, bundle, registration, changed=False):
@@ -179,10 +179,10 @@ class HostClient:
             return Path(path).resolve()
         if self.host == "dsh":
             if not registration["enabled"]:
-                raise RuntimeError("DSH installed the dependency without enabling its bundle")
+                raise RuntimeError("DeepSeek Harness (dsh) installed the dependency without enabling its bundle")
             package = self.settings.parent / "node_modules" / NAME
             if not package.is_dir():
-                raise RuntimeError("DSH did not retain the installed bundle in its profile")
+                raise RuntimeError("DeepSeek Harness (dsh) did not retain the installed bundle in its profile")
             if self.profile.casefold() == "desktop":
                 # DeepSeek Harness Desktop reserves this profile name: its launcher
                 # refuses every boot and dump for "desktop" (only the Electron carrier
@@ -191,7 +191,7 @@ class HostClient:
             else:
                 composition = self.run(["--profile", self.profile, "--dump-config"], quiet_error=True)
             if not all(name in composition for name in ("bookmark-research-skill", "bookmark-research-mcp", "bookmarkResearchPaths")):
-                raise RuntimeError("DSH composition is missing the Bookmark Research Skill or MCP configuration")
+                raise RuntimeError("DeepSeek Harness (dsh) composition is missing the Bookmark Research Skill or MCP configuration")
             return package.resolve()
         return bundle
 
@@ -204,7 +204,7 @@ class HostClient:
         """
         settings = read_json(self.settings, {})
         if not isinstance(settings, dict):
-            raise ValueError("Unexpected DSH profile manifest: " + str(self.settings))
+            raise ValueError("Unexpected DeepSeek Harness (dsh) profile manifest: " + str(self.settings))
         dependency = settings.get("dependencies", {}).get(NAME)
         if not isinstance(dependency, str) or not dependency.strip():
             raise RuntimeError("The desktop profile does not depend on " + NAME)

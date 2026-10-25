@@ -299,7 +299,7 @@ class OutputLocationTests(unittest.TestCase):
                 self.assertIn("Aurora provides durable storage.", draft["page"]["sections"][0]["text"])
                 self.assertFalse(draft["truncated"])
                 if policy == "suggest":
-                    self.assertIn("only after the user confirms", follow_up["instruction"])
+                    self.assertIn("Honor existing authorization", follow_up["instruction"])
                 else:
                     self.assertIn("Without asking the user", follow_up["instruction"])
 

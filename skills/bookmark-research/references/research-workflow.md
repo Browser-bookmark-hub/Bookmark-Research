@@ -14,15 +14,16 @@ The plugin registers one local `bookmark-research` MCP server with the host and 
 | Parallel | Implemented; one default search provider | `search_web` / `fetch_web` |
 | Jina | HTTP Reader fallback; Search fallback when keyed | `fetch_web` with `jina` reads webpages/PDFs anonymously within service limits; Search requires `JINA_API_KEY` and is skipped as an automatic fallback without it. No extra MCP installation. |
 | Tavily | Default search fallback; selectable extraction | Pass `tavily` to the same tools or add it to `fetch.providers`. Use Bearer authentication with `TAVILY_API_KEY`, otherwise explicit keyless mode. Quotas depend on actual provider responses. |
+| DeepSeek | Optional Search / Fetch provider; raw JSON tools API | Pass `deepseek` explicitly or add it to a provider list; requires `DEEPSEEK_API_KEY`. Search returns title/url/summary (optional content); Fetch returns one page as Markdown. OpenAI-compatible error shape, not Chat Completions. |
 | GitHub | No dedicated MCP bundled; existing host tools can be used | `fetch_web` for public pages; see [GitHub routing](github-and-sync.md) for code, issues and releases. |
 
-Identify actual tools and preserve the user's provider and scope choices. `search_providers` describes per-operation authentication; probes check remote MCP catalogs, while Jina reports a local HTTP API mapping without a network probe. A registry entry does not establish availability. See the [CLI reference](cli.md) for inputs and limits.
+Identify actual tools and preserve the user's provider and scope choices. `search_providers` describes per-operation authentication; probes check remote MCP catalogs, while Jina and DeepSeek report local HTTP API mappings without a network probe. A registry entry does not establish availability. See the [CLI reference](cli.md) for inputs and limits.
 
 ## Targets and research depth
 
 Use local metadata for locations, counts, existing categories and notes. Read relevant pages to establish product features, page content, pricing or current status. Label conclusions based only on titles, URLs or snippets accordingly.
 
-Read a known URL directly; search when discovering sources. In agentic search the host plans, reads and follows gaps, using subagents or loaded workflows for independent topics. Deep research combines [persistent research records](deep-research.md) with sustained investigation, optionally using a professional service. The plugin runs no background model.
+Read a known URL directly; search when discovering sources. When the host already exposes native search, use it as the default discovery channel; `search_web` is the fallback when native search is unavailable, returns nothing or insufficient results, or the user asks for provider diversity. In agentic search the host plans, reads and follows gaps, using subagents or loaded workflows for independent topics. Deep research can [call a research API directly](research-services.md); [persistent collection audits](deep-research.md) are optional. The plugin runs no background model.
 
 Exa Agent, Parallel Task and OpenAI Deep Research are separate research interfaces with different authentication and lifecycles. This plugin has configurable OpenAI Responses and Parallel Task clients; see [professional research services](research-services.md). Routing recognizes Exa Agent and complete Parallel Task MCP tools already loaded by the host, without installing those MCPs. Tavily Research and other researched projects are not automatic backends. A local stdio MCP server is not automatically reachable by a cloud service.
 
@@ -54,4 +55,4 @@ Answer simple questions directly. When a research document is needed, save the M
 
 Retrieval time is not publication time, update time or provider-cache time. Failed pages, snippets, provider extracts and text of unknown completeness cannot be described as complete originals. A new fetch for an old investigation receives its actual current date, not the old snapshot date.
 
-`wiki_*` can compile reviewed conclusions into sourced, cross-linked knowledge pages with revisions, text search and lint; see [Wiki and evaluation](wiki-and-evaluation.md). There are no embeddings, vector database or webpage monitoring. Saving a report does not automatically create a Wiki or RAG system.
+`wiki_*` can compile reviewed conclusions into sourced, cross-linked knowledge pages with revisions, text search and lint; see [Wiki](wiki.md). There are no embeddings, vector database or webpage monitoring. Saving a report does not automatically create a Wiki or RAG system.

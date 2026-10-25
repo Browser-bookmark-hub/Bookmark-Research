@@ -41,14 +41,6 @@ class HostWorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(result.stdout)["checks"], 42)
 
-    @unittest.skipUnless(shutil.which("node"), "Node is required for script syntax/contract tests")
-    def test_discovery_choreography_obeys_the_budget_and_degrades(self):
-        scripts = {host: host_assets.build_workflow(ROOT, host, "bookmark-research-discovery")[1]
-                   for host in ("claude", "dsh")}
-        result = subprocess.run([shutil.which("node"), str(ROOT / "tests/host-discovery.test.js")],
-                                input=json.dumps(scripts), text=True, capture_output=True, timeout=20)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(json.loads(result.stdout)["checks"], 40)
 
     def test_dsh_call_contains_plain_script_meta_and_object_args(self):
         output = self.base / "dsh export"
@@ -63,28 +55,6 @@ class HostWorkflowTests(unittest.TestCase):
         self.assertNotIn("export const meta", call["script"])
         self.assertIn("pipeline(jobs", call["script"])
         self.assertEqual(call["args"]["bridge_path"], str(output / "hosts/shared/research-call.py"))
-        self.assertTrue((output / "workflows/bookmark-research-discovery/script.js").is_file())
-        self.assertTrue((output / "workflows/bookmark-research-discovery/meta.json").is_file())
-        discovery = self.run_python(output / "hosts/dsh/workflow-call.py", "--workflow",
-                                    "bookmark-research-discovery", "--question", "How do I run it locally?",
-                                    "--source-id", "host-fixture", "--run-key", "run-2", "--max-steps", "3")
-        found = json.loads(discovery.stdout)
-        self.assertEqual(found["meta"]["name"], "bookmark-research-discovery")
-        self.assertEqual(found["args"], {
-            "run_key": "run-2", "output_language": "auto", "question": "How do I run it locally?",
-            "source_id": "host-fixture", "max_steps": 3,
-            "bridge_path": str(output / "hosts/shared/research-call.py")})
-        self.assertIn("discovery_bundle", found["script"])
-        no_question = self.run_python(output / "hosts/dsh/workflow-call.py", "--workflow",
-                                      "bookmark-research-discovery", "--source-id", "host-fixture",
-                                      "--run-key", "run-3", success=False)
-        self.assertEqual(no_question.stdout, "")
-        self.assertIn("--question", no_question.stderr)
-        no_steps = self.run_python(output / "hosts/dsh/workflow-call.py", "--workflow",
-                                   "bookmark-research-discovery", "--question", "How?", "--source-id",
-                                   "host-fixture", "--run-key", "run-4", "--max-steps", "0", success=False)
-        self.assertEqual(no_steps.stdout, "")
-        self.assertIn("max-steps", no_steps.stderr)
 
     @unittest.skipUnless(shutil.which("node"), "Node is required for the DSH bundle test")
     def test_dsh_bundle_survives_relocation_and_forwards_only_plugin_environment(self):
@@ -114,7 +84,7 @@ plugin.apply({provide(name, value) { assert.equal(name, "bookmarkResearchPaths")
 const candidates = await provider.list();
 assert.equal(candidates[0].name, "bookmark-research");
 const skill = await provider.get(candidates[0]);
-assert(skill.content.includes("research_readiness"));
+assert(skill.content.includes("wiki_write"));
 const env = paths.env;
 assert.equal(env.EXA_API_KEY, "environment-key-marker");
 assert.equal(env.UNRELATED_SECRET, undefined);

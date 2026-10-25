@@ -2,6 +2,8 @@
 
 [English](../deep-research.md) · **中文阅读版**
 
+这是可选的持久化资料审计流程，使用其 MCP 工具前启用 `tool_scope_preset:"deep"`。一般深入调研可[直接提交研究 API](research-services.md)，日常 Wiki 写入无需先走任一路径。
+
 用于需要持久证据、覆盖管理或恢复能力的深入持续调查，包括完整原始 URL 审阅。保存普通回答只需已有支持材料和要求的输出；保存一条 Wiki 结论不扩大为整库研究。调查由宿主执行，保存任务状态不产生后台代理。
 
 ## 建立任务与范围
@@ -94,6 +96,6 @@
 
 `research_finish` 使用 `completed` 要求每题有支持充分的回答、完整原始范围已实质审阅，且无开放冲突、pending 操作或活动／未知的外部任务。重要缺口用 `incomplete`，全失败／全排除不能完成整包研究。证据失效可重开已解决冲突。
 
-finish 返回报告／来源／覆盖产物路径、`wiki_follow_up`，以及 `incomplete`／`cancelled` 时的 `insufficiency`（固定形状的缺口清单）。`wiki_follow_up.eligible_claims` 给出每条合格 claim 的首句原文与推断标记，草稿可一次确认。已有 Wiki 写入授权时，使用合格已审阅 claims 继续完成；否则按保存的 suggest／auto／off 偏好处理。写入细节见 [Wiki](wiki-and-evaluation.md)。
+finish 返回报告／来源／覆盖产物路径、`wiki_follow_up`，以及 `incomplete`／`cancelled` 时的 `insufficiency`（固定形状的缺口清单）。`wiki_follow_up.eligible_claims` 给出每条合格 claim 的首句原文与推断标记，草稿可一次确认。已有 Wiki 写入授权时，使用合格已审阅 claims 继续完成；否则按保存的 suggest／auto／off 偏好处理。写入细节见 [Wiki](wiki.md)。
 
 搬迁时保留完整任务目录。使用返回的输出位置，位置偏好见[设置](settings-and-archive.md#研究结果位置与-wiki-后续整理)。对外分享服从用户范围，档案可能含私有材料。抓取时间不证明原站时效，保存任务不能迁移宿主代理的内部状态。

@@ -37,15 +37,11 @@ const FORWARDED_ENV = [
   "PARALLEL_API_KEY",
   "TAVILY_API_KEY",
   "JINA_API_KEY",
+  "DEEPSEEK_API_KEY",
   "OPENAI_API_KEY",
   "SystemRoot",
   "windir",
 ];
-
-// DSH's MCP client registers every advertised tool. Keep the full catalog by
-// default so all three research stages stay visible; set
-// BOOKMARK_RESEARCH_TOOL_SCOPE to a comma-separated list to narrow it.
-const DEFAULT_TOOL_SCOPE = "";
 
 // The same discovery order as the npm launcher: an explicit interpreter, then
 // the platform aliases, each accepted only with Python 3.9+ and SQLite present.
@@ -84,7 +80,6 @@ export function apply(ctx) {
   const env = Object.fromEntries(FORWARDED_ENV
     .filter((key) => process.env[key] !== undefined)
     .map((key) => [key, process.env[key]]));
-  if (env.BOOKMARK_RESEARCH_TOOL_SCOPE === undefined) env.BOOKMARK_RESEARCH_TOOL_SCOPE = DEFAULT_TOOL_SCOPE;
   ctx.provide("bookmarkResearchPaths", {
     root,
     cli,

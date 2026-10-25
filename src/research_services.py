@@ -74,7 +74,7 @@ class ResearchServices:
 
     @staticmethod
     def _external_id(research_id, operation_id):
-        return "er-" + hashlib.sha256((research_id + "\0" + operation_id).encode()).hexdigest()[:24]
+        return "er-" + hashlib.sha256(((research_id or "standalone") + "\0" + operation_id).encode()).hexdigest()[:24]
 
     @staticmethod
     def _save(path, state):
@@ -190,19 +190,25 @@ class ResearchServices:
                     "budget_controls": ["max_tool_calls"] if name == "openai" else ["processor"]}
                     for name in providers],
                 "execution": "Provider-managed runs; observe explicitly by run ID. No local worker or automatic retry.",
-                "workflow": ["research_start", "research_service_prepare", "research_service_start",
-                             "research_service_status", "research_service_result", "research_service_import"],
+                "workflow": ["research_service_prepare", "research_service_start",
+                             "research_service_status", "research_service_result"],
                 "native_research": {"available": True, "entrypoint": "research_start",
                                     "execution_owner": "host", "requires_service_credentials": False},
                 "cost_note": "Tool-count/processor controls are not a monetary cap. Host-native research tools remain usable independently."}
 
-    def prepare(self, research_id, input, provider=None, question_id=None, inventory_ids=None, options=None):
+    def prepare(self, research_id=None, input=None, provider=None, question_id=None, inventory_ids=None, options=None):
         provider = self._provider(provider)
         input = self._text(input, "Research service input", 50000)
-        _, state = self.sessions._load(research_id)
-        ResearchSessions._active(state)
-        if question_id is not None:
-            ResearchSessions._find(state["questions"], question_id, "question")
+        if research_id is not None:
+            _, state = self.sessions._load(research_id)
+            ResearchSessions._active(state)
+            if question_id is not None:
+                ResearchSessions._find(state["questions"], question_id, "question")
+        else:
+            if question_id is not None or inventory_ids is not None:
+                raise ValueError("question_id and inventory_ids require research_id")
+            state = {}
+
         options = {} if options is None else copy.deepcopy(options)
         if not isinstance(options, dict):
             raise ValueError("Research service options must be an object")
@@ -285,6 +291,8 @@ class ResearchServices:
                 "data_note": "Only the explicit input and source URLs are sent. Local paths, bookmark labels, notes and files are not uploaded. Imported reports do not count as reading their cited pages."}
 
     def _publish(self, path, state, strict=False):
+        if not state.get("research_id"):
+            return
         entry = {"kind": "external_run", "id": state["external_id"], "provider": state["provider"],
                  "run_id": state.get("provider_run_id") or state["external_id"],
                  "status": state["status"],
@@ -314,7 +322,10 @@ class ResearchServices:
         if state["status"] == "completed":
             return {"tool": "research_service_result",
                     "arguments": {"external_id": external_id, "refresh": not bool(state.get("report_path"))},
-                    "then": "Read all report pages, import with research_service_import, and verify cited source pages."}
+                    "then": "Read all report pages and verify cited original sources. Save reviewed findings with wiki_write."}
+        if not state.get("research_id"):
+            return {"tool": "research_service_result", "arguments": {"external_id": external_id},
+                    "reason": "Inspect the saved outcome and report remaining gaps. Do not start a replacement automatically."}
         if state["status"] == "error":
             return {"tool": "research_route", "arguments": {"depth": "deep",
                         "failed_routes": ["professional_service:" + state["provider"]]},
@@ -377,9 +388,10 @@ class ResearchServices:
                 return False
         return True
 
-    def start(self, research_id, operation_id, input, provider=None, question_id=None, inventory_ids=None, options=None):
+    def start(self, research_id=None, operation_id=None, input=None, provider=None, question_id=None, inventory_ids=None, options=None):
         operation_id = self._identifier(operation_id, "operation_id")
-        self.sessions._path(research_id)
+        if research_id is not None:
+            self.sessions._path(research_id)
         intent = self._intent(input, provider, question_id, inventory_ids, options)
         intent_digest = hashlib.sha256(self._json(intent).encode()).hexdigest()
         external_id = self._external_id(research_id, operation_id)
@@ -626,11 +638,14 @@ class ResearchServices:
             self._save(path, state)
             return self._summary(path, state)
 
-    def attach(self, research_id, operation_id, provider, run_id, question_id=None):
+    def attach(self, research_id=None, operation_id=None, provider=None, run_id=None, question_id=None):
         provider = self._provider(provider)
         operation_id = self._identifier(operation_id, "operation_id")
         run_id = self._remote_id(provider, run_id)
-        self.sessions._path(research_id)
+        if research_id is None and question_id is not None:
+            raise ValueError("question_id requires research_id")
+        if research_id is not None:
+            self.sessions._path(research_id)
         external_id = self._external_id(research_id, operation_id)
         path = self._path(external_id)
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -648,10 +663,13 @@ class ResearchServices:
                     state["question_id"] = question_id
                 state["provider_run_id"] = run_id
             else:
-                _, research = self.sessions._load(research_id)
-                ResearchSessions._active(research)
-                if question_id is not None:
-                    ResearchSessions._find(research["questions"], question_id, "question")
+                if research_id is not None:
+                    _, research = self.sessions._load(research_id)
+                    ResearchSessions._active(research)
+                    if question_id is not None:
+                        ResearchSessions._find(research["questions"], question_id, "question")
+                elif question_id is not None:
+                    raise ValueError("question_id requires research_id")
                 state = {"schema_version": 1, "external_id": external_id, "research_id": research_id,
                          "operation_id": operation_id, "provider": provider, "provider_run_id": run_id,
                          "question_id": question_id, "digest": None, "status": "unknown_outcome",
@@ -668,6 +686,8 @@ class ResearchServices:
             _, state = self._load(external_id)
             if state["status"] != "completed" or not state.get("report_path"):
                 raise ValueError("A completed, saved provider report is required for import")
+            if not state.get("research_id"):
+                raise ValueError("Standalone reports can be saved with wiki_write; research_service_import requires a research_id")
             question_id = question_id if question_id is not None else state.get("question_id")
             if question_id is None:
                 raise ValueError("question_id is required to import a report")

@@ -3,9 +3,14 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+from settings import Settings
 
 
 def call_tool(request, db=None, config=None, timeout=600):
@@ -30,7 +35,12 @@ def call_tool(request, db=None, config=None, timeout=600):
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
         {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": request},
     ]
-    result = subprocess.run(command, input="\n".join(json.dumps(row) for row in messages) + "\n",
+    # Invoking this bridge opts into the persistent research workflow. Keep
+    # explicit allowlists, but do not let the daily preset hide workflow tools.
+    environment = os.environ.copy()
+    if "BOOKMARK_RESEARCH_TOOL_SCOPE" not in environment and not Settings(config).load().get("tool_scope"):
+        environment["BOOKMARK_RESEARCH_TOOL_SCOPE"] = ""
+    result = subprocess.run(command, env=environment, input="\n".join(json.dumps(row) for row in messages) + "\n",
                             text=True, encoding="utf-8", errors="replace", capture_output=True, timeout=timeout)
     if result.returncode:
         raise RuntimeError("Shared MCP process failed: " + result.stderr.strip()[:2000])

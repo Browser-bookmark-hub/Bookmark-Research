@@ -1,5 +1,7 @@
 # Codex native research delegation
 
+This guide is for an explicitly selected persistent collection audit. Before direct MCP calls, select `tool_scope_preset:"deep"` or an appropriate explicit allowlist. The bundled CLI bridge opts its own subprocess into the workflow catalog while preserving explicit allowlists. Ordinary questions and Wiki writes use the main Skill.
+
 Use the native subagent tools visible in the current Codex session. This file explicitly requests delegation for a multi-group research task. It does not define a JavaScript runner or require custom global agents. Inherit the current model, reasoning, permissions and tool access unless the user specifies otherwise.
 
 Resolve the output language from the user's explicit requirement, otherwise their actual task/conversation, with English as the fallback. Preserve it in the research brief and pass it to every reader, verifier and follow-up assignment. Use it for authored answers, report prose, review notes and Wiki titles/sections. Keep original quotations, URLs, IDs, code and technical field names unchanged; put translations outside quotations. This English instruction file does not select the answer language. The bilingual reading reference is in `docs/prompt-reference.en.md` and `docs/prompt-reference.md`.

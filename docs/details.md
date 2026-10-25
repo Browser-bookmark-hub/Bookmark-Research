@@ -21,15 +21,15 @@
 
 不需要固定提示词。完整数据包研究保留所有原始 URL 和重复书签语境；只有明确限定卡片、分组或专题时才缩小范围。搜索摘要、搜索结果的第一页和外部报告都不能代替原始网页审阅。
 
-一个插件保留一个 MCP 聚合入口和一个执行 Skill；后端服务数量与入口数量无关。MCP 内置 Exa、Parallel、Tavily 搜索／读取适配器、Jina HTTP 接口和 OpenAI／Parallel 研究 API 客户端。Skill 负责根据任务选择并执行三种流程：
+一个插件保留一个 MCP 聚合入口和一个执行 Skill；后端服务数量与入口数量无关。MCP 内置 Exa、Parallel、Tavily 搜索／读取适配器、Jina HTTP 接口、可选的 DeepSeek Search／Fetch 接口和 OpenAI／Parallel 研究 API 客户端。Skill 负责根据任务选择并执行三种流程：
 
 | 场景 | 基础流程 | 检索与委派支持 |
 | --- | --- | --- |
 | URL 直读 | 当前模型读取已知页面并回答 | Exa 未读到的 URL 交给 Parallel + Jina Reader 并发读取；可配置 Tavily 提取。 |
 | Agentic Web Search | 当前宿主模型先规划 → 搜索／读文 → 判断证据 → 针对缺口补查 | Exa + Parallel 按 `search.strategy` 提供搜索结果（默认并发对冲）；无有效网址的查询再交给 Tavily + 有 key 的 Jina。普通问题无需完整研究会话。 |
-| Deep Research | 在宿主研究循环上增加持续调查、按需协作、独立核验、覆盖检查与报告 | 优先利用宿主现有子代理／工作流；外部 Research MCP／API 可承担宿主判断后的子问题或用户明确指定的任务。 |
+| Deep Research | 直接向研究 API 提交完整问题，观察进度并审阅报告 | 可选 OpenAI／Parallel API；宿主已有研究能力亦可使用。完整清单与覆盖审计按需启用。 |
 
-三个基座共用这套方法：Codex 原生子代理、Claude 普通子代理或已启用团队、已配置的 DSH 子代理／工作流；具体差异与官方依据见 [宿主兼容说明](harness-compatibility.md)。整包脚本用于分组研究。保存的 API 偏好只排列外部服务，显式 provider 才直接指定服务；明确路线失败可继续换路，运行中、结果未知或已取消任务不自动重建。
+三个基座共用这套方法：Codex 原生子代理、Claude 普通子代理或已启用团队、已配置的 DSH 子代理／工作流；具体差异与官方依据见 [宿主兼容说明](harness-compatibility.md)。整包脚本用于分组研究。API 可独立调用，无需先运行宿主调查或创建本地研究会话。运行中和结果未知的任务先观察，保留 operation ID，避免重复创建。
 
 “备用”表示已加入回退列表；“需要配置”表示条件未满足时跳过；“仅调研”表示没有接入，失败也不会自动安装。OpenAI／Parallel 研究 API 默认关闭，需启用并提供凭据。宿主已加载的 Exa `agent_run`、完整 Parallel Task MCP 会被路由识别，实际认证仍以调用结果为准。Scrapling、Firecrawl、MarkItDown 等调研项目没有集成成自动后端。
 
@@ -57,7 +57,7 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 - `wiki/`：主题／实体页和不可变修订；每次写入更新 `index.md`（目录）并追加 `log.md`（时间线）。
 - `raw-library.sqlite3`：`search_archive` 的全文索引，覆盖 `knowledge/` 与所有研究证据，可重建。
 
-配置默认为 `~/.config/bookmark-research/settings.json`。`wiki.after_research` 决定研究结束后的 Wiki 整理：`suggest`（默认，先建议再问）、`auto`、`off`。支持 XDG 和显式路径覆盖，多宿主可共享数据。索引更新不会自动抓网页、运行 LLM 或改写 Wiki；来源变化时提示复核，旧研究与证据保留。
+配置默认为 `~/.config/bookmark-research/settings.json`。`wiki.after_research` 决定研究结束后的 Wiki 整理：`suggest`（默认，遵循已有授权，否则先建议）、`auto`、`off`。支持 XDG 和显式路径覆盖，多宿主可共享数据。索引更新不会自动抓网页、运行 LLM 或改写 Wiki；来源变化时提示复核，旧研究与证据保留。
 
 `research_record` 支持单条 `entry` 或每批至多 50 条的 `entries`，按顺序校验后一次保存，返回精简编号；稳定的 `batch_id` 可避免重试产生重复记录。依赖新 claim ID 的记录在读取返回值后另批提交。`resume` 和 `external_run` 仍需单条调用，详见 [证据记录](../skills/bookmark-research/references/zh/deep-research.md)。
 
@@ -69,9 +69,9 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 
 网络访问依赖服务方的认证与额度。可运行 `python3 src/cli.py setup` 隐藏输入密钥，或在宿主环境设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`、`OPENAI_API_KEY`。密钥默认保存为配置旁仅当前用户可读的 `credentials.json`，环境变量优先。无需给宿主研究额外填写一套模型地址。
 
-Skill 在每个联网研究新问题前调用 `research_readiness`，默认首次、配置／密钥变化或 15 分钟过期时刷新。向导可改为每题检查或仅手动检查；本地查询不联网。结果区分密钥配置、目录可达、实际检索与宿主 OAuth，检查不会启动专业研究任务。
+需要诊断服务访问问题时，可从高级工具面调用 `research_readiness`，显式检查默认在首次、配置／密钥变化或 15 分钟过期时刷新。向导可改为每题检查或仅手动检查；本地查询不联网。结果区分密钥配置、目录可达、实际检索与宿主 OAuth，检查不会启动专业研究任务。
 
-中英文用户共用一个插件；回答、报告正文和 Wiki 章节跟随用户指定语言。原始引用和 URL 保留原文，译文另列。执行 Skill 和 11 篇方法参考以英文维护，配完整中文阅读对照；子代理和工作流也会接收本次输出语言。详见[指令与提示索引](instructions.md)。工具字段、技术诊断和部分固定元数据标签使用英文。
+中英文用户共用一个插件；回答、报告正文和 Wiki 章节跟随用户指定语言。原始引用和 URL 保留原文，译文另列。执行 Skill 和方法参考以英文维护，配完整中文阅读对照；子代理和工作流也会接收本次输出语言。详见[指令与提示索引](instructions.md)。工具字段、技术诊断和部分固定元数据标签使用英文。
 
 ## 宿主与验证范围
 
@@ -81,7 +81,7 @@ Skill 在每个联网研究新问题前调用 `research_readiness`，默认首�
 | Claude Code | 持久 marketplace／插件和 Dynamic Workflow | 隔离配置中的原生安装／更新／缓存检查；模型调用另行验证。 |
 | DSH | 可搬移 bundle，包含 Skill 与 MCP | 安装器／适配器验证；工作流仍需宿主服务与引擎。 |
 
-适配器存在不代表每个宿主都已完成真实研究。Wiki 保存引用、审阅和修订；评测根据实际运行数据及显式评审标签计算，示例分数不能证明研究质量。
+适配器存在不代表每个宿主都已完成真实研究。Wiki 保存引用、审阅和修订；来源完整性与语义支持分别判断，工具检查通过不能证明研究质量。
 
 ## 开发与来源
 
@@ -91,4 +91,4 @@ python3 scripts/verify_fixture.py --output /tmp/bookmark-research-verification
 python3 scripts/export_bundle.py --format codex --output exports/codex/bookmark-research
 ```
 
-研究来源与演进见[设计调研](research-0.2.0.md)、[宿主兼容性](harness-compatibility.md)和[Wiki／评测](wiki-quality.zh.md)。项目源自 Bookmark Canvas，沿用 [GPL-3.0](../LICENSE)。
+研究来源与演进见[宿主兼容性](harness-compatibility.md)和[Wiki](../skills/bookmark-research/references/zh/wiki.md)；早期设计与验证记录可从 Git 历史查阅。项目源自 Bookmark Canvas，沿用 [GPL-3.0](../LICENSE)。

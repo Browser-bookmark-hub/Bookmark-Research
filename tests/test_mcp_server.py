@@ -38,6 +38,7 @@ class McpServerTests(unittest.TestCase):
         self.db_path = self.base / "index.sqlite3"
         self.stderr = io.StringIO()
         self.settings = Settings(self.base / "settings.json")
+        self.settings.update({"tool_scope_preset": "all"})
         self.server = StdioMcpServer(self.db_path, stderr=self.stderr, settings=self.settings)
         self.package = self.base / "Package"
         self.section_path = self.package / "临时栏目" / "常规链式" / "A-1 demo.json"
@@ -84,11 +85,23 @@ class McpServerTests(unittest.TestCase):
             "research_service_prepare", "research_service_start", "research_service_status",
             "research_service_result", "research_service_cancel", "research_service_attach",
             "research_service_import", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
-            "wiki_lint", "wiki_acknowledge", "wiki_refresh", "wiki_work", "evaluate_research"})
+            "wiki_lint", "wiki_acknowledge", "wiki_refresh", "wiki_work"})
         self.assertTrue(all(tool["inputSchema"]["additionalProperties"] is False for tool in listing))
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server._providers)
         self.assertEqual(self.server.handle(request("ping"))["result"], {})
+
+
+
+    def test_quick_tool_scope_preset_exposes_the_everyday_surface(self):
+        self.ready()
+        changed = self.call("update_settings", {"changes": {"tool_scope_preset": "quick"}})
+        self.assertIn("result", changed)
+        self.assertFalse(changed["result"]["isError"], changed)
+        listing = self.server.handle(request("tools/list"))["result"]["tools"]
+        names = {tool["name"] for tool in listing}
+        self.assertEqual(set(Settings.QUICK_TOOLS), names)
+        self.assertNotIn("research_source", names)
 
     def test_tool_scope_narrows_the_catalog_and_rejects_hidden_calls(self):
         self.ready()
@@ -286,6 +299,7 @@ class McpServerTests(unittest.TestCase):
         self.assertFalse(self.db_path.exists())
 
     def test_settings_and_fetch_archive_work_through_mcp_without_creating_index(self):
+        self.settings.path.unlink()
         self.ready()
         current = decode_tool(self.call("get_settings"))
         self.assertFalse(current["config_exists"])

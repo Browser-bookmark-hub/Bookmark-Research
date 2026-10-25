@@ -11,11 +11,11 @@ Reference material moved from the README: components, data model, research modes
 | **Skill** | [`skills/bookmark-research/SKILL.md`](../skills/bookmark-research/SKILL.md) | Guides package reading, local queries, source verification, and research reports |
 | **MCP server** | [`src/mcp_server.py`](../src/mcp_server.py), started with `python3 src/cli.py serve` | One local `bookmark-research` server with the [shared tool catalog](#mcp-tools) |
 | **Python CLI** | [`src/cli.py`](../src/cli.py) | Runs the same queries and research workflows directly, including from a host without MCP |
-| **Web providers** | [`config/providers.json`](../config/providers.json), [`src/provider_adapters.py`](../src/provider_adapters.py), [`src/jina.py`](../src/jina.py) | Exa, Parallel, Jina HTTP and Tavily behind one MCP; schema checks, session reuse and visible partial failures |
+| **Web providers** | [`config/providers.json`](../config/providers.json), [`src/provider_adapters.py`](../src/provider_adapters.py), [`src/jina.py`](../src/jina.py) | Exa, Parallel, Jina HTTP, DeepSeek Search/Fetch and Tavily behind one MCP; schema checks, session reuse and visible partial failures |
 | **Research and coverage** | [`src/research.py`](../src/research.py), [`src/research_coverage.py`](../src/research_coverage.py) | Complete source inventory, all bookmark instances, budgets, evidence, substantive review and reports |
 | **Host workflows** | [`hosts/`](../hosts/) and [`src/routing.py`](../src/routing.py) | Native Codex delegation, Claude workflow and DSH workflow adapter |
 | **Professional research** | [`src/research_services.py`](../src/research_services.py) | Optional provider-owned background tasks, saved run IDs and secondary-report import |
-| **Wiki and evaluation** | [`src/wiki.py`](../src/wiki.py), [`src/evaluation.py`](../src/evaluation.py) | Reviewed knowledge, immutable revisions, source/link lint and metrics from explicit labels |
+| **Wiki** | [`src/wiki.py`](../src/wiki.py) | Reviewed knowledge, immutable revisions, source/link lint and freshness checks |
 | **Client integrations** | Native manifests, [`bin/bookmark-research.js`](../bin/bookmark-research.js), [`scripts/launcher.py`](../scripts/launcher.py), [`install.sh`](../install.sh), [`scripts/install.py`](../scripts/install.py) and [`scripts/export_bundle.py`](../scripts/export_bundle.py) | The `bookmark-research` command (alias `bookmark`, or `bookmark research`), guided installation and native install/update/verify for all three hosts |
 
 The runtime requires Python 3.9+ and SQLite with FTS5; `doctor` checks these requirements. It uses the Python standard library and does not require a separate database service.
@@ -114,7 +114,7 @@ This version has no embeddings, vector database or background page monitoring. R
 | --- | --- | --- |
 | Quick lookup | Read a known URL, or search once to discover it | A concise sourced answer |
 | Agentic search | The current host model first plans, searches/reads, judges evidence and follows gaps | A sourced answer; ordinary questions need no full research session |
-| Deep research | Extend the host loop with sustained investigation, optional native collaboration, independent review and coverage checks | A persistent research archive with original inventory, evidence, coverage, report and optional Wiki |
+| Deep research | Submit the question to a research API, observe the job and review the report | A sourced report; persistent inventories and coverage audits are optional |
 
 These modes follow [OpenAI's web search guide](https://developers.openai.com/api/docs/guides/tools-web-search). Having a URL does not determine whether a model reasons. `research_route` recommends an entrypoint from reported current tools and commands without launching it. Professional APIs have separate authentication and lifecycle contracts; anonymous Search MCP access does not authorize a Task API.
 
@@ -136,7 +136,7 @@ Active tasks can continue directly. After exporting an `incomplete` report, use 
 
 [Professional service tools](../skills/bookmark-research/references/research-services.md) prepare the exact brief/source payload, start once, observe the existing run, and archive its report. OpenAI cancellation is supported; Parallel cancellation is not established by this adapter. Unknown create outcomes are retained without resubmission. Imported reports remain secondary evidence and never mark all cited original URLs as read.
 
-[Wiki and quality evaluation](wiki-quality.md) track reviewed knowledge and measure supplied run results. Semantic citation accuracy requires actual reviewer labels. The included synthetic fixture demonstrates the scorer; it provides no evidence that a host, workflow or provider produces better research.
+[Wiki](../skills/bookmark-research/references/wiki.md) stores reviewed knowledge with immutable revisions, evidence links and freshness checks. It is a knowledge base, not an automatic scorer; quality claims still need actual reviewer labels and real runs.
 
 ## Duplicate bookmarks, context, and result merging
 
@@ -152,7 +152,7 @@ Duplicate item IDs within one section are identity conflicts and cause import fa
 
 Ask "Show the plugin settings," "Use only Exa for future searches," "Save page text to my knowledge directory," or "Read this page without archiving." The model uses `get_settings`, `update_settings`, or parameters for the current `fetch_web` call. There is no separate graphical settings page.
 
-Run `python3 src/cli.py setup` to revisit the terminal wizard. Before each new web research question, the Skill calls `research_readiness`: by default it refreshes checks on first use, configuration/key changes, or after 15 minutes. Choose `always` or `manual` in setup. Local bookmark queries stay offline. Readiness separates missing keys, reachable catalogs, tested retrieval, and host-managed OAuth; it never starts a professional research job.
+Run `python3 src/cli.py setup` to revisit the terminal wizard. Use `research_readiness` from the advanced catalog when diagnosing access; explicit checks refresh on first use, configuration/key changes, or after 15 minutes. Choose `always` or `manual` in setup. Local bookmark queries stay offline. Readiness separates missing keys, reachable catalogs, tested retrieval, and host-managed OAuth; it never starts a professional research job.
 
 The default configuration file is `~/.config/bookmark-research/settings.json`, created on the first update. Page archives default to `~/.local/share/bookmark-research/knowledge/`; XDG and plugin data-directory environment variables are respected. You can choose your own absolute paths. These files live outside the plugin and canvas package, so plugin updates do not replace them.
 
@@ -205,7 +205,6 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | `wiki_write` / `wiki_get` / `wiki_list` / `wiki_search` / `wiki_lint` / `wiki_acknowledge` | Maintain reviewed knowledge, immutable evidence-linked revisions and input review acknowledgements |
 | `wiki_refresh` | Fetch cited URLs, record source observations and identify pages that need review |
 | `wiki_work` | Resume compilation and review using saved work states and committed publication receipts |
-| `evaluate_research` | Compute metrics from explicit tasks, outputs, measurements and reviewer labels |
 
 ### Web providers
 
@@ -215,11 +214,12 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | **Parallel** | Built into the MCP server and CLI for search and URL reading |
 | **Jina** | HTTP Reader supports anonymous webpage/PDF reading; Search requires `JINA_API_KEY`. The hosted Jina MCP is not used. |
 | **Tavily** | Built-in search fallback and selectable extraction; `TAVILY_API_KEY` uses Bearer, otherwise explicit keyless mode |
+| **DeepSeek Search / Fetch** | Optional raw JSON tools API (`/v1/tools/search`, `/v1/tools/fetch`); requires `DEEPSEEK_API_KEY`; OpenAI-compatible error shape, not a Chat Completions tool |
 | **GitHub** | Use the host's existing GitHub MCP or `gh` for repository-specific tasks. No GitHub MCP is bundled; public pages can also be read through Exa / Parallel. |
 
-All four retrieval providers run through the plugin's own MCP or CLI; additional host MCP registrations are unnecessary. Search starts with Exa + Parallel under a selectable strategy (hedged by default) with a grace window and total deadline, and uses configured fallbacks for unresolved queries; reading falls back to Parallel + Jina after Exa. Anonymous/keyless access and quotas depend on each service's policy; optional credentials use `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY` or `JINA_API_KEY` in the launching environment. Local queries work offline.
+All retrieval providers run through the plugin's own MCP or CLI; additional host MCP registrations are unnecessary. Search starts with Exa + Parallel under a selectable strategy (hedged by default) with a grace window and total deadline, and uses configured fallbacks for unresolved queries; reading falls back to Parallel + Jina after Exa. Anonymous/keyless access and quotas depend on each service's policy; optional credentials use `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY` or `DEEPSEEK_API_KEY` in the launching environment. Local queries work offline.
 
-`search_providers` describes configuration without network access; `probe:true` discovers remote MCP tools, while Jina's HTTP mapping remains explicitly `not_probed`. Discovery does not prove successful retrieval. Each MCP process reuses remote sessions and a bounded tool catalog. Calls are not automatically replayed after errors. See [MCP architecture and observed service behavior](mcp-aggregation-0.2.0.md) for the initial implementation and checks.
+`search_providers` describes configuration without network access; `probe:true` discovers remote MCP tools, while Jina and DeepSeek HTTP mappings remain explicitly `not_probed`. Discovery does not prove successful retrieval. Each MCP process reuses remote sessions and a bounded tool catalog. Calls are not automatically replayed after errors. Historical implementation notes remain available in Git history.
 
 ### Package rules and AGENTS.md
 
@@ -263,13 +263,12 @@ From this plugin directory **in a full repository checkout**, developers can run
 ```sh
 python3 -m unittest discover -s tests -v
 python3 scripts/verify_fixture.py --output /tmp/bookmark-research-verification
-python3 scripts/verify_quality.py
 python3 scripts/build_zip.py --output dist/bookmark-research-0.5.0-beta.3.zip
 python3 scripts/build_zip.py --include-tests --output dist/bookmark-research-test-pack-0.5.0-beta.3.zip
 ```
 
 The fixture verifier checks independent bookmark counts, copy-card semantics, scoped queries, unchanged source hashes, incremental sync, and a two-round research lifecycle with a failed page and resumed operation. To additionally validate your own package, append `--package /absolute/path/to/package`; this stays offline and writes derived files only to the new output directory.
 
-Network verification is explicit: `python3 tests/live_provider_smoke.py --run-live --output /tmp/provider-smoke.json` makes at most three searches and three fetches. The [0.4.0 validation record](validation-0.4.0.md) combines source lifecycle, whole-package research, bilingual instructions and host/service boundaries; 0.2.0 (`docs/archive/validation-0.2.0.md`) retains the earlier provider evidence.
+Network verification is explicit: `python3 tests/live_provider_smoke.py --run-live --output /tmp/provider-smoke.json` makes at most three searches and three fetches. Historical validation records remain available in Git history.
 
 The local stdio server exposes fixed tools. Its remote client implements the selected providers' Streamable HTTP lifecycle, bounded paginated tool discovery and limited session recovery; it is not a general OAuth client or a complete MCP SDK.

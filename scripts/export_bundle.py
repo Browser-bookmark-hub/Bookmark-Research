@@ -20,7 +20,6 @@ NAME = "bookmark-research"
 BUNDLE_PATCH = "bundle.patch.yml"
 SHARED_ROOTS = ("src", "config", "skills")
 SHARED_DOCUMENTS = (
-    "docs/wiki-quality.md", "docs/wiki-quality.zh.md",
     "docs/user-guide.md", "docs/user-guide.en.md",
     "docs/instructions.md", "docs/instructions.en.md",
     "docs/prompt-reference.md", "docs/prompt-reference.en.md",
@@ -42,7 +41,6 @@ REQUIRED_FILES = (
     "src/service_http.py",
     "src/routing.py",
     "src/wiki.py",
-    "src/evaluation.py",
     "src/search_results.py",
     "src/settings.py",
     "src/source_inputs.py",
@@ -293,7 +291,7 @@ using your actual patch path. These integration commands still need client verif
 
 The MCP patch does not configure Skill discovery. To use the shared Skill, point
 the existing Skill provider's `customSkillDirs` at `%s`, or use the documented
-DSH Skill directories. DSH is in developer preview, so setup options may change.
+DeepSeek Harness (dsh) Skill directories. DeepSeek Harness (dsh) is in developer preview, so setup options may change.
 
 The selected profile must separately expose `workflow` through its configured
 workflow service, worker-thread engine and tool. Generate the complete call:

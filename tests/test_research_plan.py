@@ -1,4 +1,4 @@
-"""A question becomes a bounded local scope and a route suggestion, nothing more."""
+"""A question retrieves bounded candidates without deciding the host research route."""
 import json
 import os
 import sys
@@ -14,7 +14,6 @@ from bookmark_index import BookmarkIndex, url_kind
 from mcp_server import StdioMcpServer
 from raw_library import RawLibrary
 from research_plan import ResearchPlan
-from routing import ResearchRouting
 from settings import Settings
 from source_manager import SourceManager
 from wiki import WikiStore
@@ -180,37 +179,7 @@ class ResearchPlanTests(unittest.TestCase):
         self.assertEqual(["https://example.test/plain"], [row["url"] for row in scope["urls"]])
         self.assertEqual([], scope["errors"])
 
-    def test_task_shape_and_route_come_from_the_existing_route_vocabulary(self):
-        index, source_id = self.indexed()
-        router = ResearchRouting(self.settings)
-        plan = ResearchPlan(index=index, settings=self.settings)
-        cases = (("Read https://example.test/1 directly", "lookup"),
-                 ("alpha 是什么", "investigation"),
-                 ("alpha 的深度对比报告", "batch_research"))
-        for question, expected_shape in cases:
-            built = plan.build(source_id, question)
-            self.assertEqual(expected_shape, built["task_shape"], question)
-            self.assertTrue(built["task_shape_reason"])
-            route = router.route(task_shape=built["task_shape"], host="unknown", depth=None)
-            self.assertEqual(route["selected"]["route"], built["route"], question)
-            self.assertIn(built["route"], {candidate["route"] for candidate in route["candidates"]})
-            self.assertEqual(route["depth"], built["depth"])
-            self.assertEqual(route["next_action"], built["next_action"])
 
-    def test_documentation_and_repository_hosts_are_treated_as_known_urls(self):
-        for url, expected, marker in (
-                ("https://github.com/example/lumen", "lookup", "github.com"),
-                ("https://developers.google.com/edge/foresight", "lookup", "developers.google.com"),
-                ("https://unsloth.ai/docs/zh/mo-xing/embeddinggemma-2", "investigation", ""),
-                ("https://example.test/lumen", "investigation", "")):
-            with self.subTest(url=url):
-                index, source_id = self.indexed(lambda root: write_card(
-                    root, "A-8 来源", "temp-section-A-8", "A-8",
-                    [{"type": "bookmark", "title": "Lumen", "url": url}]))
-                built = ResearchPlan(index=index, settings=self.settings).build(source_id, "Lumen 怎么用")
-                self.assertEqual(expected, built["task_shape"])
-                if marker:
-                    self.assertIn(marker, built["task_shape_reason"])
 
     def test_question_urls_are_extracted_and_stripped_from_terms(self):
         index, source_id = self.indexed()
@@ -220,7 +189,6 @@ class ResearchPlanTests(unittest.TestCase):
         # and host would otherwise match half the package.
         self.assertEqual(["对比", "和"], BookmarkIndex.plan_terms(question))
         built = ResearchPlan(index=index, settings=self.settings).build(source_id, question)
-        self.assertEqual("lookup", built["task_shape"])
         self.assertEqual(["https://a.test/x", "https://b.test/y"], built["question_urls"])
 
     def topic_with_incidental_docs(self, root):
@@ -234,13 +202,6 @@ class ResearchPlanTests(unittest.TestCase):
         write_card(root, "T2 资料", "temp-section-T2", "T2",
                    [{"type": "bookmark", "title": "RAG 资料", "url": "https://example.test/rag-notes"}])
 
-    def test_a_topic_question_is_not_downgraded_by_an_incidental_documentation_bookmark(self):
-        index, source_id = self.indexed(self.topic_with_incidental_docs)
-        built = ResearchPlan(index=index, settings=self.settings).build(source_id, "RAG 企业落地")
-        # Every term here reaches two cards, so none of them names the docs page:
-        # it stays evidence and does not decide the route.
-        self.assertEqual("investigation", built["task_shape"])
-        self.assertTrue(any(row["url"] == "https://docs.example.test/guide" for row in built["urls"]))
 
     def big_tree_and_topic_card(self, root):
         big = [{"type": "bookmark", "title": "Alpha Beta guide %d" % index,
@@ -264,32 +225,7 @@ class ResearchPlanTests(unittest.TestCase):
         self.assertEqual({"Alpha": 2, "Beta": 1}, {term: count for term, count in scope["term_cards"].items()})
         self.assertEqual(["Alpha"], scope["cards"][0]["matched_terms"])
 
-    def test_empty_scope_returns_no_route(self):
-        index, source_id = self.indexed()
-        plan = ResearchPlan(index=index, settings=self.settings)
-        built = plan.build(source_id, "zzzqqqvvv")
-        self.assertEqual([], built["cards"])
-        self.assertEqual(1, len(built["errors"]))
-        self.assertIsNone(built["route"])
-        self.assertIsNone(built["route_id"])
-        self.assertIsNone(built["entrypoint"])
-        self.assertIsNone(built["depth"])
-        self.assertIn("nothing", built["next_action"]["reason"])
-        # A question that carries its own URL still gets the direct route even
-        # when the package has no matching card.
-        carried = plan.build(source_id, "Read https://a.test/x now")
-        self.assertEqual("lookup", carried["task_shape"])
-        self.assertEqual("direct_retrieval", carried["route"])
 
-    def test_saved_depth_setting_is_respected(self):
-        index, source_id = self.indexed()
-        self.settings.update({"research": {"depth": "deep"}})
-        plan = ResearchPlan(index=index, settings=self.settings)
-        built = plan.build(source_id, "alpha 是什么")
-        self.assertEqual("deep", built["depth"])
-        expected = ResearchRouting(self.settings).route(task_shape=built["task_shape"], host="unknown", depth=None)
-        self.assertEqual(expected["selected"]["route"], built["route"])
-        self.assertEqual(expected["depth"], built["depth"])
 
     def test_the_tool_is_reachable_over_mcp(self):
         index, source_id = self.indexed()
@@ -311,14 +247,11 @@ class ResearchPlanTests(unittest.TestCase):
         payload = response["result"]["structuredContent"]
         self.assertEqual([ALPHA], [row["url"] for row in payload["urls"]])
         self.assertEqual([], payload["question_urls"])
-        self.assertEqual("investigation", payload["task_shape"])
-        self.assertTrue(payload["route"])
-        self.assertEqual(["search_web", "fetch_web"], payload["next_action"]["tools"])
+        self.assertEqual("host", payload["next_action"]["execution_owner"])
+        self.assertNotIn("route", payload)
         self.assertIn("wiki", payload)
         self.assertIn("archive", payload)
-        self.assertIn("relevance", payload)
         self.assertIn("freshness", payload)
-        self.assertIn("fetch", payload)
         self.assertIn("preflight_budget", payload)
         # A blank or partial question never reaches the tool: the server's
         # validator rejects it first, so no fetch or index work can happen.
@@ -326,87 +259,22 @@ class ResearchPlanTests(unittest.TestCase):
         self.assertEqual(-32602, call({"source_id": source_id})["error"]["code"])
         self.assertEqual(-32602, call({"source_id": source_id, "question": "alpha", "max_urls": 9})["error"]["code"])
 
-    def test_an_incidental_substring_does_not_become_a_lookup(self):
-        items = [{"type": "bookmark", "title": "QuantumNous/new-api",
-                  "url": "https://github.com/QuantumNous/new-api"}]
-        items += [{"type": "bookmark", "title": "unrelated %d" % index,
-                   "url": "https://example.test/fill/%d" % index} for index in range(9)]
-        index, source_id = self.indexed(lambda root: write_card(
-            root, "Q 量子", "temp-section-Q", "Q", items))
-        built = ResearchPlan(index=index, settings=self.settings).build(
-            source_id, "quantum entanglement agriculture breeding",
-            include_wiki=False, include_archive=False)
-        self.assertFalse(built["relevance"]["accepted"], built["relevance"])
-        self.assertEqual([], built["cards"])
-        self.assertEqual([], built["urls"])
-        self.assertIsNone(built["route"])
-        self.assertIn("single weak term", built["next_action"]["reason"])
 
-    def test_a_single_cjk_entity_is_not_rejected_by_the_length_floor(self):
-        index, source_id = self.indexed(lambda root: write_card(
-            root, "书 单字", "temp-section-BOOK", "书",
-            [{"type": "bookmark", "title": "书", "url": "https://example.test/book"}]))
-        built = ResearchPlan(index=index, settings=self.settings).build(
-            source_id, "书", include_wiki=False, include_archive=False)
-        self.assertTrue(built["relevance"]["accepted"], built["relevance"])
-        self.assertEqual(["书"], [card["label"] for card in built["cards"]])
 
-    def test_a_long_unique_term_survives_the_single_hit_floor(self):
-        items = [{"type": "bookmark", "title": "unique500", "url": "https://example.test/unique500"}]
-        items += [{"type": "bookmark", "title": "filler %d" % index,
-                   "url": "https://example.test/filler/%d" % index} for index in range(25)]
-        index, source_id = self.indexed(lambda root: write_card(
-            root, "U 唯一", "temp-section-UNIQUE", "U", items))
-        built = ResearchPlan(index=index, settings=self.settings).build(
-            source_id, "unique500", include_wiki=False, include_archive=False)
-        self.assertTrue(built["relevance"]["accepted"], built["relevance"])
-        self.assertEqual(["U"], [card["label"] for card in built["cards"]])
 
-    def test_two_letter_uppercase_acronyms_count_as_meaningful(self):
-        items = [{"type": "bookmark", "title": "书签 AI 升级", "url": "https://example.test/ai"}]
-        items += [{"type": "bookmark", "title": "filler %d" % index,
-                   "url": "https://example.test/filler/%d" % index} for index in range(9)]
-        index, source_id = self.indexed(lambda root: write_card(
-            root, "A 缩写", "temp-section-ACRONYM", "A", items))
-        built = ResearchPlan(index=index, settings=self.settings).build(
-            source_id, "书签 AI", include_wiki=False, include_archive=False)
-        self.assertTrue(built["relevance"]["accepted"], built["relevance"])
-        self.assertIn("AI", built["relevance"]["meaningful_terms"])
 
-    def test_a_single_weak_cjk_term_is_rejected(self):
-        items = [{"type": "bookmark", "title": "量子位 | AI", "url": "https://www.qbitai.com/"}]
-        items += [{"type": "bookmark", "title": "unrelated %d" % index,
-                   "url": "https://example.test/unrelated/%d" % index} for index in range(9)]
-        index, source_id = self.indexed(lambda root: write_card(
-            root, "W 弱词", "temp-section-W", "W", items))
-        built = ResearchPlan(index=index, settings=self.settings).build(
-            source_id, "量子纠缠在农业育种中的应用",
-            include_wiki=False, include_archive=False)
-        self.assertGreater(built["relevance"]["score"], built["relevance"]["min_relevance"])
-        self.assertFalse(built["relevance"]["accepted"], built["relevance"])
-        self.assertEqual([], built["cards"])
-        self.assertIsNone(built["route"])
 
-    def test_a_stale_missing_card_does_not_take_a_top_slot_but_keeps_its_urls(self):
+    def test_snapshot_candidates_do_not_change_until_sync(self):
         def build(root):
-            write_card(root, "A-10-2 缺失", "temp-section-M", "A-10-2",
-                       [{"type": "bookmark", "title": "Agent Runtime docs",
-                         "url": "https://docs.example.test/agent-runtime"}])
-            write_card(root, "A-10 当前", "temp-section-C", "A-10",
-                       [{"type": "bookmark", "title": "Agent Runtime home",
-                         "url": "https://example.test/"}])
+            for label in ("A", "B"):
+                write_card(root, label, "temp-section-" + label, label,
+                           [{"type": "bookmark", "title": "Alpha", "url": "https://example.test/" + label}])
         index, source_id = self.indexed(build)
+        before = index.plan_scope(source_id, "Alpha", max_cards=1)
         record = json.loads(index.connection.execute(
             "SELECT record_json FROM source_records WHERE source_id=?", (source_id,)).fetchone()[0])
-        package = Path(record["input_path"])
-        (package / "临时栏目" / "常规链式" / "A-10-2 缺失.json").unlink()
-        scope = index.plan_scope(source_id, "Agent Runtime 云厂商", max_cards=2, max_urls=4)
-        self.assertEqual(["A-10"], [card["label"] for card in scope["cards"]])
-        self.assertEqual(["临时栏目/常规链式/A-10-2 缺失.json"], scope["stale_missing_files"])
-        stale = [row for row in scope["urls"] if row["stale"]]
-        self.assertEqual(["https://docs.example.test/agent-runtime"],
-                         [row["url"] for row in stale])
-        self.assertEqual("docs", stale[0]["url_kind"])
+        (Path(record["input_path"]) / "临时栏目" / "常规链式" / "A.json").unlink()
+        self.assertEqual(before, index.plan_scope(source_id, "Alpha", max_cards=1))
 
     def test_url_kind_prefers_documentation_over_homepage_and_login(self):
         index, source_id = self.indexed(lambda root: write_card(

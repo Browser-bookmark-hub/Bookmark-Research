@@ -2,6 +2,8 @@
 
 **English** · [中文](zh/deep-research.md)
 
+This is an optional persistent collection-audit workflow. Select `tool_scope_preset:"deep"` before using its MCP tools. For a normal extended investigation, [submit a research API job directly](research-services.md); ordinary Wiki writes need neither path.
+
 Use for sustained investigations needing durable evidence, coverage or resumption, including complete original-URL reviews. Saving an ordinary answer needs only its supporting material and requested output. A scoped Wiki write does not expand into whole-library research. The host conducts the investigation; saved task state does not run a background agent.
 
 ## Start and scope
@@ -94,6 +96,6 @@ Coverage separates `accounted_for`, `usable_text`, `substantive_review` and `que
 
 `research_finish` may use `completed` only with supported answers to all questions, substantive review of the complete original scope, and no unresolved conflicts, pending operations or active/unknown external runs. Material gaps require `incomplete`; entirely blocked/excluded input cannot complete whole-package research. Invalidated evidence can reopen conflicts.
 
-Finish returns report/source/coverage paths, `wiki_follow_up`, and — for `incomplete` or `cancelled` reports — `insufficiency`, the fixed-shape gap list. `wiki_follow_up.eligible_claims` carries each eligible claim's exact first quotes and its inference mark so the draft can be confirmed in one pass. Respect existing authorization: complete a requested Wiki write using eligible reviewed claims; otherwise follow saved suggest/auto/off preferences. Wiki storage details are in the [writing reference](wiki-and-evaluation.md#compile-research-into-a-wiki).
+Finish returns report/source/coverage paths, `wiki_follow_up`, and — for `incomplete` or `cancelled` reports — `insufficiency`, the fixed-shape gap list. `wiki_follow_up.eligible_claims` carries each eligible claim's exact first quotes and its inference mark so the draft can be confirmed in one pass. Respect existing authorization: complete a requested Wiki write using eligible reviewed claims; otherwise follow saved suggest/auto/off preferences. Wiki storage details are in the [writing reference](wiki.md#compile-research-into-a-wiki).
 
 Keep the complete task directory together when moving archives. Use the returned output location; placement preferences are in [settings](settings-and-archive.md#research-output-and-wiki-follow-up). Sharing follows the user's scope; archives may contain private material. Retrieval time does not prove origin freshness, and a saved task does not migrate a host agent's internal state.

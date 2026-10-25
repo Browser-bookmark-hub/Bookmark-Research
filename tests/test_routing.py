@@ -119,6 +119,30 @@ class RoutingTests(unittest.TestCase):
                 self.assertNotIn("research_start", result["workflow"])
                 self.assertFalse(result["execution_started"])
 
+    def test_agentic_uses_host_native_search_when_it_is_observed(self):
+        result = self.router.route(host="dsh", depth="agentic", task_shape="investigation",
+                                   observed_tools=["web_search", "web_fetch"])
+        self.assertEqual(result["selected"]["route"], "host_iterative_research")
+        self.assertTrue(result["host_search"]["available"])
+        self.assertEqual("web_search", result["host_search"]["tool"])
+        self.assertEqual("web_search / fetch_web", result["selected"]["entrypoint"])
+        self.assertEqual(["web_search", "fetch_web"], result["next_action"]["tools"])
+        self.assertEqual(["web_search", "fetch_web", "answer_with_sources"], result["workflow"])
+        self.assertEqual("host_first", result["discovery"]["mode"])
+        self.assertEqual("web_search", result["discovery"]["primary"])
+        self.assertEqual("search_web", result["discovery"]["fallback"])
+        self.assertEqual(["web_search", "search_web"], result["discovery"]["channels"])
+        self.assertTrue(result["discovery"]["first_usable_result_wins"])
+        self.assertEqual("search_web", result["next_action"]["fallback_tool"])
+
+        absent = self.router.route(host="dsh", depth="agentic", task_shape="investigation")
+        self.assertFalse(absent["host_search"]["available"])
+        self.assertEqual("search_web / fetch_web", absent["selected"]["entrypoint"])
+        self.assertEqual(["search_web", "fetch_web"], absent["next_action"]["tools"])
+        self.assertEqual("plugin_parallel", absent["discovery"]["mode"])
+        self.assertEqual("search_web", absent["discovery"]["primary"])
+        self.assertIsNone(absent["discovery"]["fallback"])
+
     def test_deep_host_research_precedes_loaded_and_configured_external_services(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": "parallel"}})
         with patch.dict(os.environ, {"PARALLEL_API_KEY": "synthetic-presence"}):

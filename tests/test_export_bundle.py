@@ -65,7 +65,7 @@ class ExportBundleTests(unittest.TestCase):
     def test_each_format_has_its_own_manifest_and_shared_files(self):
         expected_roots = {
             "codex": {".codex-plugin", ".agents", "hosts"},
-            "claude": {".claude-plugin", ".mcp.json", "hosts", "workflows"},
+            "claude": {".claude-plugin", ".mcp.json", "hosts", "workflows", "commands"},
             "dsh": {"package.json", "bundle.patch.yml", "cordis.patch.yml", "hosts", "workflows"},
         }
         for format_name in export_bundle.FORMATS:
@@ -99,7 +99,6 @@ class ExportBundleTests(unittest.TestCase):
                     self.assertEqual(manifest["name"], "bookmark-research")
                     self.assertEqual(manifest["workflows"], "./workflows")
                     self.assertIn("export const meta", (output / "workflows/bookmark-research.js").read_text())
-                    self.assertIn("discovery_bundle", (output / "workflows/bookmark-research-discovery.js").read_text())
                     server = self.read_json(output, ".mcp.json")["mcpServers"]["bookmark-research"]
                     self.assertEqual(server, {"type": "stdio", "command": "python3",
                                               "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.py", "serve"]})
@@ -366,7 +365,7 @@ class DistributionTests(unittest.TestCase):
                              "docs/installation.en.md", "docs/user-guide.md",
                              "docs/user-guide.en.md", "docs/instructions.en.md",
                              "docs/instructions.md", "docs/prompt-reference.en.md",
-                             "docs/prompt-reference.md", "docs/wiki-quality.zh.md",
+                             "docs/prompt-reference.md",
                              "skills/bookmark-research/references/zh/skill-guide.md"} <= names)
             checksums = archive.read(prefix + "MANIFEST.sha256").decode("utf-8").splitlines()
             self.assertEqual(len(checksums), len(names) - 1)
@@ -412,7 +411,6 @@ class DistributionTests(unittest.TestCase):
     def test_verification_pack_includes_fixtures_and_runs_offline_after_extraction(self):
         shutil.copytree(ROOT / "tests", self.source / "tests")
         shutil.copy2(ROOT / "scripts/verify_fixture.py", self.source / "scripts/verify_fixture.py")
-        shutil.copy2(ROOT / "scripts/verify_quality.py", self.source / "scripts/verify_quality.py")
         marker = os.urandom(32)
         secret = self.source / "tests/.env"
         secret.write_bytes(marker)
@@ -429,7 +427,6 @@ class DistributionTests(unittest.TestCase):
             names = archive.namelist()
             prefix = packed["archive_root"] + "/"
             self.assertIn(prefix + "scripts/verify_fixture.py", names)
-            self.assertIn(prefix + "scripts/verify_quality.py", names)
             self.assertIn(prefix + "scripts/host_assets.py", names)
             self.assertIn(prefix + "hosts/claude/runtime.js", names)
             self.assertIn(prefix + "tests/host-workflows.test.js", names)

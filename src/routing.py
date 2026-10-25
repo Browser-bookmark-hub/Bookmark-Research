@@ -12,7 +12,7 @@ class ResearchRouting:
         "comparative_analysis": "skills/bookmark-research/references/research-methods.md",
         "fact_check": "skills/bookmark-research/references/research-methods.md",
         "benchmark_review": "skills/bookmark-research/references/research-methods.md",
-        "wiki_synthesis": "skills/bookmark-research/references/wiki-and-evaluation.md",
+        "wiki_synthesis": "skills/bookmark-research/references/wiki.md",
     }
 
     def __init__(self, settings=None):
@@ -44,6 +44,15 @@ class ResearchRouting:
         if provider not in (None, "openai", "parallel"):
             raise ValueError("Professional provider must be openai or parallel")
         tools = self._names(observed_tools, "observed_tools")
+        # A host-native search tool is discovery, not evidence. Prefer it when
+        # the caller reports it, but keep fetch_web as the page-reading step.
+        native_names = {
+            "codex": ("web.run", "web__run", "functions.web__run", "web_search"),
+            "claude_code": ("WebSearch",),
+            "dsh": ("web_search",),
+            "unknown": ("web_search", "WebSearch"),
+        }
+        host_search = next((tool for tool in tools if tool in native_names[host]), None)
         commands = self._names(available_commands, "available_commands")
         extensions = self._names(installed_extensions, "installed_extensions")
         failed = self._names(failed_routes, "failed_routes")
@@ -82,7 +91,7 @@ class ResearchRouting:
                         "resume_scope": "not_established", "recipe": "hosts/dsh/workflow-call.py",
                         "result_note": "Persist the canonical result; rendered text may be truncated."})
                 else:
-                    missing.append("The loaded DSH profile does not expose a workflow tool")
+                    missing.append("The loaded DeepSeek Harness (dsh) profile does not expose a workflow tool")
             elif host == "codex":
                 missing.append("An equivalent standalone scripted workflow runtime was not established by the researched Codex docs")
             if selected_depth == "deep" and provider is None:
@@ -148,13 +157,21 @@ class ResearchRouting:
                             "reason": "No untried applicable route remains. Inspect the existing evidence and report the unresolved gaps."})
             workflow = []
         elif selected_depth == "quick":
-            next_action = {"tools": ["fetch_web", "search_web"],
-                           "reason": "Read known URLs; search only when a source must be discovered, then read it."}
+            next_action = {"tools": ["fetch_web", host_search or "search_web"],
+                           "reason": "Read known URLs; search only when a source must be discovered, then read it. " +
+                                     ("Use the host's native search for that discovery. " if host_search else
+                                      "Use search_web when the host has no native search.")}
             workflow = ["fetch_web", "answer_with_sources"]
         elif ordinary_agentic and selected["route"] == "host_iterative_research":
-            next_action = {"tools": ["search_web", "fetch_web"],
-                           "reason": "The current host model first plans from the question and available context. Read known sources or search for missing evidence, assess the pages, then target unresolved questions. Use persistent research records when the task needs a resumable report."}
-            workflow = ["search_web", "fetch_web", "answer_with_sources"]
+            if host_search:
+                selected["entrypoint"] = host_search + " / fetch_web"
+                next_action = {"tools": [host_search, "fetch_web"],
+                               "reason": "The current host model plans first, uses its native search for discovery, reads selected pages with fetch_web, assesses the evidence and follows gaps. search_web remains a second channel when native results are insufficient."}
+                workflow = [host_search, "fetch_web", "answer_with_sources"]
+            else:
+                next_action = {"tools": ["search_web", "fetch_web"],
+                               "reason": "The current host model first plans from the question and available context. Read known sources or search for missing evidence, assess the pages, then target unresolved questions. Use persistent research records when the task needs a resumable report."}
+                workflow = ["search_web", "fetch_web", "answer_with_sources"]
         else:
             next_action = {"tool": "research_start",
                            "reason": "The current host model first defines the questions, evidence gaps and work assignments. Freeze the full scope for new research; reuse existing research_status and evidence before delegating or retrieving more."}
@@ -175,8 +192,29 @@ class ResearchRouting:
                               ["synthesize_answer"])),
                    "collaboration": "Delegate independent questions, sources or verification only through currently available and permitted host capabilities. The parent plans and reviews the result; no subagent is required for the basic loop.",
                    "external_research": "Optional scoped support after host assessment, or an explicit user-selected service. Tool presence and saved API credentials do not replace the host's first pass."}
+        discovery_channels = ([host_search, "search_web"] if host_search else ["search_web"])
+        discovery = {"mode": "host_first" if host_search else "plugin_parallel",
+                     "primary": host_search or "search_web",
+                     "fallback": "search_web" if host_search else None,
+                     "channels": discovery_channels,
+                     "parallel_when": ("latency_sensitive_or_host_results_insufficient"
+                                       if host_search else "always"),
+                     "deadline_seconds": settings["search"]["deadline_seconds"],
+                     "first_usable_result_wins": True,
+                     "note": ("Host-native search is the default discovery channel. Use search_web when it is "
+                              "unavailable, returns nothing or insufficient results, or the user asks for provider "
+                              "diversity. For latency-sensitive work, issue both together and take the first "
+                              "usable result; do not wait for a slow channel."
+                              if host_search else
+                              "The host has no observed native search; search_web runs its configured providers "
+                              "in parallel with fallbacks for unresolved queries.")}
+        if host_search:
+            next_action["fallback_tool"] = "search_web"
         return {"depth": selected_depth, "host": host, "task_shape": task_shape, "selected": selected,
                 "candidates": candidates, "missing_or_unconfirmed": missing,
+                "host_search": {"available": host_search is not None, "tool": host_search,
+                                "role": "discovery_only; fetch_web remains the evidence read"},
+                "discovery": discovery,
                 "next_action": next_action, "workflow": workflow, "research_process": process,
                 "fallback": {"execution_owner": "host", "failed_routes": failed,
                              "remaining_routes": [c["route_id"] for c in choices if c["available"] and c is not selected],

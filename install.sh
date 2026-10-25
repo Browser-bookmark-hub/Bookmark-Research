@@ -22,7 +22,7 @@ main() (
   --lang auto|en|zh      安装器语言
   --interactive         打开终端向导
   --non-interactive     不提示输入；请指定 --host
-  --profile NAME        DSH 目标 profile
+  --profile NAME        DeepSeek Harness (dsh) 目标 profile
   --scope SCOPE         Claude 的安装作用域
   --project PATH        项目目录
   --source npm:bookmark-research@VERSION  固定插件版本
@@ -41,7 +41,7 @@ All three hosts use the npm release and their native registration commands.
   --lang auto|en|zh      Installer language
   --interactive         Open the terminal wizard
   --non-interactive     No prompts; specify --host
-  --profile NAME        DSH profile
+  --profile NAME        DeepSeek Harness (dsh) profile
   --scope SCOPE         Claude installation scope
   --project PATH        Project directory
   --source npm:bookmark-research@VERSION  Pin the plugin version

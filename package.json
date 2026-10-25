@@ -30,7 +30,6 @@
     "skills",
     "hosts",
     "docs",
-    "!docs/archive/**",
     "bundle.patch.yml",
     ".codex-plugin/plugin.json",
     ".agents/plugins/marketplace.json",

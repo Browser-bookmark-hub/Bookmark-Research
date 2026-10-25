@@ -272,7 +272,8 @@ class InstallerTests(unittest.TestCase):
         document["items"][0]["children"][0]["note"] = "not-yet-synchronized"
         write_json(package, TEMP, document)
         result = install._runtime_check(self.source)
-        self.assertIn("source_history", result["mcp_tools"])
+        self.assertIn("plan_research", result["mcp_tools"])
+        self.assertNotIn("source_history", result["mcp_tools"])
         self.assertFalse(result["database_created"])
         self.assertEqual(database.read_bytes(), before)
         with BookmarkIndex(database) as index:

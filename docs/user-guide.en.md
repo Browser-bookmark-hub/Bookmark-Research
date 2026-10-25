@@ -19,7 +19,8 @@ Local queries require no API key. The plugin starts without personal bookmarks o
 | Local query | “Which card contains this bookmark?” | Searches local metadata and canvas relationships. |
 | Quick check | “Read the official page I bookmarked and check whether it supports MCP.” | Reads the known URL, or searches to find a source, then answers with citations. |
 | Agentic search | “Compare the search tools in these cards, including their authentication and research capabilities.” | Uses card context to plan questions, searches and reads pages, and follows evidence gaps. |
-| Deep research | “Research every URL in this package, verify the rankings, compare it with our plugin, and save a report and Wiki.” | Preserves the full source inventory, organizes sustained investigation, reviews evidence and coverage, and saves the requested deliverables. |
+| Deep research | “Use the configured research API to investigate this question, check key original sources and save the Wiki.” | Submits the question directly, observes the job and reviews the report and original sources. |
+| Complete collection audit | “Research every URL in this package, verify the rankings and save a report and Wiki.” | Enables the advanced catalog, preserves the complete inventory and checks original-source coverage. |
 
 Quick checking does not switch the host to a non-reasoning model. Depth and scope are separate: a deep study may cover one explicitly selected card; a whole-package request keeps every original URL and every duplicate bookmark's context. Pagination, batching, and subagent count do not reduce that scope. Search snippets and external reports do not count as reading the original pages.
 
@@ -53,7 +54,7 @@ The search result limit is not a limit on package scope. Requested text length d
 
 Run `python3 <plugin-root>/src/cli.py setup` for guided preferences and hidden key entry. Keys come from the host environment first, then a private `credentials.json` next to settings: `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY`, and, for professional OpenAI research, `OPENAI_API_KEY`. Access and quotas depend on each provider. Host-led research needs no additional professional-service key.
 
-Before a new web question, the Skill checks selected services and observed host tools with `research_readiness`. Cached/always/manual modes control frequency; local queries stay offline. Optional native MCP connection/login steps are shown by setup, with actual OAuth handled in the host. Keys, visible tools and successfully tested operations have distinct status; checks never create a paid research job. See [settings and readiness](../skills/bookmark-research/references/settings-and-archive.md).
+When access needs diagnosis, the advanced `research_readiness` tool checks selected services and observed host tools. Cached/always/manual modes control frequency; local queries stay offline. Optional native MCP connection/login steps are shown by setup, with actual OAuth handled in the host. Keys, visible tools and successfully tested operations have distinct status; checks never create a paid research job. See [settings and readiness](../skills/bookmark-research/references/settings-and-archive.md).
 
 Default settings live in `~/.config/bookmark-research/settings.json`; data lives in `~/.local/share/bookmark-research/`. XDG settings and the plugin's data/config path overrides are supported. SQLite stores the local query index; source versions, webpage archives, research records, and Wiki revisions live alongside it. Multiple hosts can share these locations. Keep user data outside the plugin and original canvas package.
 
@@ -71,4 +72,4 @@ Original URLs, identifiers, evidence text and quotations remain unchanged. Tool/
 
 If an older session exposes only some MCP tools, the host can use the bundled CLI for missing operations. A new session loads the updated Skill and tool catalog. Selecting a route or importing a package alone does not start background research.
 
-See the [shared Skill](../skills/bookmark-research/SKILL.md), [settings reference](../skills/bookmark-research/references/settings-and-archive.md), and [Wiki/evaluation guide](wiki-quality.md) for implementation details.
+See the [shared Skill](../skills/bookmark-research/SKILL.md), [settings reference](../skills/bookmark-research/references/settings-and-archive.md), and [Wiki guide](../skills/bookmark-research/references/wiki.md) for implementation details.

@@ -386,13 +386,7 @@ class BookmarkIndex:
         return dict(row)
 
     def _input_path(self, source_id, fallback):
-        """The package directory the user currently has, not a frozen snapshot.
-
-        A snapshot source keeps every imported file forever, so comparing a
-        missing file against ``sources.package_path`` always says it exists.
-        ``source_records.record_json`` preserves the original input path, which
-        is what makes a retained card distinguishable from a current one.
-        """
+        """Use the live input for live sources and the managed copy for snapshots."""
         try:
             row = self.connection.execute(
                 "SELECT record_json FROM source_records WHERE source_id=?", (source_id,)).fetchone()
@@ -403,6 +397,8 @@ class BookmarkIndex:
         if row is not None:
             try:
                 record = json.loads(row[0])
+                if record.get("mode") == "snapshot":
+                    return Path(fallback)
                 value = record.get("input_path")
                 if isinstance(value, str) and value:
                     path = Path(value).expanduser()

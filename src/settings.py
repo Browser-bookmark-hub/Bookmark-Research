@@ -14,7 +14,16 @@ from pathlib import Path
 class Settings:
     """Load on each operation so MCP clients can change preferences without restart."""
 
-    PROVIDERS = ("exa", "parallel", "tavily", "jina")
+    PROVIDERS = ("exa", "parallel", "tavily", "jina", "deepseek")
+    TOOL_SCOPE_PRESETS = ("all", "quick", "deep")
+    # Daily context, retrieval, knowledge storage and provider-managed research.
+    # Persistent inventories and diagnostics remain in the explicit full catalog.
+    QUICK_TOOLS = (
+        "sync_package", "index_status", "search_bookmarks", "get_context", "plan_research",
+        "search_web", "fetch_web", "search_archive", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
+        "research_services", "research_service_prepare", "research_service_start", "research_service_status",
+        "research_service_result", "research_service_cancel", "research_service_attach",
+        "get_settings", "update_settings")
     OPENAI_RESEARCH_MODELS = ("gpt-5.6-sol", "o3-deep-research", "o4-mini-deep-research")
 
     def __init__(self, path=None):
@@ -81,6 +90,7 @@ class Settings:
                 # Empty means every tool; otherwise tools/list and tools/call
                 # expose only these names. Hosts that cannot filter MCP tools use it.
                 "tool_scope": [],
+                "tool_scope_preset": "quick",
                 # Where new research task folders go; existing tasks are never moved.
                 "output": {"mode": "central", "directory": str(cls.data_directory() / "research")}}
 
@@ -127,6 +137,8 @@ class Settings:
             raise ValueError("server.max_pending_calls must be at least server.network_workers")
         if type(value["wiki_preflight"]) is not bool:
             raise ValueError("wiki_preflight must be a boolean")
+        if value.get("tool_scope_preset") not in cls.TOOL_SCOPE_PRESETS:
+            raise ValueError("tool_scope_preset must be all, quick or deep")
         scope = value["tool_scope"]
         if (not isinstance(scope, list) or len(scope) > 100
                 or any(not isinstance(name, str) or not name or len(name) > 128 for name in scope)

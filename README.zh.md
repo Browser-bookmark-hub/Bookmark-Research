@@ -5,7 +5,7 @@
 [![GitHub Bookmark-Canvas](https://img.shields.io/badge/GitHub-Bookmark--Canvas-181717?logo=github&logoColor=white)](https://github.com/Browser-bookmark-hub/Bookmark-Canvas)
 [![npm version](https://img.shields.io/npm/v/bookmark-research/beta?logo=npm)](https://www.npmjs.com/package/bookmark-research)
 
-用联网查证来研究你的书签。给它一份书签 URL 列表或 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，它会逐条核对链接、搜索和阅读网页，写出带引用、可以接着做的研究报告。支持 **Codex、Claude Code、DSH（DeepSeek Harness）**。
+带着书签上下文调研，把结论留成可复用知识。读取 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，使用宿主模型或研究 API 调查，再保存带来源的 Wiki 页面。支持 **Codex、Claude Code、DeepSeek Harness (dsh)**。
 
 [安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
@@ -15,13 +15,13 @@
 ## 它是怎么工作的
 
 - **本地理解层。** 数据包按结构读，而不是一张平铺的 URL 清单：卡片与分组的位置、连线的方向与标签、同一书签在不同卡片的出现位置（空间上下文）；日期字段、ID 中协议定义的日期段，以及真正改过内容的 Git 提交（时间上下文）。这些都是离线查询。
-- **外部调研走三条路线。** 读取已知 URL 不需要推理；Agentic 搜索由宿主模型自己规划、搜索、阅读并追查缺口；深度研究在此基础上加入持续清单、独立核验、覆盖检查与报告。启用后的 OpenAI Deep Research／Parallel Task API 是另一条可选路线；无头浏览器与爬虫类项目不在集成范围内。
+- **外部调研走三条路线。** 读取已知 URL 不需要推理；Agentic 搜索由宿主模型自己规划、搜索、阅读并追查缺口；Deep Research 可直接调用 OpenAI／Parallel 研究 API；完整清单与覆盖审计在明确需要时启用。宿主已有的浏览器与爬虫可提供来源正文。
 - **可复核的知识存储。** 完成的研究可以沉淀成 Wiki：带历史版本和相互链接的已审核页面，之后提问直接复用，不必重新搜索网页。
 
 ## 环境要求
 
 - Python 3.9+，含 SQLite FTS5（用 `bookmark-research doctor` 检查）
-- 至少一个宿主的 CLI：Codex、Claude Code 或 DSH。DSH 另需 `pnpm`；若用 DeepSeek Harness 桌面版自带 CLI，则它自带 pnpm，无需另装
+- 至少一个宿主的 CLI：Codex、Claude Code 或 DeepSeek Harness (dsh)。DeepSeek Harness (dsh) 另需 `pnpm`；若用 DeepSeek Harness 桌面版自带 CLI，则它自带 pnpm，无需另装
 - 安装发布版需要 Node 18+ 和 npm
 - 安装和本地查书签都不需要 API Key
 
@@ -48,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 7. **API Key** —— 逐个隐藏输入，当场检查；全部可选，可整段跳过。
 8. **服务检查** —— 自动运行并逐个报告；样例搜索／阅读自检需另行选择。
 
-回车即保留当前选项，所以整轮可能只需按几次回车。装好后新建一个宿主会话，让 Skill 和 MCP 工具生效。Wiki 整理（默认「给出建议并先问你」）和联网前的可用性检查（默认 15 分钟缓存）都已自动开启，不需要回答。
+回车即保留当前选项，所以整轮可能只需按几次回车。装好后新建一个宿主会话，让 Skill 和 MCP 工具生效。Wiki 默认建议整理；已有保存授权时直接执行。服务诊断保留 15 分钟缓存，按需调用。
 
 ### 指定宿主、不弹提示
 
@@ -56,11 +56,11 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | --- | --- | --- |
 | Codex | `npx bookmark-research@beta install codex --non-interactive` | `codex plugin add` |
 | Claude Code | `npx bookmark-research@beta install claude --scope user --non-interactive` | `claude plugin install` |
-| DSH | `npx bookmark-research@beta install dsh --profile web --non-interactive` | `dsh plugin add` |
+| DeepSeek Harness (dsh) | `npx bookmark-research@beta install dsh --profile web --non-interactive` | `dsh plugin add` |
 
 一次装多个：`npx bookmark-research@beta install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code）。全部参数见[安装说明](docs/installation.md)。
 
-**让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code 或 DSH：
+**让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code 或 DeepSeek Harness (dsh)：
 
 ```text
 请把 Bookmark Research 插件安装到你当前运行的这个宿主里。
@@ -68,7 +68,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 1. 先确认你自己是哪个宿主：codex、claude 或 dsh。
 2. 运行：npx bookmark-research@beta install <宿主> --non-interactive
    - Claude Code：加 --scope user（或 --scope project --project <目录>）。
-   - DSH：加 --profile <名称>；profile 名称请先问我。
+   - DeepSeek Harness (dsh)：加 --profile <名称>；profile 名称请先问我。
 3. 命令会输出 JSON。确认 "verified": true，有 "error" 就告诉我。
 4. 不要在对话里向我要 API Key。请让我在终端运行 `bookmark-research setup` 自己输入。
 5. 提醒我新建一个会话，让 Skill 和 MCP 工具生效。
@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 安装补充说明：
 
 - **npm 是三个宿主唯一的发布来源**，包内含共享运行时、Skill 和宿主适配文件。安装器下载发布包、生成该宿主需要的格式，再调用宿主原生命令登记。GitHub 提供源码、版本说明和安装清单；未发布源码用 Python 安装器。见[发布约定](docs/distribution.md)。
-- **DSH 可直接安装发布包。** 包内声明 `dsh.bundle.patch`，`dsh plugin --profile <名称> add bookmark-research@<版本>` 无需先导出即可安装。`desktop` profile 保留给 DeepSeek Harness 桌面版，请用桌面版自带 CLI 安装；安装器与向导会自行定位该 CLI。
+- **DeepSeek Harness (dsh) 可直接安装发布包。** 包内声明 `dsh.bundle.patch`，`dsh plugin --profile <名称> add bookmark-research@<版本>` 无需先导出即可安装。`desktop` profile 保留给 DeepSeek Harness 桌面版，请用桌面版自带 CLI 安装；安装器与向导会自行定位该 CLI。
 - **Windows** 上常常没有能用的 `python3`，所以安装器会把检测到的 Python 路径写进各宿主的 MCP 配置。Codex 请用 `bookmark-research install codex` 安装，不要直接把仓库加进 Codex；`bookmark-research status` 可以查看实际使用的 Python。
 
 ## 配置页与更新
@@ -92,9 +92,9 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | 用脚本改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
 
-没有全局安装时，在前面加 `npx bookmark-research@beta`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。
+没有全局安装时，在前面加 `npx bookmark-research@beta`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。工具面可用 `bookmark-research config set --tool-scope-preset quick` 使用默认 21 个日常工具；`deep`（或 `all`）启用完整 43 个工具，供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
 
-**更新。** `bookmark-research update` 会按各自登记的来源刷新所有已安装宿主，并保留偏好、Key 和数据。重跑 `npx bookmark-research@beta install` 也会就地升级已装的 Claude Code 或 DSH。Codex 安装会保留登记时的来源与版本，要换版本需先移除该登记（`codex plugin marketplace remove bookmark-research`）再重新安装。
+**更新。** `bookmark-research update` 会按各自登记的来源刷新所有已安装宿主，并保留偏好、Key 和数据。重跑 `npx bookmark-research@beta install` 也会就地升级已装的 Claude Code 或 DeepSeek Harness (dsh)。Codex 安装会保留登记时的来源与版本，要换版本需先移除该登记（`codex plugin marketplace remove bookmark-research`）再重新安装。
 
 **API Key 都是可选的。** 在 `bookmark-research setup` 里输入（隐藏显示，输完当场检查，保存在仅当前用户可读的本地文件），或者设置环境变量（优先于已保存的 Key）。
 
@@ -104,6 +104,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | `PARALLEL_API_KEY` | Parallel 搜索与网页读取 | 免费匿名使用，额度较低 |
 | `TAVILY_API_KEY` | Tavily 备用搜索与提取 | 使用免 Key 模式 |
 | `JINA_API_KEY` | Jina 搜索 | Jina Reader 仍可匿名读取网页 |
+| `DEEPSEEK_API_KEY` | 可选的 DeepSeek Search / Fetch | 不选择即可；其他 provider 仍可用 |
 | `OPENAI_API_KEY` | 可选的 OpenAI Deep Research 任务 | 功能关闭；宿主自己的研究不受影响 |
 
 Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿主会话里让 agent 改（「显示 Bookmark Research 的配置」「以后只用 Exa 搜索」），它会调用 `update_settings` 工具。
@@ -128,9 +129,9 @@ Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿�
 
 宿主模型负责规划、搜索／阅读、评估证据，再追查未解决的问题。Skill 指导这个循环，MCP 保存输入范围、证据、预算和进度；保存研究任务不会启动后台代理。
 
-对于分组报告，插件提供“阅读代理 → 新的验证代理 → 覆盖检查 → 补查 → 报告”的流程。Codex 使用原生子代理和附带的委派指南；Claude Code、DSH 使用已加载的宿主工作流接口。并发、取消和代理生命周期由宿主管理。每个子代理都需要拿到相关指令，并访问同一个研究存储。
+对于分组报告，插件提供“阅读代理 → 新的验证代理 → 覆盖检查 → 补查 → 报告”的流程。Codex 使用原生子代理和附带的委派指南；Claude Code、DeepSeek Harness (dsh) 使用已加载的宿主工作流接口。并发、取消和代理生命周期由宿主管理。每个子代理都需要拿到相关指令，并访问同一个研究存储。
 
-工作流适配已有模拟接口测试，但安装成功不代表所有宿主都已跑通完整的多代理任务。所需条件见[宿主工作流](skills/bookmark-research/references/zh/host-workflows.md)，实际验证范围见[验证记录](docs/validation-0.4.0.md#host-and-provider-boundaries)。
+工作流适配已有模拟接口测试，但安装成功不代表所有宿主都已跑通完整的多代理任务。所需条件见[宿主工作流](skills/bookmark-research/references/zh/host-workflows.md)；历史验证记录可从 Git 历史查阅。
 
 ## 插件包含什么
 
@@ -139,21 +140,24 @@ Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿�
 | 层 | 组成 | 运行方式 | 需要配置 |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) 及 11 份方法参考，每份都有[中文版](skills/bookmark-research/references/zh/skill-guide.md) | 由宿主加载 | 不需要 |
-| 本地 MCP | `bookmark-research`，44 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
+| 本地 MCP | `bookmark-research`，默认 21 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
 | 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取）、[Tavily](https://tavily.com)（备用搜索） | HTTPS，不启动本地进程 | 可选 API Key |
-| 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索） | HTTPS | 可选 `JINA_API_KEY` |
+| 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索）；[DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/)（可选；原始 JSON tools API） | HTTPS | 可选 `JINA_API_KEY`、`DEEPSEEK_API_KEY` |
 | 可选的宿主 MCP | Exa Agent、Parallel Task MCP、Tavily Research | 需自行加到宿主里 | `bookmark-research setup` 会给出步骤 |
 
 本地 MCP 的工具：
 
 | 分类 | 工具 |
 | --- | --- |
-| 书签 | `sync_package`、`index_status`、`source_history`、`source_remove`、`source_merge`、`search_bookmarks`、`get_context`、`plan_research` |
-| 网页 | `search_web`、`fetch_web`、`search_archive`、`search_providers` |
-| 研究 | `research_readiness`、`research_start`、`research_status`、`research_search`、`research_fetch`、`research_source`、`research_record`、`research_inventory`、`research_coverage`、`research_import_evidence`、`research_finish`、`research_route`、`discovery_bundle` |
-| 专业研究服务（可选） | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach`、`_import` |
-| 设置 | `get_settings`、`update_settings` |
-| Wiki 与评测 | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search`、`wiki_refresh`、`wiki_work`、`wiki_lint`、`wiki_acknowledge`、`evaluate_research` |
+| 画布上下文 | `sync_package`、`index_status`、`search_bookmarks`、`get_context`、`plan_research` |
+| 联网与归档 | `search_web`、`fetch_web`、`search_archive` |
+| Wiki | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search` |
+| 研究 API | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach` |
+| 配置 | `get_settings`、`update_settings` |
+
+`plan_research` 返回本地候选，并独立检索 Wiki／归档；相关性和后续调查由宿主判断。没有画布来源也能使用。`wiki_write` 一次接收编写好的章节、精确引文与来源正文或 capture ID；研究 API 可直接接收问题，无需先创建本地研究会话。
+
+`deep` 预设额外提供来源维护、完整研究记录、选路诊断与 Wiki 维护，用于明确要求的完整审计和断点续做。Git 时间上下文由宿主 shell 查询。
 
 ## 更多
 

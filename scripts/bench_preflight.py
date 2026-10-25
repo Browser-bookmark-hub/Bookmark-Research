@@ -85,7 +85,7 @@ def benchmark_packages(sizes, sections, repeats):
                                  "query": query, "p50_ms": median, "p95_ms": p95,
                                  "cards": len(result["cards"]), "urls": len(result["urls"]),
                                  "characters": result["preflight_budget"]["characters"],
-                                 "accepted": result["relevance"]["accepted"]})
+                                 "matched": bool(result["cards"] or result["canvas_matches"])})
             finally:
                 index.close()
     return rows

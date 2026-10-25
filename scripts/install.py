@@ -552,7 +552,7 @@ def _targets_from_args(args):
     if (args.scope or args.project) and not {"claude"} & set(hosts):
         raise ValueError("--scope and --project require --host claude")
     if args.profile and "dsh" not in hosts:
-        raise ValueError("--profile is only supported for DSH")
+        raise ValueError("--profile is only supported for DeepSeek Harness (dsh)")
     if args.install_dir and not others:
         raise ValueError("Host-specific options require --host claude or dsh")
     return [{"host": host,
@@ -642,7 +642,7 @@ def main(argv=None):
         command.add_argument("--scope", choices=("user", "project", "local"), help=message(
             "Claude scope; default user (local is Claude-only)", "Claude 作用域，默认 user；local 仅限 Claude"))
         command.add_argument("--project", help=message("Project directory for project/local scope", "project/local 作用域对应的项目目录"))
-        command.add_argument("--profile", help=message("Required DSH profile name", "DSH 必填的 profile 名称"))
+        command.add_argument("--profile", help=message("Required DeepSeek Harness (dsh) profile name", "DeepSeek Harness (dsh) 必填的 profile 名称"))
         command.add_argument("--install-dir", help=message("Managed export/receipt root for non-Codex hosts", "非 Codex 宿主的持久包与安装记录根目录"))
         command.add_argument("--timeout", type=int, default=60, help=message("Timeout for each native command in seconds (1-300)", "每条原生命令的超时秒数（1–300）"))
         if action == "install":

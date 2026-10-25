@@ -67,7 +67,7 @@ class JinaClient:
         return McpError("Jina HTTP %s" % status, kind, status == 429 or status >= 500,
                         http_status=status, retry_after=retry_after)
 
-    def call(self, purpose, query=None, urls=None):
+    def call(self, purpose, query=None, urls=None, limit=None):
         if purpose == "search":
             if not self.headers.get("Authorization"):
                 raise McpError("Jina Search requires JINA_API_KEY", "authentication_required")

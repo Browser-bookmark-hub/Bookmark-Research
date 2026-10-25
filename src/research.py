@@ -1686,46 +1686,42 @@ class ResearchSessions:
 
     @staticmethod
     def _wiki_page(drafts, state):
-        """A ready-to-review page skeleton grouped by question, or None.
-
-        The text is the claim statements themselves, not generated prose: the
-        host may polish it, but it cannot accidentally cite a claim that is not
-        in the page's own claims list. Sections split at the wiki-write limit
-        (12 claims each, 16 sections), and a host that accepts the draft needs
-        one confirmation plus one write instead of per-claim assembly.
-        """
+        """Return a valid bounded page skeleton and explicit unplaced claim IDs."""
+        from wiki import WikiStore
         if not drafts:
             return None
-        questions = {question["id"]: question for question in state["questions"]}
-        grouped, order = {}, []
+        questions = {row["id"]: row["question"] for row in state["questions"]}
+        groups = {}
         for draft in drafts:
-            key = draft.get("question_id") or ""
-            if key not in grouped:
-                grouped[key] = []
-                order.append(key)
-            grouped[key].append(draft)
-        sections = []
-        for key in order:
-            rows = grouped[key]
-            base = ((questions.get(key, {}).get("question") or "Findings").strip()[:280] or "Findings")
-            for start in range(0, len(rows), 12):
-                chunk = rows[start:start + 12]
-                sections.append({"heading": base if start == 0 else base + " (continued)",
-                                 "text": "\n".join("- " + row["statement"] for row in chunk),
-                                 "claims": [{"research_id": state["research_id"], "claim_id": row["claim_id"]}
-                                            for row in chunk]})
-                if len(sections) >= 16:
+            groups.setdefault(draft.get("question_id") or "", []).append(draft)
+        sections, placed = [], []
+        for key, rows in groups.items():
+            heading = " ".join(questions.get(key, "Findings").split())[:280] or "Findings"
+            for row in rows:
+                if len(placed) >= WikiStore.MAX_PAGE_CLAIMS:
                     break
-            if len(sections) >= 16:
-                break
-        placed = sum(len(section["claims"]) for section in sections)
-        title = ((state["questions"][0]["question"] if state["questions"] else state["brief"])
-                 or "Research findings").strip()[:300]
-        return {"page": {"title": title, "kind": "topic", "sections": sections, "links": []},
-                "claim_count": len(drafts), "section_count": len(sections),
-                "truncated": placed < len(drafts),
-                "instruction": "Ask the user to confirm this page once, then pass draft.page to wiki_write with "
-                               "a review block naming the actual reviewer; do not drop claims silently."}
+                line = "- " + row["statement"]
+                if (not sections or sections[-1]["question_id"] != key
+                        or len(sections[-1]["claims"]) >= WikiStore.MAX_SECTION_CLAIMS
+                        or len(sections[-1]["text"]) + len(line) + 1 > WikiStore.MAX_SECTION_CHARACTERS):
+                    if len(sections) >= WikiStore.MAX_SECTIONS:
+                        break
+                    continued = any(section["question_id"] == key for section in sections)
+                    sections.append({"heading": heading + (" (continued)" if continued else ""),
+                                     "text": "", "claims": [], "question_id": key})
+                section = sections[-1]
+                section["text"] += ("\n" if section["text"] else "") + line
+                section["claims"].append({"research_id": state["research_id"], "claim_id": row["claim_id"]})
+                placed.append(row["claim_id"])
+        for section in sections:
+            section.pop("question_id")
+        title = " ".join((state["questions"][0]["question"] if state["questions"] else state["brief"]).split())[:300]
+        remaining = [row["claim_id"] for row in drafts if row["claim_id"] not in set(placed)]
+        return {"page": {"title": title or "Research findings", "kind": "topic", "sections": sections, "links": []},
+                "claim_count": len(drafts), "section_count": len(sections), "truncated": bool(remaining),
+                "remaining_claim_ids": remaining,
+                "instruction": "Review this page under wiki_follow_up.instruction and existing session authorization. "
+                               "Add a truthful review block before wiki_write; place remaining_claim_ids in related pages."}
 
     def _wiki_follow_up(self, state):
         try:
@@ -1758,7 +1754,7 @@ class ResearchSessions:
         else:
             instruction = ("Present the candidate Wiki pages to update, or a proposed new page built from eligible_claims "
                            "(group them by question_id into draft sections; each claim carries exact first quotes and an "
-                           "inference mark), to the user. Call wiki_write only after the user confirms.")
+                           "inference mark), to the user. Honor existing authorization; otherwise obtain confirmation before writing.")
         return {"policy": policy, "candidates": ranked, "eligible_claim_ids": eligible, "eligible_claims": drafts,
                 "draft": self._wiki_page(drafts, state), "instruction": instruction,
                 "work": {"tool": "wiki_work", "arguments": {"research_id": state["research_id"]}}}

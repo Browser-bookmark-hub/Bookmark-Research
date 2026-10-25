@@ -14,15 +14,16 @@
 | Parallel | 已接入，默认搜索服务之一 | 聚合工具 `search_web` / `fetch_web` |
 | Jina | HTTP Reader 为读取备用；有 key 时 Search 为搜索备用 | `fetch_web` 的 `jina` 支持限额内匿名读取网页／PDF；Search 需要 `JINA_API_KEY`，自动回退时缺 key 会跳过。无需另装 MCP。 |
 | Tavily | 默认搜索备用；提取可单独选择 | 同一工具传 `tavily`，或加入 `fetch.providers`；有 `TAVILY_API_KEY` 使用 Bearer，否则明确 keyless 模式；额度以服务返回为准 |
+| DeepSeek | 可选 Search／Fetch provider；原始 JSON tools API | 显式传 `deepseek` 或加入 provider 列表；需要 `DEEPSEEK_API_KEY`。Search 返回 title/url/summary（可选 content）；Fetch 返回单页 Markdown。错误格式兼容 OpenAI，但不是 Chat Completions。 |
 | GitHub | 未内置专用 MCP；可配合宿主已有工具 | 公开网页可 `fetch_web`；代码、issue、release 的专项查询见 [GitHub 路由](github-and-sync.md) |
 
-先识别实际可用工具，沿用用户选定的服务与范围。`search_providers` 分操作描述认证条件；probe 检查远程 MCP 的工具列表，Jina 则返回本地 HTTP 接口映射，不进行联网探测。配置条目不证明服务在线。调用参数与限额见 [CLI 参考](cli.md)。
+先识别实际可用工具，沿用用户选定的服务与范围。`search_providers` 分操作描述认证条件；probe 检查远程 MCP 的工具列表，Jina 与 DeepSeek 则返回本地 HTTP 接口映射，不进行联网探测。配置条目不证明服务在线。调用参数与限额见 [CLI 参考](cli.md)。
 
 ## 选择目标与研究深度
 
 位置、计数、已有分类和笔记可用本地元数据回答。判断产品功能、页面内容、价格或当前状态时，需要读取相关网页；只有 title、URL 或搜索摘要时，把结论明确标为基于元数据或摘要。
 
-已知 URL 时直接读取；需要发现来源时搜索。Agentic search 由宿主模型主动规划、阅读和补查；独立专题使用宿主子代理或已加载工作流。Deep research 使用 [研究档案](deep-research.md) 配合持续调查，也可选择专业服务。插件本身不运行后台模型。
+已知 URL 时直接读取；需要发现来源时搜索。宿主已有原生搜索时，优先用它发现来源；`search_web` 只在宿主没有原生搜索、结果为空或不足，或用户要求 provider 多样性时作为后备。Agentic search 由宿主模型主动规划、阅读和补查；独立专题使用宿主子代理或已加载工作流。Deep Research 可[直接调用研究 API](research-services.md)；[持久化资料审计](deep-research.md) 按需启用。插件本身不运行后台模型。
 
 Exa Agent、Parallel Task 和 OpenAI Deep Research 是独立研究接口，认证与生命周期不同。本插件提供可配置的 OpenAI Responses 和 Parallel Task 客户端，见 [专业研究服务](research-services.md)；路由会识别宿主已加载的 Exa Agent 和完整 Parallel Task MCP，不会替用户安装。Tavily Research 及其他仅调研项目未作为自动后端。本地 stdio MCP 不是云端自动可访问的远程检索服务。
 
@@ -54,4 +55,4 @@ Exa Agent、Parallel Task 和 OpenAI Deep Research 是独立研究接口，认�
 
 检索时间不等于网页发布时间、更新时间或服务缓存生成时间。失败页面、搜索摘要、provider 摘录和完整性未知的提取结果不能写成“已获取完整原文”；旧研究若重新抓取，记录本次日期，不冒充旧快照。
 
-`wiki_*` 可把已审阅结论整理为有来源、交叉链接和修订历史的知识页，支持正文检索与 lint，见 [Wiki 与评测](wiki-and-evaluation.md)。当前没有 embedding、向量库或网页监控；保存报告不会自动生成 Wiki 或 RAG。
+`wiki_*` 可把已审阅结论整理为有来源、交叉链接和修订历史的知识页，支持正文检索与 lint，见 [Wiki 与评测](wiki.md)。当前没有 embedding、向量库或网页监控；保存报告不会自动生成 Wiki 或 RAG。

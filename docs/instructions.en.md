@@ -19,9 +19,8 @@ Bookmark Research has one execution Skill and one runtime. The execution Skill a
 | Professional services | [Read](../skills/bookmark-research/references/research-services.md) | [阅读](../skills/bookmark-research/references/zh/research-services.md) |
 | Settings and archives | [Read](../skills/bookmark-research/references/settings-and-archive.md) | [阅读](../skills/bookmark-research/references/zh/settings-and-archive.md) |
 | GitHub and sync | [Read](../skills/bookmark-research/references/github-and-sync.md) | [阅读](../skills/bookmark-research/references/zh/github-and-sync.md) |
-| Wiki and evaluation | [Read](../skills/bookmark-research/references/wiki-and-evaluation.md) | [阅读](../skills/bookmark-research/references/zh/wiki-and-evaluation.md) |
+| Wiki | [Read](../skills/bookmark-research/references/wiki.md) | [阅读](../skills/bookmark-research/references/zh/wiki.md) |
 | Host prompt reference | [Read](prompt-reference.en.md) | [阅读](prompt-reference.md) |
-| Wiki API and evaluation details | [Read](wiki-quality.md) | [阅读](wiki-quality.zh.md) |
 
 Only the root `skills/bookmark-research/SKILL.md` is a discoverable Skill. Files under `references/zh/` are Markdown reading copies, without a second Skill entry point or manifest. Read the relevant reference in one language; loading both is unnecessary.
 

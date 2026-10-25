@@ -125,6 +125,7 @@ class DiscoveryToolTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
         self.settings = Settings(self.root / "settings.json")
+        self.settings.update({"tool_scope_preset": "all"})
         self.server = StdioMcpServer(self.root / "index.sqlite3", settings=self.settings)
         self.addCleanup(self.server.close)
         self.server.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize",
@@ -155,12 +156,13 @@ class DiscoveryToolTests(unittest.TestCase):
         from archive import SourceArchive
         import hashlib
         url = "https://example.test/page"
-        text = "Verified archive evidence that a claim can quote."
+        text = "Verified archive evidence that a claim can quote. " * 12
         archive = SourceArchive(self.settings.load()["archive"]["directory"])
         saved = archive.save({"provider": "exa", "tool": "fixture_fetch", "urls": [url],
             "request_arguments": {"urls": [url]},
             "requested_max_characters": 12000, "retrieved_at": "2026-10-19T00:00:00Z",
-            "result": {"structuredContent": {"url": url, "text": text}}})
+            "result": {"structuredContent": {"url": url, "text": text, "title": "Fixture page",
+                                            "publishedDate": "2026-10-06"}}})
         capture_id = saved["capture_id"]
         response = self.call("discovery_bundle", {
             "sources": [{"url": url, "capture_id": capture_id}]})
@@ -169,6 +171,8 @@ class DiscoveryToolTests(unittest.TestCase):
         self.assertEqual(capture_id, entry["capture_id"])
         self.assertEqual("archive", entry["text_origin"])
         self.assertTrue(entry["quote_verified"])
+        self.assertEqual("Fixture page", entry["title"])
+        self.assertEqual("2026-10-06", entry["published_at"])
         self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), entry["text_sha256"])
 
         wrong = self.call("discovery_bundle", {

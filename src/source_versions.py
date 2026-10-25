@@ -55,6 +55,13 @@ class SourceVersions:
                 "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(scope_id,source_id,sha256) "
                 "DO UPDATE SET verdict=excluded.verdict WHERE snapshots.verdict != excluded.verdict", rows)
 
+    def discard_scope(self, scope_id):
+        """Roll back observations belonging to an unpublished private write."""
+        if not self.path.exists():
+            return
+        with closing(self._connect()) as connection, connection:
+            connection.execute("DELETE FROM snapshots WHERE scope_id=?", (scope_id,))
+
     def record_check(self, url, status):
         from archive import SourceArchive
         with closing(self._connect()) as connection, connection:

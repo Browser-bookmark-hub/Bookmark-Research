@@ -1,8 +1,33 @@
-# Wiki 与研究质量评测
+# Wiki
 
-[English](../wiki-and-evaluation.md) · **中文阅读版**
+[English](../wiki.md) · **中文阅读版**
 
-Wiki 是经审阅的跨来源知识，正文归档是原始证据，两者分别保存。评测计算已有运行和标注，不会替模型执行研究，也不自动判断引用语义。
+Wiki 是经审阅的跨来源知识，正文归档是原始证据，两者分别保存。
+
+## 一次保存已读来源
+
+阅读并审阅来源后，用 `wiki_write` 一次提交编写好的章节、精确引文与顶层 `sources`。知识组织和语义审阅由宿主完成，插件内部保留可核查证据，无需预先创建研究会话。
+
+```json
+{
+  "page_id": "aurora", "expected_revision": 0, "change_note": "Save reviewed findings",
+  "sources": [{"id": "docs", "url": "https://example.com/docs", "text": "Reusable sessions are supported."}],
+  "page": {
+    "title": "Aurora sessions", "kind": "topic", "links": [],
+    "sections": [{"heading": "Reuse", "text": "Aurora supports session reuse.",
+      "citations": [{"source_id": "docs", "quote": "Reusable sessions are supported."}]}],
+    "review": {"method": "model", "reviewer": "Actual reviewer", "note": "Checked the source and citation meaning."}
+  }
+}
+```
+
+示例内容与 reviewer 必须替换为实际材料。来源可用 `capture_id` 代替 `text`，复用已校验归档并保留原 URL。每个来源有唯一 `id`，必须被引用；quote 必须真实存在于对应正文。可选 `kind` 为 `page`、`local_document`、`external_report`，并可带 `title`／`retrieved_at`。API 报告标记为二手材料。更新前读取当前页面并传 `expected_revision`。
+
+来源正文最多 200 万字符；每页最多 16 章、每章 12000 字符、24 个内部 claim。更大主题拆页。完整性校验不能证明语义支持。下文 claim 引用格式继续兼容已有完整研究任务。
+
+## 高级维护
+
+下面的续做、刷新与审计工具需 `deep` 预设；日常读写使用默认工具即可。
 
 ## 恢复整理和复核
 
@@ -62,27 +87,6 @@ kind 为 topic 或 entity。每节必须有有效 claim；每页至多 24 个不
 
 每次写入会重新生成 `index.md`（按 kind 列出当前页面：链接、标题、一行摘要、版本、日期、结论数），并向 `log.md` 追加 `## [日期] write | 标题 (rN)` 及 page ID、修改说明和研究 ID。可阅读或 grep 它们了解全貌；`index.json` 与版本文件仍是准确数据，`index.md` 过期或缺失时 `wiki_lint` 给出 `catalog_stale`／`catalog_missing` 警告，下次写入即重新生成。
 
-已有 Wiki 写入授权时，使用合格且已审阅的 claims 直接完成，不重复询问。否则 `research_finish.wiki_follow_up` 按 `settings.wiki.after_research` 处理：`suggest` 先提出候选，`auto` 更新或创建合格页面，`off` 跳过。更新仍需当前 `expected_revision`，完成后说明实际写入。`eligible_claims` 标出每条结论的首句原文与是否为推断；`draft.page` 更进一步：按问题分组，正文就是 claim 原句，每节已带好 `{research_id, claim_id}` 列表并按写入上限切分，确认一次 + `wiki_write` 一次（`review` 填真实审阅人）即可成页。不要加入该列表之外的 claim。
+已有 Wiki 写入授权时，使用合格且已审阅的 claims 直接完成，不重复询问。否则 `research_finish.wiki_follow_up` 按 `settings.wiki.after_research` 处理：`suggest` 先提出候选，`auto` 更新或创建合格页面，`off` 跳过。更新仍需当前 `expected_revision`，完成后说明实际写入。`eligible_claims` 标出每条结论的首句原文与是否为推断；`draft.page` 更进一步：按问题分组，正文就是 claim 原句，每节已带好 `{research_id, claim_id}` 列表并按写入上限切分，按已有授权执行一次 `wiki_write`（`review` 填真实审阅人）即可保存有界草稿。不要加入该列表之外的 claim。
 
-## 评测真实运行
-
-在同一问题、冻结输入和可比较预算下分别运行宿主普通研究、宿主工作流、专业服务；记录实际模型、工具、宿主版本、输入版本、时间窗口、失败和可获得用量。无法等同的条件写明，不删失败样本，也不把未知成本当 0。
-
-独立评审者按版本化 rubric 阅读真实报告和证据，提供：
-
-- 每个原子答案与 gold answer ID 的对应；错误项标 null，没有标注保持未知。
-- 每个 claim/source 引用对的 supported、unsupported 或 uncertain 标签与依据；原句子串匹配不等于语义支持。
-- 报告各维度 0–4 的实际评分与理由，包括事实可靠性、完整性和不确定性处理。
-
-调用 `evaluate_research`，输入 `{suite,runs,judgments}`。suite 定义 task、gold answers（无金标准可为 null）、原始来源／问题 ID 与 rubric；runs 保存原子答案、结论、引用、覆盖、最终文本、条件与测量；judgments 保存真实评审者身份、版本及上述标签。完整输入说明见插件根目录 `docs/wiki-quality.zh.md`，源仓库的 `tests/fixtures/research-quality.json` 是明确标记、可运行的合成样例。
-
-| 输出 | 必要依据与边界 |
-| --- | --- |
-| 答案 precision／recall／F1 | 金标准和完整答案匹配；缺失时 null |
-| 语义引用准确率 | 完整语义标签，uncertain 仍在分母；部分标注另行显示 |
-| 报告质量 | 版本化 rubric 的全部维度评分；不会自动推断分数 |
-| 四类覆盖 | 原来源／问题分母，reviewed ⊆ text ⊆ accounted；须另核查真实阅读证据 |
-| 成本、时延 | 实测或提供商报告值，注明 basis；没有则 null |
-| 波动 | 同条件重复运行的均值、样本方差等；只有一次时无方差估计 |
-
-评测固定输入与标注哈希，并报告比较条件差异。它不自动发布排行榜，也不能把本地 rubric 冒称 RACE／FACT。随包合成示例只验证计算，不证明哪个宿主、workflow 或 API 更好。宣称质量提升之前需真实运行与独立可辩护的标注。
+草稿遵守写入大小上限；`remaining_claim_ids` 标明应另页整理的 claim，不应把首份草稿当作全部候选已保存。

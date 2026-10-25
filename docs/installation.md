@@ -88,7 +88,7 @@ Agent 可使用 `install --host claude --non-interactive --preferences FILE --sk
 
 默认检查所选检索服务的目录与已启用的专业服务，分别报告密钥配置、目录可达、实际检索和授权范围。`--skip-checks` 阻止服务检查联网，但下载／宿主安装仍可能需要网络。`--test-retrieval` 选择执行样例搜索及 example.com 阅读，可能使用服务额度。OpenAI 检查仅查询模型元数据；Parallel 检查认证后的 Task MCP 目录；二者不证明付费研究任务权限或额度，检查不会创建专业任务。
 
-每个联网研究新问题前，Skill 调用 `research_readiness`，传入实际宿主和已观察到的工具。`cached` 在首次、密钥／配置变化或 15 分钟过期后刷新；`always` 每个新问题检查；`manual` 等待手动 `--refresh`。同一调查复用检查，本地书签查询不联网；直接使用 CLI 时先执行 `readiness`，再调用搜索／读取命令。
+需要诊断访问问题时，可调用高级 `research_readiness`，传入实际宿主和已观察到的工具。`cached` 在首次、密钥／配置变化或 15 分钟过期后刷新；`always` 每个新问题检查；`manual` 等待手动 `--refresh`。同一调查复用检查，本地书签查询不联网；CLI 搜索／读取可以直接使用，`readiness` 按需诊断。
 
 搜索／读取适配器已包含。可选 Exa Agent、Parallel Task、Tavily Research MCP 由宿主管理：向导展示对应的添加／授权步骤，检查结果也返回结构化指引。先检查已有登记并复用名称。Codex 用 `codex mcp list`，支持 OAuth 时用 `codex mcp login`；Claude 用 `claude mcp list` 和 `/mcp`。DSH 使用官方 MCP client 的 profile 配置和认证 header。工具可见不等于登录成功，插件保存的 Key 也不会自动授权另行登记的宿主 MCP。完整说明见[配置与排障](../skills/bookmark-research/references/zh/settings-and-archive.md)。
 
@@ -237,7 +237,7 @@ python3 /absolute/path/to/bookmark-research-dsh/hosts/dsh/workflow-call.py --res
 
 结果由独立的 `meta`、无 export 的 `script`、对象 `args` 组成。DSH 等待完整流程后返回 `{runId,agentsStarted,result}`，取消是错误，渲染可能截断。报告子代理会通过共享研究工具保存完整分析附件并返回实际路径；不能假设宿主自动提供全文句柄。导出和生成参数均不启动宿主任务。
 
-本机已通过 Claude Code 2.1.247 原生 strict manifest 校验、宿主隔离检查与真实 MCP 分页/附件检查。DSH 未安装；三宿主付费研究端到端均未运行。完整边界见 [验证记录](host-validation.json)。
+安装与桥接检查不代表宿主模型的完整研究已通过；验证边界见[宿主兼容说明](harness-compatibility.md)。
 
 ## 首次使用与数据位置
 
@@ -299,8 +299,8 @@ python3 -m unittest discover -s tests
 python3 scripts/build_zip.py --output dist/bookmark-research-0.5.0-beta.3.zip
 ```
 
-ZIP 包含原生插件、marketplace、共享运行时、Skill、三宿主源文件及组装器、安装入口、导出器、文档和许可；不包含测试、数据库、页面归档、用户配置或书签数据包。加 `--include-tests` 可另建测试包，包含合成 fixture、宿主 JS 检查、`verify_fixture.py` 和 `verify_quality.py`，可解压后再次导出宿主包。
+ZIP 包含原生插件、marketplace、共享运行时、Skill、三宿主源文件及组装器、安装入口、导出器、文档和许可；不包含测试、数据库、页面归档、用户配置或书签数据包。加 `--include-tests` 可另建测试包，包含合成 fixture、宿主 JS 检查和 `verify_fixture.py`，可解压后再次导出宿主包。
 
 构建结果打印 ZIP 的 SHA-256；相同内容以固定文件顺序、时间和权限打包，在相同 Python/zlib 环境中可重现相同字节。解压后的 `MANIFEST.sha256` 列出包内文件校验和，可在解压目录运行 `shasum -a 256 -c MANIFEST.sha256`。校验和用于发现损坏，来源真实性仍取决于你下载的仓库或发行渠道。
 
-构建只在本地生成文件。发布 GitHub Release、创建 tag 或推送 npm/PyPI 都不是构建器的行为。安装设计的参考依据和验证范围见 `docs/archive/install-design-0.2.0.md`。
+构建只在本地生成文件。发布 GitHub Release、创建 tag 或推送 npm/PyPI 都不是构建器的行为。

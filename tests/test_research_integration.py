@@ -1,4 +1,4 @@
-"""Whole-input research, authored Wiki and evaluation through real MCP/CLI APIs."""
+"""Whole-input research and authored Wiki through real MCP/CLI APIs."""
 
 import hashlib
 import io
@@ -29,6 +29,7 @@ class ResearchIntegrationTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.settings = Settings(self.base / "settings.json")
+        self.settings.update({"tool_scope_preset": "all"})
         self.db = self.base / "index.sqlite3"
         self.server = StdioMcpServer(self.db, settings=self.settings, stderr=io.StringIO())
         self.addCleanup(self.server.close)
@@ -139,7 +140,7 @@ class ResearchIntegrationTests(unittest.TestCase):
         self.engine.search.assert_not_called()
         self.engine.fetch.assert_not_called()
 
-    def test_routing_configuration_and_evaluation_match_cli_and_mcp(self):
+    def test_routing_configuration_and_service_describe_match_cli_and_mcp(self):
         changed = self.call("update_settings", {"changes": {"research": {"depth": "deep"},
             "professional_research": {"provider": None}, "wiki": {"directory": str(self.base / "wiki")}}})
         self.assertEqual(self.cli("config", "show"), changed)
@@ -147,12 +148,6 @@ class ResearchIntegrationTests(unittest.TestCase):
         expected = self.call("research_route", arguments)
         self.assertEqual(self.cli("research", "route", "--input", "-", payload=arguments), expected)
         self.assertEqual(self.cli("research", "service", "describe"), self.call("research_services"))
-        fixture = json.loads((ROOT / "tests/fixtures/research-quality.json").read_text())
-        payload = {key: fixture[key] for key in ("suite", "runs", "judgments")}
-        evaluated = self.call("evaluate_research", payload)
-        self.assertEqual(self.cli("evaluate", "--input", "-", payload=payload), evaluated)
-        self.assertEqual(evaluated["kind"], "synthetic_demonstration")
-        self.assertFalse(evaluated["provider_quality_claim"])
 
 
 if __name__ == "__main__":

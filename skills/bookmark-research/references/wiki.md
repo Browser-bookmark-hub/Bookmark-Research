@@ -1,8 +1,33 @@
-# Wiki and research evaluation
+# Wiki
 
-**English** · [中文](zh/wiki-and-evaluation.md)
+**English** · [中文](zh/wiki.md)
 
-The Wiki contains reviewed knowledge synthesized across sources; page archives contain original evidence. They are stored separately. Evaluation calculates supplied runs and judgments; it neither conducts research nor automatically judges citation meaning.
+The Wiki contains reviewed knowledge synthesized across sources; page archives contain original evidence. They are stored separately.
+
+## Save read sources in one call
+
+After reading and reviewing evidence, call `wiki_write` with authored sections, exact citations and a top-level `sources` list. The host supplies the knowledge organization and review; the plugin retains evidence internally. No prior research session is required.
+
+```json
+{
+  "page_id": "aurora", "expected_revision": 0, "change_note": "Save reviewed findings",
+  "sources": [{"id": "docs", "url": "https://example.com/docs", "text": "Reusable sessions are supported."}],
+  "page": {
+    "title": "Aurora sessions", "kind": "topic", "links": [],
+    "sections": [{"heading": "Reuse", "text": "Aurora supports session reuse.",
+      "citations": [{"source_id": "docs", "quote": "Reusable sessions are supported."}]}],
+    "review": {"method": "model", "reviewer": "Actual reviewer", "note": "Checked the source and citation meaning."}
+  }
+}
+```
+
+Use real content in place of the fixture. A source may supply `capture_id` instead of `text` to reuse a verified saved extract; keep its original URL. Each source needs a unique `id` and must be cited. Quotes must occur in its text. Sources support `kind:"page"`, `"local_document"` or `"external_report"`, and optional `title` / `retrieved_at`. Keep reports identified as secondary material. Read the current page before an update and pass its `expected_revision`.
+
+Source text is limited to 2 million characters. Pages remain bounded to 16 sections, 12,000 characters per section and 24 internal claims; split larger topics. Integrity checks do not establish semantic support. The older claim-reference format below remains available for persistent research tasks.
+
+## Advanced maintenance
+
+The following resume, refresh and audit tools require the `deep` preset; ordinary storage and retrieval use the default tools.
 
 ## Resume compilation and review
 
@@ -62,27 +87,4 @@ New revision records store evidence paths relative to their research task. `wiki
 
 Each write regenerates `index.md` (current pages by kind: link, title, one-line summary, revision, date, claim count) and appends `log.md` (`## [date] write | title (rN)` with page ID, change note and research IDs). Read or grep them to orient; `index.json` and revision files remain authoritative, and `wiki_lint` warns `catalog_stale`/`catalog_missing` until the next write regenerates `index.md`.
 
-Complete an already authorized Wiki write without asking again; use only eligible reviewed claims. Otherwise `research_finish.wiki_follow_up` follows `settings.wiki.after_research`: `suggest` offers candidates before writing, `auto` updates or creates an eligible page, and `off` skips it. Updates still require the current `expected_revision`. Report completed writes. The `eligible_claims` list marks each claim's exact first quotes and whether it is an inference. `draft.page` goes one step further: sections are grouped by question, the text is the claim statements themselves, and every section already carries its `{research_id, claim_id}` list split at the write limits, so one confirmation plus one `wiki_write` (with a review block naming the actual reviewer) completes the page. Do not add claims outside that list.
-
-## Evaluate actual runs
-
-Run native host research, a host workflow and a professional service on the same question, frozen inputs and comparable budgets. Record actual model, tools, host version, input version, time window, failures and available usage. Disclose conditions that cannot be matched. Retain failures and keep unknown costs unknown rather than treating them as 0.
-
-An independent reviewer reads actual reports and evidence under a versioned rubric and supplies:
-
-- Matches between atomic answers and gold-answer IDs; incorrect answers map to null, and absent labels remain unknown.
-- Supported/unsupported/uncertain labels and reasons for each claim/source citation pair. Matching quote substrings does not establish semantic support.
-- Actual 0–4 scores and reasons for each report dimension, including factual reliability, completeness and uncertainty handling.
-
-Call `evaluate_research` with `{suite,runs,judgments}`. The suite defines the task, gold answers (or null), original source/question IDs and rubric. Runs contain atomic answers, claims, citations, coverage, final text, conditions and measurements. Judgments identify the actual reviewer/version and labels above. The plugin's `docs/wiki-quality.md` explains the complete input; the source repository's `tests/fixtures/research-quality.json` is an explicitly synthetic runnable example.
-
-| Output | Required evidence and limits |
-| --- | --- |
-| Answer precision/recall/F1 | Gold answers and complete answer matching; null if absent. |
-| Semantic citation accuracy | Complete semantic labels; uncertain remains in the denominator. Partial labeling is reported separately. |
-| Report quality | Scores for every versioned rubric dimension; no inferred scores. |
-| Four coverage measures | Original source/question denominators; reviewed ⊆ text ⊆ accounted. Actual reading evidence still needs review. |
-| Cost and latency | Observed or provider-reported values with a basis; otherwise null. |
-| Variation | Repeated comparable runs provide means/sample variance; one run provides no variance estimate. |
-
-Evaluation fixes hashes of inputs/judgments and reports condition differences. It does not publish a leaderboard or rename a local rubric as RACE/FACT. Bundled synthetic examples validate calculations, not the superiority of a host, workflow or API. Claims of better research need actual runs and defensible independent judgments.
+Complete an already authorized Wiki write without asking again; use only eligible reviewed claims. Otherwise `research_finish.wiki_follow_up` follows `settings.wiki.after_research`: `suggest` offers candidates before writing, `auto` updates or creates an eligible page, and `off` skips it. Updates still require the current `expected_revision`. Report completed writes. The `eligible_claims` list marks each claim's exact first quotes and whether it is an inference. `draft.page` goes one step further: sections are grouped by question, the text is the claim statements themselves, and every section already carries its `{research_id, claim_id}` list split at the write limits, so one `wiki_write` with the actual review block can save the bounded page within existing authorization. `remaining_claim_ids` identifies claims that need another page. Do not add claims outside that list.

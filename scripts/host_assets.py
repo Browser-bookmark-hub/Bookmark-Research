@@ -6,8 +6,7 @@ from pathlib import Path
 
 HOST_SOURCE_FILES = (
     "hosts/shared/workflow.json", "hosts/shared/research-flow.js", "hosts/shared/research-call.py",
-    "hosts/shared/discovery.json", "hosts/shared/discovery-flow.js",
-    "hosts/claude/runtime.js", "hosts/dsh/runtime.js", "hosts/dsh/workflow-call.py", "hosts/dsh/plugin.js",
+    "hosts/claude/runtime.js", "hosts/claude/commands/research.md", "hosts/dsh/runtime.js", "hosts/dsh/workflow-call.py", "hosts/dsh/plugin.js",
     "hosts/dsh/package.json",
     "hosts/codex/delegate.md", "hosts/codex/prepare.py",
 )
@@ -27,8 +26,7 @@ def read_asset(root, relative, default=None):
     return current.read_bytes()
 
 
-WORKFLOWS = {"bookmark-research": ("hosts/shared/workflow.json", "hosts/shared/research-flow.js"),
-             "bookmark-research-discovery": ("hosts/shared/discovery.json", "hosts/shared/discovery-flow.js")}
+WORKFLOWS = {"bookmark-research": ("hosts/shared/workflow.json", "hosts/shared/research-flow.js")}
 
 
 def build_workflow(root, host, name="bookmark-research"):
@@ -53,6 +51,10 @@ def export_host_assets(source, stage, host):
             relative = "hosts/codex/" + name
             files[relative] = read_asset(source, relative)
     else:
+        if host == "claude":
+            command = read_asset(source, "hosts/claude/commands/research.md", default=b"")
+            if command:
+                files["commands/research.md"] = command
         for name in WORKFLOWS:
             definition, script = build_workflow(source, host, name)
             if host == "claude":

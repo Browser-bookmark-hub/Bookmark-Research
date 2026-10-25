@@ -408,7 +408,7 @@ class InstallTargetTests(SetupFixture):
         targets = Console(io.StringIO("1\n2\n\n\n"), output).install_targets(self.args())
         self.assertEqual([row["host"] for row in targets], ["claude"])
         (self.bin / ("claude.cmd" if os.name == "nt" else "claude")).unlink()
-        with self.assertRaisesRegex(ValueError, "Codex, Claude Code or DSH"):
+        with self.assertRaisesRegex(ValueError, "Codex, Claude Code or DeepSeek Harness"):
             Console(io.StringIO(""), io.StringIO()).install_targets(self.args())
 
     def test_dsh_without_pnpm_is_disabled_with_install_hint(self):
@@ -485,7 +485,7 @@ class InstallTargetTests(SetupFixture):
         args = self.args(host=["dsh"])
         targets = Console(io.StringIO("\n\n"), output).install_targets(args)
         self.assertEqual(targets[0]["profile"], "web")
-        self.assertNotIn("desktop", output.getvalue().split("Install into which DSH profile?")[-1])
+        self.assertNotIn("desktop", output.getvalue().split("Install into which DeepSeek Harness (dsh) profile?")[-1])
 
     def test_explicit_host_list_skips_host_prompt(self):
         args = self.args(host=["codex", "claude"], scope="user")

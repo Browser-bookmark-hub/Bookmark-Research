@@ -151,7 +151,7 @@ class WikiFreshnessTests(unittest.TestCase):
     def test_mcp_accepts_authored_aliases_refresh_and_dependency_filter(self):
         from mcp_server import StdioMcpServer
         rid = self.evidence()
-        self.settings.update({"wiki": {"directory": str(self.wiki.directory)}})
+        self.settings.update({"wiki": {"directory": str(self.wiki.directory)}, "tool_scope_preset": "all"})
         server = StdioMcpServer(self.db, stderr=io.StringIO(), settings=self.settings)
         self.addCleanup(server.close)
         server._research_sessions, server._wiki_store = self.research, self.wiki

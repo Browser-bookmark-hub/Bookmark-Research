@@ -1,72 +1,50 @@
-# Professional research services: prepare, run and retrieve
+# Deep Research APIs
 
 **English** · [中文](zh/research-services.md)
 
-Deep research starts with the current host model's investigation. Professional services can take a scoped subquestion after the host's first assessment, or a task explicitly assigned to them by the user. This plugin provides thin OpenAI Responses Deep Research and Parallel Task API clients; existing host research MCPs can also be used. Their reports return to the host for review and synthesis. Search interfaces authenticate separately from these research services.
+For an extended investigation, submit the actual question directly to OpenAI Responses or the Parallel Task API. The host chooses the scope, observes the job and reviews the returned report. A local `research_start` session is optional. Host-native research tools remain usable independently.
 
-## Settings and entry points
+## Configure and prepare
 
-Call `research_services` to inspect status offline. Each provider reports `ready_to_start` and concrete `missing` settings/credential names; readiness is configuration, not verified authentication. Native host research remains available independently. OpenAI uses `OPENAI_API_KEY`; Parallel uses `PARALLEL_API_KEY`. Configure keys through terminal `setup` or the process environment; they remain outside project files, manifests, research inputs and reports. `research_readiness` checks connection/authentication scope without creating a job; see [settings](settings-and-archive.md).
-
-Effective `professional_research` defaults to `enabled:false, provider:null`. After the user selects a service, update its settings as needed:
+`research_services` reports configuration and missing credentials offline. Enable the chosen provider in `professional_research`; OpenAI uses `OPENAI_API_KEY`, Parallel uses `PARALLEL_API_KEY`. Set keys in terminal `setup` or the process environment.
 
 ```json
-{"changes":{"professional_research":{"enabled":true,"provider":"openai","openai":{"model":"gpt-5.6-sol","max_tool_calls":24}}}}
+{"changes":{"professional_research":{"enabled":true,"provider":"openai"}}}
 ```
 
-The default is `gpt-5.6-sol`; the retired `o3-deep-research` and `o4-mini-deep-research` remain accepted for legacy configs. A custom model ID requires `allow_untested_model:true`; Parallel defaults to `processor:"pro"`. Model/processor access, fees and quotas depend on the current account. Per-request options can override supported fields. Configuration and an explicit provider choice do not automatically start a task or silently select a different service.
-
-## Prepare actual material
-
-Create local research with `research_start` and a clear question, scope, sources, time requirements, output language/format and known limitations. `research_service_prepare` accepts:
+Prepare the concrete request with no network call or job creation:
 
 ```json
-{
-  "research_id": "r-actual-id",
-  "question_id": "q1",
-  "provider": "openai",
-  "input": "The complete question, scope, evaluation dimensions and deliverable requirements. Write the report in English and preserve original quotations.",
-  "options": {"max_tool_calls": 24}
-}
+{"input":"Compare the specified products using original documentation. Include limits, versions, counterevidence and citations; write in English.","provider":"openai","options":{"max_tool_calls":24}}
 ```
 
-Without `inventory_ids`, preparation uses the investigation's entire selected inventory. Specific IDs may be assigned to a subquestion without reducing overall research scope. The result contains the exact request payload, input version and shared source scope; inspect whether these can answer the original question. Only explicit input and original URLs are added automatically, not the package, notes, tags or local paths.
+The returned payload is the request that will be sent. The configured OpenAI default is `gpt-5.6-sol`; custom model IDs require `allow_untested_model:true`. Legacy model identifiers remain accepted for old configurations; accepted does not establish availability. Parallel defaults to `processor:"pro"`. Access, costs and quotas depend on the account.
 
-Cloud services cannot read local filesystem paths or reach local stdio MCPs. OpenAI can receive up to 2 existing account `options.vector_store_ids`; uploading material and creating a vector store are separate intentional actions. Putting a local path or account page in a brief does not make it accessible. Unread material remains a coverage gap.
+Cloud services cannot read local paths or local stdio MCPs. Supply relevant public URLs and an explicit brief. OpenAI may use up to two existing account `vector_store_ids`; uploading documents is a separate operation.
 
-## Single creation and status observation
+## Run, observe and recover
 
-Once the concrete request is within existing user authorization, call `research_service_start` with the same fields as prepare plus a stable `operation_id`. Do not ask again for already-authorized service use. Creation saves `external_id` and the actual provider run ID. The provider owns background execution; the plugin has no polling loop.
-
-Follow `next_action` from each run observation: query an active run with `refresh:true`, retrieve the completed report, or recover a known run ID after an uncertain creation. Continue through report import and original-source review; neither `research_route` nor `research_service_prepare` executes the research. A saved service preference orders optional external services after host research. An explicit `research_route.provider` selects that service exclusively. Do not mark the host route failed merely to delegate a subquestion.
-
-On a confirmed error, the returned next action points to `research_route`. Add the failed `route_id` to earlier `failed_routes`, supply current host observations, and execute the next available route in the same research session. Do not drop the user's explicit provider restriction. Disabled or uncredentialed APIs are unavailable; pending, running, unknown and cancelled runs do not trigger fallback. If no eligible route remains, retain the evidence and report gaps.
-
-For host-native research MCPs, routing recognizes observed Exa `agent_run` or Parallel `createDeepResearch` + `getStatus` + `getResultMarkdown`. These MCPs are not installed by this plugin, and tool presence does not verify authentication. Use their actual schemas; record each returned run ID and subsequent states with `research_record` kind `external_run`. Resume Exa through `runId`; observe an existing Parallel task instead of creating another. Import the actual report with `research_import_evidence` as `external_report`, then review original sources. This continuation is executed by the host following the Skill, not a local polling worker.
-
-| Action | Tool / behavior |
+| Action | Tool and behavior |
 | --- | --- |
-| Prepare | `research_service_prepare`; no network call or billed creation. |
-| Create | `research_service_start`; identical research ID + operation ID + input replays a saved result instead of resubmitting. |
-| Local status | `research_service_status`; saved observations only by default. |
-| Remote status | The same tool with `refresh:true`; one query of the existing run ID. |
-| Result | `research_service_result`; save/paginate the report. `refresh:true` observes that run once. |
-| Cancel | `research_service_cancel`; only documented OpenAI cancellation is implemented. |
-| Attach an existing run | `research_service_attach` with research_id, operation_id, provider, known run_id and optional question_id; no remote creation. |
-| Import | `research_service_import` with external_id, operation_id and optional question_id; only a completed saved report can be imported. |
+| Prepare | `research_service_prepare`: inspect the payload offline. |
+| Start | `research_service_start`: add a stable `operation_id`; identical inputs replay the saved operation. |
+| Observe | `research_service_status`: local state; `refresh:true` queries the existing run once. |
+| Read | `research_service_result`: retain and paginate the report; `refresh:true` observes once. |
+| Cancel | `research_service_cancel`: supported for OpenAI; stopping observation does not cancel a remote job. |
+| Recover | `research_service_attach`: supply `operation_id`, `provider`, known `run_id`; no new job. |
 
-A timeout or lost create response can leave `unknown_outcome`. Retain the original operation ID and inspect status. Attach a known real run ID to recover; do not create another possibly billed task with a new ID. Disconnecting or stopping observation is not remote cancellation. Failed status/result observations retain the last trustworthy state. Parallel result requests use a 1-second server wait; a timeout may still mean running.
+Continue within existing user authorization. The provider runs the background job; the plugin starts no polling worker. Keep the same operation ID after timeouts or lost responses. Inspect `unknown_outcome` and recover a known run ID before considering a new creation. Failed observations preserve the last trustworthy state. Parallel result requests use a one-second server wait.
 
-OpenAI defaults to `store:false`, `background:true`, a supported combination. The current background guide describes roughly ten minutes of temporary storage for asynchronous polling; save returned results promptly. No cancellation endpoint has been confirmed for Parallel Task in this adapter's checked interface. Do not invent successful cancellation.
+OpenAI uses `store:false`, `background:true`; save results promptly under the provider's temporary retention policy. Parallel cancellation is unavailable in this adapter. Failed or cancelled jobs leave explicit gaps; the host decides whether another authorized route is useful.
 
-## Return reports to the evidence workflow
+## Return to the Wiki or a collection audit
 
-Results include report text, raw-response location/hash, provider citations and available usage. `citations` previews at most 100 items / approximately 100 KB. Check `citation_count` and `citations_truncated`, then read the complete `citations_file` and verify its hash. A preview is not the full citation scope. These citations are not yet verified.
+Read the complete report and important original sources. Provider citations are not verified evidence. Results include text, raw-response paths/hashes and usage when known. Citation previews are bounded; inspect `citation_count`, `citations_truncated` and the complete `citations_file` when necessary.
 
-`research_service_import` stores the report as an unreviewed `external_report` in the original investigation. It can support a secondary claim about what the report says, but does not prove its cited original pages were read.
+For ordinary research, use `wiki_write` with the reviewed report or original text as `sources` and exact section citations. Mark a report as `kind:"external_report"`. Preserve uncertainty and distinguish the report's claims from original-source verification.
 
-Read the complete report and check the original question, omitted dimensions, conclusions and counterevidence. Actually read important original URLs, then record `source_review`, claims and `inventory_review`. A completed external run does not complete whole-package research. `research_coverage` and `research_finish` check original sources and questions. Keep unavailable provider usage unknown.
+When an explicitly selected persistent collection audit already exists, pass optional `research_id`, `question_id` and `inventory_ids` to preparation/start. The complete selected inventory is included unless IDs narrow that subtask. The advanced `research_service_import` attaches a completed report to that session; it does not mark referenced originals as read. Finish original reviews and coverage separately. These scope IDs require `research_id`.
 
-Exact requests/status live in `service-runs/er-.../`; linked records and imported evidence live in `research/r-.../`, all outside the original package.
+Requests and reports live in `service-runs/er-.../`, outside the bookmark package. See [Wiki](wiki.md) and [optional collection audits](deep-research.md).
 
-References: [OpenAI Deep Research](https://developers.openai.com/api/docs/guides/deep-research), [OpenAI background mode](https://developers.openai.com/api/docs/guides/background), [Parallel Task API](https://docs.parallel.ai/task-api/guides/execute-task-run). Report interface-contract validation separately from authenticated live-task validation.
+API references: [OpenAI Deep Research](https://developers.openai.com/api/docs/guides/deep-research), [background mode](https://developers.openai.com/api/docs/guides/background), [Parallel Task API](https://docs.parallel.ai/task-api/guides/execute-task-run).

@@ -4,7 +4,7 @@
 
 用户可直接在对话中改配置，CLI 与 MCP 使用同一套实现。当前没有独立图形设置页。
 
-provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `search.providers` 指定（Exa + Parallel），策略由 `search.strategy` 选择：`hedged`（默认）全并发，所有查询都有结果后最多再等 `search.grace_seconds`（默认 2）即返回；`staggered` 错峰，查询未全部解析才发下一家；`sequential` 按顺序逐家调用，只把未解析查询交给下一家；`wait_all` 等全部。首轮受 `search.deadline_seconds`（默认 10）约束，被放弃与未调用的 provider 分别记录在 `routing.abandoned_providers` 与 `routing.not_attempted_providers`；设为 null 可关闭对应限制。无结果查询交给 `search.fallback_providers`（Tavily + 有 key 的 Jina）；设为空数组可关闭回退。读取先用 `fetch.provider`，策略由 `fetch.strategy` 选择：`staggered`（默认）在当前提供商超过 `fetch.grace_seconds`（默认 25）仍未解决时并行下一家；`hedged` 全部并发；`sequential` 逐家等待；`grace_seconds` 设为 null 即回到逐家等待。被放弃的提供商记入 `abandoned_providers`；连续两次整批无可用正文的提供商会短暂跳过（`provider_stalled`）。其余 `fetch.providers` 对未成功 URL 并发兜底，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。密钥优先读取进程环境，其次读取私有凭据文件，公共访问仍受限额影响。
+provider 可选 `exa`、`parallel`、`tavily`、`jina`、`deepseek`（可选，需要 `DEEPSEEK_API_KEY`）。搜索第一轮由 `search.providers` 指定（Exa + Parallel），策略由 `search.strategy` 选择：`hedged`（默认）全并发，所有查询都有结果后最多再等 `search.grace_seconds`（默认 2）即返回；`staggered` 错峰，查询未全部解析才发下一家；`sequential` 按顺序逐家调用，只把未解析查询交给下一家；`wait_all` 等全部。首轮受 `search.deadline_seconds`（默认 10）约束，被放弃与未调用的 provider 分别记录在 `routing.abandoned_providers` 与 `routing.not_attempted_providers`；设为 null 可关闭对应限制。无结果查询交给 `search.fallback_providers`（Tavily + 有 key 的 Jina）；设为空数组可关闭回退。读取先用 `fetch.provider`，策略由 `fetch.strategy` 选择：`staggered`（默认）在当前提供商超过 `fetch.grace_seconds`（默认 25）仍未解决时并行下一家；`hedged` 全部并发；`sequential` 逐家等待；`grace_seconds` 设为 null 即回到逐家等待。被放弃的提供商记入 `abandoned_providers`；连续两次整批无可用正文的提供商会短暂跳过（`provider_stalled`）。其余 `fetch.providers` 对未成功 URL 并发兜底，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。DeepSeek Search/Fetch 使用 `DEEPSEEK_API_KEY`；它是原始 JSON tools API，错误格式兼容 OpenAI，但不是 Chat Completions 接口。密钥优先读取进程环境，其次读取私有凭据文件，公共访问仍受限额影响。
 
 ## 终端向导与就绪检查
 
@@ -62,18 +62,19 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
     "methods": ["comparative_analysis", "fact_check", "benchmark_review"]},
   "readiness": {"mode": "cached", "ttl_seconds": 900, "timeout_seconds": 10},
   "professional_research": {"enabled": false, "provider": null,
-    "openai": {"model": "o4-mini-deep-research", "max_tool_calls": 24},
+    "openai": {"model": "gpt-5.6-sol", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
   "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest", "max_source_age_days": 30},
   "wiki_preflight": true,
   "freshness_days": 30,
-  "plan": {"max_characters": 8000, "min_relevance": 0.05, "homepage_limit": 2},
+  "plan": {"max_characters": 8000, "homepage_limit": 2},
   "tool_scope": [],
+  "tool_scope_preset": "quick",
   "output": {"mode": "central", "directory": "/absolute/path/to/research"}
 }
 ```
 
-优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；`max_total_characters` 默认 24000，超过 `fair_share_min`（默认 500）时按页分配。提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki_preflight`（默认 true）让 `plan_research` 检查 Wiki 与归档；`freshness_days`（默认 30）是本地过期阈值；`plan.min_relevance`（默认 0.05）、`plan.max_characters`（默认 8000）与 `plan.homepage_limit` 控制预检的相关性门槛、输出大小和首页配额。`tool_scope` 是服务端 MCP 目录白名单：空列表表示全部工具；设为 8 个名称（`plan_research`、`search_bookmarks`、`get_context`、`search_web`、`fetch_web`、`discovery_bundle`、`wiki_search`、`wiki_get`）可在宿主不支持工具过滤时缩小目录。 DSH 插件默认把这份 8 项列表作为 `BOOKMARK_RESEARCH_TOOL_SCOPE` 传给 MCP 子进程；可用逗号分隔的其他列表覆盖，设为空字符串则恢复完整目录。环境变量不存在时才读取保存的 `tool_scope`。被隐藏的工具会拒绝调用，需改设置文件或在仍可见时用 `update_settings` 调整。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
+优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；`max_total_characters` 默认 24000，超过 `fair_share_min`（默认 500）时按页分配。提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki_preflight`（默认 true）让 `plan_research` 检查 Wiki 与归档；`freshness_days`（默认 30）是本地过期阈值；`plan.max_characters`（默认 8000）与 `plan.homepage_limit` 控制输出大小和首页配额。旧 `plan.min_relevance` 配置继续兼容，不再过滤候选。`tool_scope` 是服务端 MCP 目录白名单：空列表沿用预设。`tool_scope_preset` 是预设：`quick`（默认，21 个日常工具）、`deep`／`all`（完整 43 个工具）。非空 `tool_scope` 覆盖预设；`BOOKMARK_RESEARCH_TOOL_SCOPE` 覆盖两者，空值恢复全部。被隐藏的工具会拒绝调用，需改设置或预设。DSH 插件只在环境变量存在时才转发。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
 
 `search.cache_seconds`（0–3600，默认 0）让短时间内的相同搜索直接返回进程内缓存，不再调用提供商；这些批次标记 `cached:true`，保留原 `retrieved_at`，不消耗提供商额度。`fetch.reuse_seconds`（0–86400，默认 0）让 `research_fetch` 对窗口内已保存正文的 URL 直接返回 `reused_sources`（保留原 ID 与检索时间，不追加新快照），不再联网，也不占抓取预算。`server.network_workers`（1–16）与 `server.max_pending_calls`（1–64，且不小于 worker 数）设置 stdio 服务端并发，重启服务后生效。
 
@@ -81,7 +82,7 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`。搜索第一轮由 `sea
 
 `output.mode` 决定新研究任务文件夹的位置。`central`（默认）使用 `output.directory`（`<数据目录>/research`）。`beside_input` 放在唯一输入旁边：文件 `a.json` → 同级 `a.bookmark-research/`，文件夹或 ZIP `pkg` → 同级 `pkg.bookmark-research/`，不进入原文件夹。URL 列表、多个来源、Git 仓库、画布包、插件目录或没有写权限时退回统一目录，`research_start` 的 `output.fallback_reason` 说明原因。修改只影响新任务，已有任务不迁移；`<数据目录>/research-locations.json` 登记所有任务文件夹，移动或删除的标为 missing。每个任务有 `work/` 文件夹，供 agent 存放中间文件。
 
-`wiki.after_research` 决定 `research_finish.wiki_follow_up`：`suggest`（默认）列出候选页面并先征求用户同意，`auto` 直接写入已审核结论，`off` 不给建议。follow_up 的 `eligible_claims` 附带每条结论的首句原文与推断标记，草稿可一次确认。
+`wiki.after_research` 决定 `research_finish.wiki_follow_up`：`suggest`（默认）列出候选页面，已有授权时继续写入，否则先征求同意，`auto` 直接写入已审核结论，`off` 不给建议。follow_up 的 `eligible_claims` 附带每条结论的首句原文与推断标记，草稿可一次确认。
 
 配置文件路径：CLI `--config` → `BOOKMARK_RESEARCH_CONFIG` → `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/settings.json`。归档默认目录为 `${BOOKMARK_RESEARCH_DATA_DIR}/knowledge`；未指定数据目录时采用 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/knowledge`。不同载体指向同一配置文件和数据目录即可共享偏好及档案。API key 与偏好分开，放在环境变量或私有凭据文件。
 

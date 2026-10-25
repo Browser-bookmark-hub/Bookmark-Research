@@ -205,7 +205,7 @@ class Readiness:
                 setup = {"mcp_config": {"serverName": alias, "transport": "streamable-http", "url": native["url"]},
                          "credential_env": name.upper() + "_API_KEY",
                          "credential_header": "x-api-key" if name == "exa" else "Authorization: Bearer",
-                         "login_instruction": "Add this optional server to the selected DSH profile with an environment-backed authentication header. The documented DSH bridge supports headers; OAuth support is not established.",
+                         "login_instruction": "Add this optional server to the selected DeepSeek Harness (dsh) profile with an environment-backed authentication header. The documented DeepSeek Harness (dsh) bridge supports headers; OAuth support is not established.",
                          "reference": "https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/README.md"}
             else:
                 setup = {"login_instruction": "Select --host when running setup, or inspect the MCP settings in your actual host.",

@@ -19,9 +19,8 @@ Bookmark Research 共用一个执行 Skill 和一套运行时。执行 Skill 及
 | 专业研究服务 | [Read](../skills/bookmark-research/references/research-services.md) | [阅读](../skills/bookmark-research/references/zh/research-services.md) |
 | 配置与归档 | [Read](../skills/bookmark-research/references/settings-and-archive.md) | [阅读](../skills/bookmark-research/references/zh/settings-and-archive.md) |
 | GitHub 与同步 | [Read](../skills/bookmark-research/references/github-and-sync.md) | [阅读](../skills/bookmark-research/references/zh/github-and-sync.md) |
-| Wiki 与评测 | [Read](../skills/bookmark-research/references/wiki-and-evaluation.md) | [阅读](../skills/bookmark-research/references/zh/wiki-and-evaluation.md) |
+| Wiki | [Read](../skills/bookmark-research/references/wiki.md) | [阅读](../skills/bookmark-research/references/zh/wiki.md) |
 | 宿主提示完整说明 | [Read](prompt-reference.en.md) | [阅读](prompt-reference.md) |
-| Wiki API 与评测细节 | [Read](wiki-quality.md) | [阅读](wiki-quality.zh.md) |
 
 只有根目录 `skills/bookmark-research/SKILL.md` 会被发现为 Skill。`references/zh/` 是 Markdown 阅读对照，没有第二个 Skill 入口或 manifest。按需读一种语言的参考即可，不必同时加载两份。
 

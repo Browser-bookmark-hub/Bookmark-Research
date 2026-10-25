@@ -21,16 +21,10 @@ EXTRA_FILES = (
     "docs/installation.md",
     "docs/installation.en.md",
     "docs/bookmark-research-architecture.md",
-    "docs/mcp-aggregation-0.2.0.md",
-    "docs/research-0.2.0.md",
-    "docs/validation-0.4.0.md",
     "README.md",
     "README.zh.md",
     "install.sh",
     "docs/harness-compatibility.md",
-    "docs/harness-sources.json",
-    "docs/host-validation.json",
-    "docs/wiki-quality.md",
     "scripts/export_bundle.py",
     "scripts/build_zip.py",
     "scripts/install.py",
@@ -65,7 +59,7 @@ def _test_files(source):
     root = source / "tests"
     if root.is_symlink() or not root.is_dir():
         raise ValueError("The verification pack requires a local tests directory")
-    selected = {Path("scripts/verify_fixture.py"), Path("scripts/verify_quality.py")}
+    selected = {Path("scripts/verify_fixture.py")}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(source)
         if any(part.startswith(".") or part.casefold() in EXCLUDED_DIRECTORIES - {"tests", "test"}
