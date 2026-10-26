@@ -501,6 +501,22 @@ class InstallTargetTests(SetupFixture):
         self.assertTrue(console.rich)
         self.assertEqual([row["host"] for row in console.install_targets(self.args())], ["claude"])
 
+    def test_back_option_in_claude_scope_restarts_host_selection(self):
+        self.tool("claude", "codex")
+        # 1. host selection defaults to codex, claude (\n)
+        # 2. claude scope: choose option 4 ("back")
+        # 3. host selection again: choose "1" (codex only)
+        # 4. confirm plan: \n
+        output = io.StringIO()
+        targets = Console(io.StringIO("\n4\n1\n\n"), output).install_targets(self.args())
+        self.assertEqual([row["host"] for row in targets], ["codex"])
+
+    def test_plan_confirmation_rejection_allows_reselecting_hosts(self):
+        self.tool("codex")
+        output = io.StringIO()
+        targets = Console(io.StringIO("\nn\ny\n\ny\n"), output).install_targets(self.args())
+        self.assertEqual([row["host"] for row in targets], ["codex"])
+
 
 class RecheckTests(SetupFixture):
     def test_failed_readiness_offers_key_reentry_and_rechecks_once(self):

@@ -449,8 +449,11 @@ class Prompter:
             while True:
                 lines = self._render_list(question, options, cursor, chosen, True, message)
                 if not message:
-                    lines[-1] = "%s  %s" % (self._color("36", "└"), self._color("2", self.text(
-                        "space toggle · a all · enter confirm", "空格 切换 · a 全选 · 回车 确认")))
+                    shortcut_hint = self.text(
+                        "[Space] toggle  [a] all/none  [Enter] confirm",
+                        "[空格] 勾选/取消  [a] 全选/全不选  [回车] 确认",
+                    )
+                    lines[-1] = "%s  %s" % (self._color("36", "└"), self._color("36", shortcut_hint))
                 drawn = self._redraw(lines, drawn)
                 key = self._key()
                 message = None

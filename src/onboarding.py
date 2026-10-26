@@ -119,57 +119,72 @@ class Console(Prompter):
         client = resolve_dsh(getattr(args, "dsh", None))
         if client["source"] == "desktop":
             args.dsh = client["binary"]
-        if requested:
-            hosts = list(dict.fromkeys(requested))
-        else:
-            found = {name: bool(shutil.which(getattr(args, name, None) or name)) for name, _, _ in HOSTS}
-            hints = {name: ("", None) if found[name] else ("CLI not found", "未找到 CLI") for name in found}
-            found["dsh"], hints["dsh"] = client["usable"], _dsh_hint(client)
-            if not any(found.values()):
-                self.warn("No supported host CLI (codex, claude, dsh) was found on PATH.",
-                          "PATH 中未找到任何受支持的宿主 CLI（codex、claude、dsh）。")
-                raise ValueError("No host CLI found; install Codex, Claude Code or DeepSeek Harness (dsh), "
-                                 "or pass --codex/--claude/--dsh PATH to point at its executable")
-            hosts = self.multiselect("Install into which hosts?", "安装到哪些宿主？", [
-                Option(name, en, zh, *hints[name], disabled=not found[name]) for name, en, zh in HOSTS],
-                [name for name, _, _ in HOSTS if found[name]])
-        # A carrier that ships its own pnpm is the Desktop CLI, however it was found:
-        # only that CLI may manage the profile name Desktop reserves for itself.
-        desktop = client["bundled_pnpm"] is not None
-        targets = []
-        for host in hosts:
-            label = next((en for name, en, _ in HOSTS if name == host), host)
-            target = {"host": host, "scope": None, "project": None, "profile": None}
-            if host == "claude":
-                scope = args.scope
-                if scope is None:
-                    options = [Option("user", "This user", "当前用户"), Option("project", "This project", "指定项目")]
-                    if host == "claude":
-                        options.append(Option("local", "This project, only for me", "指定项目（仅自己）"))
-                    scope = self.select(label + ": installation scope", label + "：安装范围", options, "user")
-                target["scope"] = scope
-                if scope in ("project", "local"):
-                    target["project"] = args.project or self.input(
-                        label + ": project directory", label + "：项目目录", str(Path.cwd()), _directory_problem)
-            elif host == "dsh":
-                # Never guess a DSH profile: it selects a distinct composed runtime.
-                target["profile"] = args.profile or self.dsh_profile(desktop)
-            targets.append(target)
-        lines = []
-        for target in targets:
-            label = next((en for name, en, _ in HOSTS if name == target["host"]), target["host"])
-            detail = ", ".join(key + "=" + target[key] for key in ("scope", "project", "profile") if target[key])
-            lines.append((label + (": " + detail if detail else ""), label + ("：" + detail if detail else "")))
-        self.note("Installation plan", "安装计划", lines)
-        if client["source"] == "desktop" and any(target["host"] == "dsh" for target in targets):
-            self.note("DeepSeek Harness (dsh) CLI", "DeepSeek Harness (dsh) CLI", [(client["binary"], client["binary"])])
-        if not self.confirm("Install now?", "现在安装？", True):
-            raise KeyboardInterrupt
-        first = targets[0]
-        args.host, args.scope, args.project, args.profile = first["host"], first["scope"], first["project"], first["profile"]
-        return targets
+        while True:
+            if requested:
+                hosts = list(dict.fromkeys(requested))
+            else:
+                found = {name: bool(shutil.which(getattr(args, name, None) or name)) for name, _, _ in HOSTS}
+                hints = {name: ("", None) if found[name] else ("CLI not found", "未找到 CLI") for name in found}
+                found["dsh"], hints["dsh"] = client["usable"], _dsh_hint(client)
+                if not any(found.values()):
+                    self.warn("No supported host CLI (codex, claude, dsh) was found on PATH.",
+                              "PATH 中未找到任何受支持的宿主 CLI（codex、claude、dsh）。")
+                    raise ValueError("No host CLI found; install Codex, Claude Code or DeepSeek Harness (dsh), "
+                                     "or pass --codex/--claude/--dsh PATH to point at its executable")
+                hosts = self.multiselect("Install into which hosts? (Space to toggle, Enter to confirm)",
+                                         "安装到哪些宿主？（空格 勾选/取消，回车 确认）", [
+                    Option(name, en, zh, *hints[name], disabled=not found[name]) for name, en, zh in HOSTS],
+                    [name for name, _, _ in HOSTS if found[name]])
+            # A carrier that ships its own pnpm is the Desktop CLI, however it was found:
+            # only that CLI may manage the profile name Desktop reserves for itself.
+            desktop = client["bundled_pnpm"] is not None
+            targets = []
+            go_back = False
+            for host in hosts:
+                label = next((en for name, en, _ in HOSTS if name == host), host)
+                target = {"host": host, "scope": None, "project": None, "profile": None}
+                if host == "claude":
+                    scope = args.scope
+                    if scope is None:
+                        options = [Option("user", "This user", "当前用户"), Option("project", "This project", "指定项目"),
+                                   Option("local", "This project, only for me", "指定项目（仅自己）")]
+                        if not requested:
+                            options.append(Option("back", "← Back to host selection", "← 返回重新选择宿主"))
+                        scope = self.select(label + ": installation scope", label + "：安装范围", options, "user")
+                        if scope == "back":
+                            go_back = True
+                            break
+                    target["scope"] = scope
+                    if scope in ("project", "local"):
+                        target["project"] = args.project or self.input(
+                            label + ": project directory", label + "：项目目录", str(Path.cwd()), _directory_problem)
+                elif host == "dsh":
+                    # Never guess a DSH profile: it selects a distinct composed runtime.
+                    profile = args.profile or self.dsh_profile(desktop, allow_back=not requested)
+                    if profile == "back":
+                        go_back = True
+                        break
+                    target["profile"] = profile
+                targets.append(target)
+            if go_back:
+                continue
+            lines = []
+            for target in targets:
+                label = next((en for name, en, _ in HOSTS if name == target["host"]), target["host"])
+                detail = ", ".join(key + "=" + target[key] for key in ("scope", "project", "profile") if target[key])
+                lines.append((label + (": " + detail if detail else ""), label + ("：" + detail if detail else "")))
+            self.note("Installation plan", "安装计划", lines)
+            if client["source"] == "desktop" and any(target["host"] == "dsh" for target in targets):
+                self.note("DeepSeek Harness (dsh) CLI", "DeepSeek Harness (dsh) CLI", [(client["binary"], client["binary"])])
+            if not self.confirm("Install now?", "现在安装？", True):
+                if not requested and self.confirm("Re-select hosts and options?", "重新选择宿主与选项？", True):
+                    continue
+                raise KeyboardInterrupt
+            first = targets[0]
+            args.host, args.scope, args.project, args.profile = first["host"], first["scope"], first["project"], first["profile"]
+            return targets
 
-    def dsh_profile(self, desktop):
+    def dsh_profile(self, desktop, allow_back=False):
         """Choose an initialized DSH profile, or name a new one.
 
         `dsh plugin` initializes a profile on first use, so the profiles on disk
@@ -186,8 +201,12 @@ class Console(Prompter):
             return self.input(question[0], question[1], "desktop" if desktop else "", check)
         options = [Option(row["name"], row["name"], row["name"], *_profile_hint(row)) for row in rows]
         options.append(Option("", "Another profile name…", "其他 profile 名称…"))
+        if allow_back:
+            options.append(Option("back", "← Back to host selection", "← 返回重新选择宿主"))
         default = "desktop" if any(row["name"] == "desktop" for row in rows) else None
         chosen = self.select("Install into which DeepSeek Harness (dsh) profile?", "安装到哪个 DeepSeek Harness (dsh) profile？", options, default)
+        if chosen == "back":
+            return "back"
         if chosen:
             return chosen
         return self.input(question[0], question[1], "desktop" if desktop else "", check)
