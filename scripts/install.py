@@ -583,8 +583,16 @@ def _run_target(args, target, language):
 
 
 def _run_setup(args, installed, host, language, guided):
+    from settings import Settings
+    existing_config = Settings().path.is_file()
+    interactive = guided and (getattr(args, "interaction", "auto") == "always" or not existing_config)
+    if guided and existing_config and getattr(args, "interaction", "auto") != "always":
+        print(_message(language,
+                       "Retained existing configuration (%s). Run `bookmark-research setup` to modify preferences or keys." % Settings().path,
+                       "✓ 沿用已有研究偏好与密钥配置（%s）；如需修改请运行 bookmark-research setup。" % Settings().path),
+              file=sys.stderr)
     command = [sys.executable, "-B", str(installed / "src/cli.py"), "setup", "--lang", language,
-               "--host", _setup_host(host), "--interactive" if guided else "--non-interactive"]
+               "--host", _setup_host(host), "--interactive" if interactive else "--non-interactive"]
     if args.preferences:
         command.extend(["--input", args.preferences])
     if args.skip_checks:
@@ -592,7 +600,7 @@ def _run_setup(args, installed, host, language, guided):
     if args.test_retrieval:
         command.append("--test-retrieval")
     if not (installed / "src/onboarding.py").is_file():
-        requested = guided or bool(args.preferences) or args.test_retrieval
+        requested = interactive or bool(args.preferences) or args.test_retrieval
         return {"completed": False if requested else None, "status": "unsupported",
                 "message": "The installed version predates guided setup; install a newer version to use setup."}
     # The installed version owns its settings schema. Do not use the

@@ -33,6 +33,7 @@ class SetupFixture(unittest.TestCase):
             "BOOKMARK_RESEARCH_CONFIG": str(self.base / "config/settings.json"),
             "BOOKMARK_RESEARCH_CREDENTIALS": str(self.base / "config/credentials.json"),
             "BOOKMARK_RESEARCH_DATA_DIR": str(self.base / "data"),
+            "BOOKMARK_RESEARCH_INSTALL_DIR": str(self.base / "installs"),
             # Profile discovery must not read this machine's real Harness home.
             "DSH_HOME": str(self.base / "dsh-home")})
         environment.start()
@@ -516,6 +517,28 @@ class InstallTargetTests(SetupFixture):
         output = io.StringIO()
         targets = Console(io.StringIO("\nn\ny\n\ny\n"), output).install_targets(self.args())
         self.assertEqual([row["host"] for row in targets], ["codex"])
+
+    def test_detected_existing_targets_offer_upgrade_choice(self):
+        self.tool("claude", "dsh")
+        existing = [{"host": "claude", "scope": "user", "project": None, "profile": None, "version": "0.5.0-beta.18"},
+                    {"host": "dsh", "scope": None, "project": None, "profile": "web", "version": "0.5.0-beta.18"}]
+        output = io.StringIO()
+        targets = Console(io.StringIO("\n\n"), output).install_targets(self.args(), existing_targets=existing)
+        self.assertEqual(targets, [{"host": "claude", "scope": "user", "project": None, "profile": None},
+                                   {"host": "dsh", "scope": None, "project": None, "profile": "web"}])
+        self.assertIn("Detected existing installations", output.getvalue())
+        self.assertIn("Upgrade plan", output.getvalue())
+        self.assertNotIn("installation scope", output.getvalue())
+        self.assertNotIn("Install into which hosts", output.getvalue())
+
+    def test_detected_existing_targets_custom_choice_falls_through_to_host_selection(self):
+        self.tool("claude", "dsh")
+        existing = [{"host": "claude", "scope": "user", "project": None, "profile": None, "version": "0.5.0-beta.18"}]
+        output = io.StringIO()
+        targets = Console(io.StringIO("2\n\n\n\n"), output).install_targets(self.args(), existing_targets=existing)
+        self.assertEqual([row["host"] for row in targets], ["claude"])
+        self.assertIn("Detected existing installations", output.getvalue())
+        self.assertIn("Install into which hosts", output.getvalue())
 
 
 class RecheckTests(SetupFixture):

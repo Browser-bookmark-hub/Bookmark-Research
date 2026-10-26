@@ -861,6 +861,35 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.assertFalse(self.run_installer("verify", success=False)["verified"])
         self.assertIn("run install first", self.run_installer("update", success=False)["error"])
 
+    def test_run_setup_skips_interactive_mode_when_settings_exist(self):
+        import argparse
+        args = argparse.Namespace(preferences=None, skip_checks=False, test_retrieval=False, interaction="auto")
+        installed = self.source
+        with mock.patch("settings.Settings") as mock_settings, \
+             mock.patch("subprocess.run") as mock_sub:
+            mock_settings.return_value.path.is_file.return_value = True
+            mock_sub.return_value = mock.Mock(returncode=0, stdout='{"completed": true}')
+            setup = install._run_setup(args, installed, "codex", "en", guided=True)
+            self.assertTrue(setup["completed"])
+            cmd = mock_sub.call_args[0][0]
+            self.assertIn("--non-interactive", cmd)
+            self.assertNotIn("--interactive", cmd)
+
+    def test_run_setup_uses_interactive_mode_when_no_settings_and_guided(self):
+        import argparse
+        args = argparse.Namespace(preferences=None, skip_checks=False, test_retrieval=False, interaction="auto")
+        installed = self.source
+        with mock.patch("settings.Settings") as mock_settings, \
+             mock.patch("subprocess.run") as mock_sub:
+            mock_settings.return_value.path.is_file.return_value = False
+            mock_sub.return_value = mock.Mock(returncode=0, stdout='{"completed": true}')
+            setup = install._run_setup(args, installed, "codex", "en", guided=True)
+            self.assertTrue(setup["completed"])
+            cmd = mock_sub.call_args[0][0]
+            self.assertIn("--interactive", cmd)
+            self.assertNotIn("--non-interactive", cmd)
+
 
 if __name__ == "__main__":
     unittest.main()
+

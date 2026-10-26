@@ -108,7 +108,7 @@ class Console(Prompter):
             with reader, writer:
                 yield cls(reader, writer, language)
 
-    def install_targets(self, args):
+    def install_targets(self, args, existing_targets=None):
         self.intro("Bookmark Research — guided installation", "Bookmark Research — 引导安装")
         requested = args.host
         if isinstance(requested, str):
@@ -119,6 +119,56 @@ class Console(Prompter):
         client = resolve_dsh(getattr(args, "dsh", None))
         if client["source"] == "desktop":
             args.dsh = client["binary"]
+        if existing_targets is None and not requested:
+            try:
+                scripts_dir = Path(__file__).resolve().parents[1] / "scripts"
+                if str(scripts_dir) not in sys.path:
+                    sys.path.insert(0, str(scripts_dir))
+                from launcher import installed_targets
+                existing_targets = installed_targets(codex=getattr(args, "codex", "codex"))
+            except Exception:
+                existing_targets = []
+        if existing_targets and not requested:
+            desc_lines = []
+            for row in existing_targets:
+                h_name = row.get("host")
+                label = next((en for name, en, _ in HOSTS if name == h_name), h_name)
+                zh_label = next((zh for name, _, zh in HOSTS if name == h_name), h_name)
+                details = []
+                for k in ("scope", "project", "profile"):
+                    if row.get(k):
+                        details.append(k + "=" + str(row[k]))
+                ver = (" (" + row["version"] + ")") if row.get("version") else ""
+                det_str = (" (" + ", ".join(details) + ")") if details else ""
+                desc_lines.append((label + det_str + ver, zh_label + det_str + ver))
+            self.note("Detected existing installations", "检测到已安装宿主", desc_lines)
+            mode = self.select("Installation mode", "请选择操作", [
+                Option("upgrade", "Upgrade / overwrite existing installations (Recommended)",
+                       "一键升级覆盖所有已安装宿主（推荐）",
+                       "keep existing scopes and profiles", "保留已记录的安装范围与 profile 配置"),
+                Option("custom", "Re-select hosts and customize options",
+                       "重新选择宿主与自定义配置",
+                       "choose which hosts to install from scratch", "从头重新勾选宿主与参数")
+            ], "upgrade")
+            if mode == "upgrade":
+                targets = [{"host": row["host"], "scope": row.get("scope"),
+                            "project": row.get("project"), "profile": row.get("profile")}
+                           for row in existing_targets]
+                lines = []
+                for target in targets:
+                    label = next((en for name, en, _ in HOSTS if name == target["host"]), target["host"])
+                    detail = ", ".join(key + "=" + str(target[key]) for key in ("scope", "project", "profile") if target.get(key))
+                    lines.append((label + (": " + detail if detail else ""), label + ("：" + detail if detail else "")))
+                self.note("Upgrade plan", "升级覆盖计划", lines)
+                if client["source"] == "desktop" and any(target["host"] == "dsh" for target in targets):
+                    self.note("DeepSeek Harness (dsh) CLI", "DeepSeek Harness (dsh) CLI", [(client["binary"], client["binary"])])
+                if not self.confirm("Upgrade now?", "现在升级覆盖？", True):
+                    if not self.confirm("Re-select hosts and options?", "重新选择宿主与选项？", True):
+                        raise KeyboardInterrupt
+                else:
+                    first = targets[0]
+                    args.host, args.scope, args.project, args.profile = first["host"], first.get("scope"), first.get("project"), first.get("profile")
+                    return targets
         while True:
             if requested:
                 hosts = list(dict.fromkeys(requested))
@@ -131,10 +181,11 @@ class Console(Prompter):
                               "PATH 中未找到任何受支持的宿主 CLI（codex、claude、dsh）。")
                     raise ValueError("No host CLI found; install Codex, Claude Code or DeepSeek Harness (dsh), "
                                      "or pass --codex/--claude/--dsh PATH to point at its executable")
+                preselected = [row["host"] for row in (existing_targets or []) if found.get(row.get("host"))] or [name for name, _, _ in HOSTS if found[name]]
                 hosts = self.multiselect("Install into which hosts? (Space to toggle, Enter to confirm)",
                                          "安装到哪些宿主？（空格 勾选/取消，回车 确认）", [
                     Option(name, en, zh, *hints[name], disabled=not found[name]) for name, en, zh in HOSTS],
-                    [name for name, _, _ in HOSTS if found[name]])
+                    preselected)
             # A carrier that ships its own pnpm is the Desktop CLI, however it was found:
             # only that CLI may manage the profile name Desktop reserves for itself.
             desktop = client["bundled_pnpm"] is not None
