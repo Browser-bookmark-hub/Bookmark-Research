@@ -34,11 +34,11 @@ python3 scripts/launcher.py doctor
 # 1. 本地生成打包文件（如 bookmark-research-0.5.0-beta.19.tgz，不联网、不上传）
 npm pack
 
-# 2. 用本地压缩包模拟 npx 安装
-npx ./bookmark-research-*.tgz install codex --non-interactive
+# 2. 用本地压缩包模拟 npx 安装（需指定 --package 指向 tgz，后接二进制名 bookmark-research）
+npx --yes --package ./bookmark-research-*.tgz bookmark-research install codex --non-interactive
 
 # 或者测试交互模式
-npx ./bookmark-research-*.tgz install
+npx --yes --package ./bookmark-research-*.tgz bookmark-research install
 ```
 - **优势**：执行逻辑与线上 `npx bookmark-research install` 完全一致（包含 package 打包过滤、tarball 解压、软链注入和宿主注册）；
 - **零成本**：纯本地运行，不污染 npm 线上版本库，无需等待 CDN 刷新，也不需要任何 2FA 登录验证。
