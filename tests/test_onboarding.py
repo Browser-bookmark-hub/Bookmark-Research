@@ -523,13 +523,32 @@ class InstallTargetTests(SetupFixture):
         existing = [{"host": "claude", "scope": "user", "project": None, "profile": None, "version": "0.5.0-beta.18"},
                     {"host": "dsh", "scope": None, "project": None, "profile": "web", "version": "0.5.0-beta.18"}]
         output = io.StringIO()
-        targets = Console(io.StringIO("\n\n"), output).install_targets(self.args(), existing_targets=existing)
+        targets = Console(io.StringIO("\n\n\n"), output).install_targets(self.args(), existing_targets=existing)
         self.assertEqual(targets, [{"host": "claude", "scope": "user", "project": None, "profile": None},
                                    {"host": "dsh", "scope": None, "project": None, "profile": "web"}])
         self.assertIn("Detected existing installations", output.getvalue())
         self.assertIn("Upgrade plan", output.getvalue())
+        self.assertIn("0.5.0-beta.18", output.getvalue())
         self.assertNotIn("installation scope", output.getvalue())
         self.assertNotIn("Install into which hosts", output.getvalue())
+
+    def test_detected_existing_targets_selective_upgrade(self):
+        self.tool("claude", "dsh")
+        existing = [{"host": "claude", "scope": "user", "project": None, "profile": None, "version": "0.5.0-beta.18"},
+                    {"host": "dsh", "scope": None, "project": None, "profile": "web", "version": "0.5.0-beta.18"}]
+        output = io.StringIO()
+        # \n (upgrade mode) -> 1\n (select only host 1: claude) -> \n (confirm upgrade plan)
+        targets = Console(io.StringIO("\n1\n\n"), output).install_targets(self.args(), existing_targets=existing)
+        self.assertEqual(targets, [{"host": "claude", "scope": "user", "project": None, "profile": None}])
+        self.assertIn("Upgrade plan", output.getvalue())
+
+    def test_detected_single_existing_target_skips_multiselect(self):
+        self.tool("claude")
+        existing = [{"host": "claude", "scope": "user", "project": None, "profile": None, "version": "0.5.0-beta.18"}]
+        output = io.StringIO()
+        targets = Console(io.StringIO("\n\n"), output).install_targets(self.args(), existing_targets=existing)
+        self.assertEqual(targets, [{"host": "claude", "scope": "user", "project": None, "profile": None}])
+        self.assertNotIn("Select installed hosts to upgrade", output.getvalue())
 
     def test_detected_existing_targets_custom_choice_falls_through_to_host_selection(self):
         self.tool("claude", "dsh")

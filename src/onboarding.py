@@ -129,8 +129,15 @@ class Console(Prompter):
             except Exception:
                 existing_targets = []
         if existing_targets and not requested:
+            target_version = None
+            try:
+                from export_bundle import read_plugin_manifest
+                target_version = read_plugin_manifest(Path(__file__).resolve().parents[1]).get("version")
+            except Exception:
+                pass
             desc_lines = []
-            for row in existing_targets:
+            upgrade_options = []
+            for idx, row in enumerate(existing_targets):
                 h_name = row.get("host")
                 label = next((en for name, en, _ in HOSTS if name == h_name), h_name)
                 zh_label = next((zh for name, _, zh in HOSTS if name == h_name), h_name)
@@ -138,22 +145,63 @@ class Console(Prompter):
                 for k in ("scope", "project", "profile"):
                     if row.get(k):
                         details.append(k + "=" + str(row[k]))
-                ver = (" (" + row["version"] + ")") if row.get("version") else ""
-                det_str = (" (" + ", ".join(details) + ")") if details else ""
-                desc_lines.append((label + det_str + ver, zh_label + det_str + ver))
+                ver = row.get("version")
+                ver_str = (" (v" + ver + ")") if ver else ""
+                det_str = (" [" + ", ".join(details) + "]") if details else ""
+                desc_lines.append((label + det_str + ver_str, zh_label + det_str + ver_str))
+
+                if target_version and ver:
+                    if target_version != ver.split("+")[0]:
+                        ver_hint_en = "v%s → v%s (upgrade)" % (ver, target_version)
+                        ver_hint_zh = "当前 v%s → 目标 v%s（升级覆盖）" % (ver, target_version)
+                    else:
+                        ver_hint_en = "v%s (latest) · overwrite" % ver
+                        ver_hint_zh = "当前已是最新 v%s · 覆盖更新" % ver
+                elif ver:
+                    ver_hint_en = "v%s" % ver
+                    ver_hint_zh = "当前版本 v%s" % ver
+                else:
+                    ver_hint_en = "installed"
+                    ver_hint_zh = "已安装"
+                upgrade_options.append(Option(
+                    str(idx),
+                    label + det_str,
+                    zh_label + det_str,
+                    ver_hint_en,
+                    ver_hint_zh,
+                    hint_always=True
+                ))
+
             self.note("Detected existing installations", "检测到已安装宿主", desc_lines)
+            host_summary = ", ".join(row.get("host") for row in existing_targets)
             mode = self.select("Installation mode", "请选择操作", [
-                Option("upgrade", "Upgrade / overwrite existing installations (Recommended)",
-                       "一键升级覆盖所有已安装宿主（推荐）",
-                       "keep existing scopes and profiles", "保留已记录的安装范围与 profile 配置"),
-                Option("custom", "Re-select hosts and customize options",
+                Option("upgrade",
+                       "Upgrade / overwrite installed hosts (%d detected: %s)" % (len(existing_targets), host_summary),
+                       "升级覆盖已安装宿主（检测到 %d 个：%s）" % (len(existing_targets), host_summary),
+                       "select which hosts to upgrade, defaults to all",
+                       "回车默认全选升级，也可自选指定宿主",
+                       hint_always=True),
+                Option("custom",
+                       "Re-select hosts and customize options from scratch",
                        "重新选择宿主与自定义配置",
-                       "choose which hosts to install from scratch", "从头重新勾选宿主与参数")
+                       "choose hosts and options from scratch",
+                       "从头重新勾选宿主与参数")
             ], "upgrade")
             if mode == "upgrade":
-                targets = [{"host": row["host"], "scope": row.get("scope"),
-                            "project": row.get("project"), "profile": row.get("profile")}
-                           for row in existing_targets]
+                if len(existing_targets) == 1:
+                    chosen = ["0"]
+                else:
+                    chosen = self.multiselect(
+                        "Select installed hosts to upgrade (Space to toggle, Enter to confirm)",
+                        "选择要升级覆盖的宿主？（空格 勾选/取消，回车 确认）",
+                        upgrade_options,
+                        defaults=[str(i) for i in range(len(existing_targets))]
+                    )
+                targets = [{"host": existing_targets[int(i)]["host"],
+                            "scope": existing_targets[int(i)].get("scope"),
+                            "project": existing_targets[int(i)].get("project"),
+                            "profile": existing_targets[int(i)].get("profile")}
+                           for i in chosen]
                 lines = []
                 for target in targets:
                     label = next((en for name, en, _ in HOSTS if name == target["host"]), target["host"])
