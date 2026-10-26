@@ -3,14 +3,11 @@
 [English](README.md) · **中文**
 
 [![GitHub Bookmark-Canvas](https://img.shields.io/badge/GitHub-Bookmark--Canvas-181717?logo=github&logoColor=white)](https://github.com/Browser-bookmark-hub/Bookmark-Canvas)
-[![npm version](https://img.shields.io/npm/v/bookmark-research/beta?logo=npm)](https://www.npmjs.com/package/bookmark-research)
+[![npm version](https://img.shields.io/npm/v/bookmark-research?logo=npm)](https://www.npmjs.com/package/bookmark-research)
 
 带着书签上下文调研，把结论留成可复用知识。读取 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，使用宿主模型或研究 API 调查，再保存带来源的 Wiki 页面。支持 **Codex、Claude Code、DeepSeek Harness (dsh)**。
 
 [安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
-
-> [!NOTE]
-> **0.5.0 是测试版**，发布在 npm 的 `beta` 标签上；`latest` 标签仍指向更早的构建。遇到问题请到 [GitHub Issues](https://github.com/Browser-bookmark-hub/Bookmark-Research/issues) 反馈。
 
 ## 它是怎么工作的
 
@@ -28,10 +25,10 @@
 ## 安装
 
 ```sh
-npx bookmark-research@beta install
+npx bookmark-research install
 ```
 
-`@beta` 跟随最新测试版；要固定某个构建可写 `@0.5.0-beta.18`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
+默认直接安装最新版本。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
@@ -54,11 +51,11 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 | 宿主 | 命令 | 实际登记方式 |
 | --- | --- | --- |
-| Codex | `npx bookmark-research@beta install codex --non-interactive` | `codex plugin add` |
-| Claude Code | `npx bookmark-research@beta install claude --scope user --non-interactive` | `claude plugin install` |
-| DeepSeek Harness (dsh) | `npx bookmark-research@beta install dsh --profile web --non-interactive` | `dsh plugin add` |
+| Codex | `npx bookmark-research install codex --non-interactive` | `codex plugin add` |
+| Claude Code | `npx bookmark-research install claude --scope user --non-interactive` | `claude plugin install` |
+| DeepSeek Harness (dsh) | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
 
-一次装多个：`npx bookmark-research@beta install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code）。全部参数见[安装说明](docs/installation.md)。
+一次装多个：`npx bookmark-research install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code）。全部参数见[安装说明](docs/installation.md)。
 
 **让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code 或 DeepSeek Harness (dsh)：
 
@@ -66,7 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 请把 Bookmark Research 插件安装到你当前运行的这个宿主里。
 
 1. 先确认你自己是哪个宿主：codex、claude 或 dsh。
-2. 运行：npx bookmark-research@beta install <宿主> --non-interactive
+2. 运行：npx bookmark-research install <宿主> --non-interactive
    - Claude Code：加 --scope user（或 --scope project --project <目录>）。
    - DeepSeek Harness (dsh)：加 --profile <名称>；profile 名称请先问我。
 3. 命令会输出 JSON。确认 "verified": true，有 "error" 就告诉我。
@@ -92,9 +89,9 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | 用脚本改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
 
-没有全局安装时，在前面加 `npx bookmark-research@beta`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。工具面可用 `bookmark-research config set --tool-scope-preset quick` 使用默认 21 个日常工具；`deep`（或 `all`）启用完整 43 个工具，供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
+没有全局安装时，在前面加 `npx bookmark-research`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。工具面可用 `bookmark-research config set --tool-scope-preset quick` 使用默认 21 个日常工具；`deep`（或 `all`）启用完整 43 个工具，供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
 
-**更新。** `bookmark-research update` 会按各自登记的来源刷新所有已安装宿主，并保留偏好、Key 和数据。重跑 `npx bookmark-research@beta install` 也会就地升级已装的 Claude Code 或 DeepSeek Harness (dsh)。Codex 安装会保留登记时的来源与版本，要换版本需先移除该登记（`codex plugin marketplace remove bookmark-research`）再重新安装。
+**更新。** `bookmark-research update` 会按各自登记的来源刷新所有已安装宿主，并保留偏好、Key 和数据。重跑 `npx bookmark-research install` 或 `bookmark-research update` 也会就地升级已装的宿主（包括 Codex、Claude Code、DeepSeek Harness）。
 
 **API Key 都是可选的。** 在 `bookmark-research setup` 里输入（隐藏显示，输完当场检查，保存在仅当前用户可读的本地文件），或者设置环境变量（优先于已保存的 Key）。
 
