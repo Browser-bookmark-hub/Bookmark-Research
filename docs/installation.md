@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 终端向导检测可用 CLI，可多选 Codex、Claude Code、DSH：方向键移动、空格勾选、回车确认，已检测到的宿主默认勾选。DSH 在「PATH 中有可用的 `dsh`」或「找到自带 pnpm 的 DeepSeek Harness 桌面版」时都算检测到，因此桌面版自带 CLI 无需任何参数即可勾选；选中 DSH 后，向导会列出 `$DSH_HOME/profiles` 下已初始化的 profile，并标注本插件已登记的来源与是否已启用，也可另填新名称。随后逐个询问作用域／项目／profile，并显示摘要确认后再安装。`curl | bash` 从 `/dev/tty` 读取回答，不会误读脚本或 Agent 的输入；终端不支持或设置 `BOOKMARK_RESEARCH_PLAIN=1` 时改用普通编号提示。npm 安装器会在原生登记前检查所选宿主。`--interactive` 要求终端，`--non-interactive` 不询问；没有终端且未指定宿主时保留默认 Codex 的旧行为，Agent 应显式传入 `--host`。
 
-首次安装选择 `npm:bookmark-research`（`latest`）。三个宿主都从该发布包导出所需格式，再由原生命令登记与验证。安装记录保存 npm 包名和版本选择，不保存临时下载或 npx 缓存路径；更新会重新取得同一选择器指向的发布包。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
+默认安装正在运行的安装器所带构建，包括通过 `--package ./本地包.tgz` 启动的未发布构建，不会按相同版本号重新下载 npm 包。安装器将干净源码按内容校验值保留在持久安装目录的 `sources/` 下，再为三个宿主导出并原生登记；清理 npx 缓存不影响后续验证和重装。`update` 沿用登记来源：本地构建保持该构建；显式 npm 来源重新下载原选择器。要换成新构建，再运行新安装包的 `install`，在向导中确认升级覆盖；Codex 非交互模式使用 `--replace-source`。各宿主的持久导出保存在 `${XDG_DATA_HOME:-~/.local/share}/bookmark-research/installations/`；可用 `BOOKMARK_RESEARCH_INSTALL_DIR` 改位置，其他宿主也支持 `--install-dir`。随后清理临时下载目录，安装后新建宿主会话。
 
 即使在 checkout 中运行以下脚本，默认也安装 npm 发布版：
 
@@ -61,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 npx bookmark-research@latest install claude --source npm:bookmark-research@0.5.0-beta.3
 ```
 
-再次安装和更新保留该选择器。默认 `latest` 随 npm 发布更新；显式版本保持固定。`--ref` 只用于显式 Git 开发来源，不再通过 bootstrap 选择发布版。已有 Git／本地安装保留原来源；如需转为 npm，先通过宿主命令处理旧登记，避免静默切换开发环境。
+显式 npm 来源的再次安装和更新保留该选择器；`--source npm:bookmark-research` 随 `latest` 更新，显式版本保持固定。`--ref` 只用于显式 Git 开发来源，不再通过 bootstrap 选择发布版。已有 Git／本地安装保留原来源；如需转为 npm，先通过宿主命令处理旧登记，避免静默切换开发环境。
 
 Codex 分支管理 `bookmark-research@bookmark-research`。已通过 `personal` 等来源安装时沿用原更新流程。其他宿主也会检查来源冲突并保留原有设置。Claude 用内容派生的原生版本刷新缓存，同一发布版本下的源码变化也能生效；DSH 向指定 profile 安装可搬移 bundle。更新失败保留原包并记录待验证状态，之后可重试安装／更新。
 
@@ -140,7 +140,7 @@ python3 "/absolute/path/Bookmark Research/scripts/install.py" install
 
 每个动作可指定 `--codex /absolute/path/to/codex` 和 `--timeout 60`。输出为 JSON；验证或前置步骤失败时返回非零退出码。`verify --installed-path PATH` 可明确指定 `codex plugin add --json` 返回的 `installedPath`，用于 Codex 缓存布局发生变化的情况。
 
-安装器不会把已有同名 marketplace 切换到另一个原始来源。旧版直接登记源码目录的安装，仅在市场中只有本插件时，通过 Codex 原生 `marketplace remove/add` 迁移到同一来源的干净导出，再执行 `plugin add`；不手写用户配置。`--dry-run` 可预览这些命令。含其他插件或来源冲突时保留现状，先用 `codex plugin marketplace list --json` 和 `codex plugin list --json` 核对来源，再在 Codex 中处理。
+默认拒绝把 Codex 已有同名 marketplace 切换到另一个原始来源；向导确认“升级覆盖”或显式传入 `install --replace-source` 后，允许改为所选构建，仅处理本插件独占的 marketplace。旧版直接登记源码目录的安装，仅在市场中只有本插件时，通过 Codex 原生 `marketplace remove/add` 迁移到同一来源的干净导出，再执行 `plugin add`；不手写用户配置。`--dry-run` 可预览这些命令。含其他插件或来源冲突时保留现状，先用 `codex plugin marketplace list --json` 和 `codex plugin list --json` 核对来源，再在 Codex 中处理。
 
 `--ref` 用于首次注册 Git marketplace。已有 Git 来源再次安装时省略 `--ref`，保持其原注册版本；如要换 tag 或分支，先在 Codex 中处理来源变更。当前原生 JSON 不返回已注册 ref，安装器不会把“同一个仓库”推断成“同一个固定版本”。
 

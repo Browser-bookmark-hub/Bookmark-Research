@@ -106,13 +106,11 @@ def _install_action(action, arguments, language):
     import install
     hosts, rest = _split(arguments)
     if action == "install" and not any(arg == "--source" or arg.startswith("--source=") for arg in rest):
-        from export_bundle import NAME, read_plugin_manifest
-        try:
-            version = read_plugin_manifest(ROOT).get("version")
-        except Exception:
-            version = None
-        source_val = ("npm:" + NAME + "@" + version) if version else ("npm:" + NAME)
-        rest = [*rest, "--source", source_val]
+        # Install the code the user actually launched, including local tarballs.
+        # Retain a clean source independently of npm's disposable npx cache.
+        from npm_source import bundled_source
+        source_val = bundled_source(ROOT, install_home(), dry_run="--dry-run" in rest)
+        rest = [*rest, "--source", str(source_val)]
     if not hosts and action != "install" and "--host" not in rest:
         targets = installed_targets()
         if not targets:

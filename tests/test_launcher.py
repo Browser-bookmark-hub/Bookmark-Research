@@ -87,11 +87,12 @@ class LauncherTests(unittest.TestCase):
 
     def test_hosts_become_repeated_host_flags(self):
         import install
-        from export_bundle import NAME, read_plugin_manifest
-        version = read_plugin_manifest(launcher.ROOT).get("version")
-        expected_source = ("npm:" + NAME + "@" + version) if version else ("npm:" + NAME)
-        with mock.patch.object(install, "main", return_value=0) as main:
+        import npm_source
+        expected_source = str(self.base / "retained-build")
+        with mock.patch.object(npm_source, "bundled_source", return_value=expected_source) as retained, \
+                mock.patch.object(install, "main", return_value=0) as main:
             self.assertEqual(launcher.main(["--lang", "en", "install", "claude,dsh", "pi", "--profile", "web"]), 0)
+        retained.assert_called_once_with(launcher.ROOT, launcher.install_home(), dry_run=False)
         main.assert_called_once_with(["install", "--lang", "en", "--host", "claude", "--host", "dsh",
                                       "--host", "pi", "--profile", "web", "--source", expected_source])
 

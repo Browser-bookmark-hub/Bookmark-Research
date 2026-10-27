@@ -387,7 +387,7 @@ def _published_source(root):
     return None
 
 
-def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=None, language="auto"):
+def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=None, language="auto", replace_source=False):
     language = resolve_language(language)
     if action == "verify":
         return verify(cli, installed_path)
@@ -397,7 +397,7 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
     if action == "install":
         requested = _source(source if source is not None else SOURCE_ROOT, ref)
         requested = _export_origin(requested) or requested
-        if current:
+        if current and not replace_source:
             _check_source({"marketplaceSource": origin or registered}, requested)
             if ref and (origin is None or ref != origin.get("ref")):
                 # Native list JSON omits the registered ref. Equal commit IDs
@@ -411,7 +411,7 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
             raise ValueError("No existing bookmark-research installation; run install first")
         requested = origin or registered
     commands, migration = [], False
-    legacy_git = registered is not None and registered["sourceType"] == "git"
+    legacy_git = registered is not None and registered["sourceType"] == "git" and not replace_source
     native_release = current and not origin and action == "update" and _published_source(current["root"])
     if native_release:
         # Preserve native npm installations as releases; update must not replace
@@ -440,7 +440,7 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
         migration = bool(registered and registered != {"sourceType": "local", "source": str(base / "bundle")})
         if migration:
             # Only migrate this plugin's single-entry local catalog.
-            catalog = json.loads((Path(registered["source"]) / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
+            catalog = json.loads((Path(current["root"]) / ".agents/plugins/marketplace.json").read_text(encoding="utf-8"))
             if len(catalog.get("plugins", [])) != 1 or catalog["plugins"][0].get("name") != NAME:
                 raise ValueError("Cannot migrate a marketplace containing other plugins; resolve its source in Codex first")
             commands.append(["plugin", "marketplace", "remove", NAME])
@@ -570,7 +570,7 @@ def _run_target(args, target, language):
         return manage(args.action, CodexCli(args.codex, args.timeout),
                       source=getattr(args, "source", None), ref=getattr(args, "ref", None),
                       dry_run=getattr(args, "dry_run", False), installed_path=getattr(args, "installed_path", None),
-                      language=language)
+                      language=language, replace_source=getattr(args, "replace_source", False))
     from host_install import manage_host
     if getattr(args, "installed_path", None):
         raise ValueError("--installed-path is only supported for Codex")
@@ -667,6 +667,9 @@ def main(argv=None):
             command.add_argument("--skip-checks", action="store_true", help=message("Skip network readiness checks", "跳过联网就绪检查"))
             command.add_argument("--test-retrieval", action="store_true", help=message("Test sample search/read; uses retrieval quota", "实际搜索与阅读自检；使用检索额度"))
             command.add_argument("--source", help=message("npm:bookmark-research[@VERSION], local source, or Git repository; Python entry defaults to this source tree", "npm:bookmark-research[@VERSION]、本地源码或 Git 仓库；Python 入口默认当前源码目录"))
+            command.add_argument("--replace-source", action="store_true", help=message(
+                "Replace this plugin's existing Codex source with the selected build",
+                "用所选构建替换此插件在 Codex 中登记的安装来源"))
             command.add_argument("--ref", help=message("Optional Git tag, branch, or commit; local sources must be checked out separately", "可选 Git tag、分支或提交；本地来源需自行 checkout"))
         if action == "verify":
             command.add_argument("--installed-path", help=message("Override the native cache path returned by codex plugin add --json", "指定 codex plugin add --json 返回的安装缓存路径"))

@@ -778,6 +778,37 @@ class NativeCodexInstallerTests(unittest.TestCase):
         for call in registry.calls:
             self.assertFalse(Path(call[-1]).exists())
 
+    def test_launcher_replaces_old_codex_source_with_bundled_build_without_registry(self):
+        import launcher
+        old = self.base / "old-managed-bundle"
+        shutil.copytree(self.source, old)
+        (old / "src/package_paths.py").unlink()
+        manifest_path = old / ".codex-plugin/plugin.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["version"] = "0.5.0-beta.19"
+        manifest_path.write_text(json.dumps(manifest))
+        for args in (("marketplace", "add", str(old)), ("add", install.SELECTOR)):
+            subprocess.run([shutil.which("codex"), "plugin", *args, "--json"],
+                           env=self.environment, capture_output=True, check=True, timeout=30)
+        self.data.mkdir()
+        (self.data / "index.sqlite3").write_bytes(b"preserved-user-data")
+        self.settings.write_text('{"archive":{"enabled":false}}')
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, self.environment, clear=True), \
+                mock.patch("npm_source.checkout", side_effect=AssertionError("must not download npm")), \
+                mock.patch.object(sys, "stdout", output):
+            code = launcher.main(["install", "codex", "--replace-source", "--non-interactive", "--skip-checks"])
+        self.assertEqual(code, 0, output.getvalue())
+        result = json.loads(output.getvalue())
+        self.assertTrue(result["verified"])
+        self.assertEqual(Path(result["installed_path"], "src/package_paths.py").read_bytes(),
+                         (ROOT / "src/package_paths.py").read_bytes())
+        retained = Path(result["origin"]["source"])
+        self.assertTrue(retained.is_relative_to(self.base / "managed" / "sources"))
+        self.assertTrue(self.run_installer("update")["verified"])
+        self.assertEqual((self.data / "index.sqlite3").read_bytes(), b"preserved-user-data")
+        self.assertEqual(self.settings.read_text(), '{"archive":{"enabled":false}}')
+
     def test_repeated_install_update_verify_and_conflict_protect_user_data(self):
         probe = self.source / "src/install_probe.py"
         probe.write_text("value = 'before'\n", encoding="utf-8")

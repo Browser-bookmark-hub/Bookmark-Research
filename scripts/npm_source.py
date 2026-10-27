@@ -26,6 +26,47 @@ def _cache_permission_failure(detail):
     return "cache" in text.casefold() and CACHE_PERMISSION.search(text) is not None
 
 
+def bundled_source(root, home, dry_run=False):
+    """Retain this launcher build so installs never re-fetch another build by version."""
+    import hashlib
+    from export_bundle import _copy_plan
+    from host_assets import HOST_SOURCE_FILES, read_asset
+    from host_install import _check_files
+
+    root = Path(root).resolve()
+    read_plugin_manifest(root)
+    relatives = {path.as_posix() for path in _copy_plan(root, include_codex_metadata=True)}
+    relatives.update(HOST_SOURCE_FILES)
+    relatives.update((".codex-plugin/plugin.json", ".agents/plugins/marketplace.json"))
+    contents = {relative: read_asset(root, relative) for relative in sorted(relatives)}
+    expected = {relative: hashlib.sha256(data).hexdigest() for relative, data in contents.items()}
+    if dry_run:
+        return root
+    digest = hashlib.sha256(json.dumps(expected, sort_keys=True).encode()).hexdigest()
+    parent = Path(home).expanduser().resolve() / "sources"
+    destination = parent / digest
+    parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_symlink():
+        raise ValueError("Bundled source must not be a symlink: " + str(destination))
+    if not destination.exists():
+        with tempfile.TemporaryDirectory(prefix=".bookmark-source-", dir=parent) as temporary:
+            stage = Path(temporary) / "source"
+            stage.mkdir()
+            for relative, data in contents.items():
+                path = stage / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            try:
+                stage.rename(destination)
+            except OSError:
+                if not destination.is_dir() or destination.is_symlink():
+                    raise
+                # Another installer may have retained this exact build first.
+                _check_files(destination, expected, exact=True)
+    _check_files(destination, expected, exact=True)
+    return destination
+
+
 def source(value, ref=None):
     if not str(value).startswith("npm:"):
         return None

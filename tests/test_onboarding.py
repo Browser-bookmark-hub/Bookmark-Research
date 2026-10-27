@@ -523,7 +523,9 @@ class InstallTargetTests(SetupFixture):
         existing = [{"host": "claude", "scope": "user", "project": None, "profile": None, "version": "0.5.0-beta.18"},
                     {"host": "dsh", "scope": None, "project": None, "profile": "web", "version": "0.5.0-beta.18"}]
         output = io.StringIO()
-        targets = Console(io.StringIO("\n\n\n"), output).install_targets(self.args(), existing_targets=existing)
+        args = self.args()
+        targets = Console(io.StringIO("\n\n\n"), output).install_targets(args, existing_targets=existing)
+        self.assertTrue(args.replace_source)
         self.assertEqual(targets, [{"host": "claude", "scope": "user", "project": None, "profile": None},
                                    {"host": "dsh", "scope": None, "project": None, "profile": "web"}])
         self.assertIn("Detected existing installations", output.getvalue())

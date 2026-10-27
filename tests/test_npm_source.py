@@ -68,6 +68,34 @@ class NpmSourceTests(unittest.TestCase):
         export_bundle.export_bundle('codex', self.root)
         self.registry = Registry(self.root)
 
+    def test_bundled_source_retains_actual_build_without_registry_and_survives_cache_removal(self):
+        from host_assets import HOST_SOURCE_FILES
+        cache = self.base / "disposable-npx-cache"
+        export_bundle.export_bundle("codex", cache)
+        # A launcher package includes all three hosts' original assets.
+        for relative in HOST_SOURCE_FILES:
+            path = cache / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, path)
+        home = self.base / "managed"
+        with mock.patch.object(npm_source, "checkout", side_effect=AssertionError("must not download")):
+            retained = npm_source.bundled_source(cache, home)
+            self.assertEqual(npm_source.bundled_source(cache, home), retained)
+        self.assertEqual((retained / "src/package_paths.py").read_bytes(),
+                         (cache / "src/package_paths.py").read_bytes())
+        shutil.rmtree(cache)
+        for host in ("codex", "claude", "dsh"):
+            export_bundle.export_bundle(host, self.base / ("after-cache-removal-" + host), retained)
+
+    def test_bundled_dry_run_does_not_persist_and_modified_retained_source_is_rejected(self):
+        home = self.base / "managed"
+        self.assertEqual(npm_source.bundled_source(ROOT, home, dry_run=True), ROOT.resolve())
+        self.assertFalse(home.exists())
+        retained = npm_source.bundled_source(ROOT, home)
+        (retained / "src/package_paths.py").write_text("tampered = True\n")
+        with self.assertRaisesRegex(RuntimeError, "differs from its verified source"):
+            npm_source.bundled_source(ROOT, home)
+
     def test_sources_accept_latest_or_exact_versions_only(self):
         import install
         import host_install
