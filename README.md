@@ -9,6 +9,10 @@ Research with bookmark context and retain reusable knowledge. Read a [Bookmark C
 
 [Installation guide](docs/installation.en.md) · [User guide](docs/user-guide.en.md) · [Details](docs/details.en.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
+## Version 0.6.0
+
+The stable release includes bilingual Canvas package support, safer Exa batch reading that isolates ambiguous pages, and concise installation/update summaries. Installation prints the version, actual paths, checks and any required action. Use `--json` for complete structured diagnostics; `--non-interactive` only disables prompts. Existing settings, credentials and research data are retained during upgrades.
+
 ## How it works
 
 - **Local understanding.** A Bookmark Canvas package is read as structure, not a flat URL list: card and group layout, edges with their direction and labels, and the same bookmark appearing across cards (spatial context); dated fields, protocol-defined date segments in IDs, and Git commits that changed content (temporal context). These queries run offline.
@@ -25,10 +29,10 @@ Research with bookmark context and retain reusable knowledge. Read a [Bookmark C
 ## Install
 
 ```sh
-npx bookmark-research install
+npx bookmark-research@latest install
 ```
 
-Installs the latest version directly. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
+Installs the latest stable release directly. To pin this release, use `npx bookmark-research@0.6.0 install`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research@latest`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
@@ -51,11 +55,11 @@ Enter keeps the highlighted value, so a full run can be just a few keystrokes. T
 
 | Client | Command | Registers with |
 | --- | --- | --- |
-| Codex | `npx bookmark-research install codex --non-interactive` | `codex plugin add` |
-| Claude Code | `npx bookmark-research install claude --scope user --non-interactive` | `claude plugin install` |
-| DeepSeek Harness (dsh) | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
+| Codex | `npx bookmark-research@latest install codex --non-interactive` | `codex plugin add` |
+| Claude Code | `npx bookmark-research@latest install claude --scope user --non-interactive` | `claude plugin install` |
+| DeepSeek Harness (dsh) | `npx bookmark-research@latest install dsh --profile web --non-interactive` | `dsh plugin add` |
 
-Several at once: `npx bookmark-research install claude dsh --profile web --non-interactive`. Project scope: `--scope project --project /path/to/project` (Claude Code). All options: [installation guide](docs/installation.en.md).
+Several at once: `npx bookmark-research@latest install claude dsh --profile web --non-interactive`. Project scope: `--scope project --project /path/to/project` (Claude Code). All options: [installation guide](docs/installation.en.md).
 
 **Ask your agent to install it.** Paste this into Codex, Claude Code or DeepSeek Harness (dsh):
 
@@ -63,7 +67,7 @@ Several at once: `npx bookmark-research install claude dsh --profile web --non-i
 Install the Bookmark Research plugin into the client you are running in.
 
 1. Identify your own client: codex, claude or dsh.
-2. Run: npx bookmark-research install <client> --non-interactive --json
+2. Run: npx bookmark-research@latest install <client> --non-interactive --json
    - Claude Code: add --scope user (or --scope project --project <dir>).
    - DeepSeek Harness (dsh): add --profile <profile>; ask me for the profile name.
 3. The command prints JSON. Confirm "verified": true and report any "error".
@@ -90,9 +94,9 @@ Install notes:
 | Scripted preferences | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | Update or verify all clients | `bookmark-research update` · `bookmark-research verify` |
 
-Use `npx bookmark-research …` if the command is not installed globally. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards. `--lang zh` shows the wizard and menu in Chinese. The default `quick` preset exposes 21 everyday tools. Use `bookmark-research config set --tool-scope-preset deep` for the full 43-tool catalog when a persistent collection audit is needed. An explicit `tool_scope` list still overrides the preset.
+Use `npx bookmark-research@latest …` if the command is not installed globally. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards. `--lang zh` shows the wizard and menu in Chinese. The default `quick` preset exposes 21 everyday tools. Use `bookmark-research config set --tool-scope-preset deep` for the full 43-tool catalog when a persistent collection audit is needed. An explicit `tool_scope` list still overrides the preset.
 
-**Update.** `bookmark-research update` refreshes every installed client from its registered source and keeps preferences, keys and data. Re-running `npx bookmark-research install` or `bookmark-research update` also upgrades existing installations in place (including Codex, Claude Code, and DeepSeek Harness).
+**Update.** Run `npx bookmark-research@latest install` and confirm the upgrade/overwrite plan to adopt the latest release for your installed clients. For Codex without prompts, use `npx bookmark-research@latest install codex --non-interactive --replace-source`. `bookmark-research update` refreshes the recorded source: Git/npm selectors follow their selected ref, while a bundled build or pinned release stays on that build. Both paths preserve preferences, keys and data. Start a new host session afterwards.
 
 **API keys are optional.** Enter them in `bookmark-research setup` (hidden input, checked immediately, saved in a private local file) or set environment variables, which take precedence.
 

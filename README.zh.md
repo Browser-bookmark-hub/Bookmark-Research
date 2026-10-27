@@ -9,6 +9,10 @@
 
 [安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
+## 0.6.0 正式版
+
+本版包含双语画布数据包支持、隔离歧义页面的 Exa 批量正文解析，以及精简后的安装／更新摘要。默认只显示版本、实际路径、检查结果和需处理事项；添加 `--json` 获取完整结构化诊断，`--non-interactive` 仅控制是否询问。升级保留已有配置、密钥和研究数据。
+
 ## 它是怎么工作的
 
 - **本地理解层。** 数据包按结构读，而不是一张平铺的 URL 清单：卡片与分组的位置、连线的方向与标签、同一书签在不同卡片的出现位置（空间上下文）；日期字段、ID 中协议定义的日期段，以及真正改过内容的 Git 提交（时间上下文）。这些都是离线查询。
@@ -25,10 +29,10 @@
 ## 安装
 
 ```sh
-npx bookmark-research install
+npx bookmark-research@latest install
 ```
 
-默认直接安装最新版本。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
+默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.6.0 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
@@ -51,11 +55,11 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 | 宿主 | 命令 | 实际登记方式 |
 | --- | --- | --- |
-| Codex | `npx bookmark-research install codex --non-interactive` | `codex plugin add` |
-| Claude Code | `npx bookmark-research install claude --scope user --non-interactive` | `claude plugin install` |
-| DeepSeek Harness (dsh) | `npx bookmark-research install dsh --profile web --non-interactive` | `dsh plugin add` |
+| Codex | `npx bookmark-research@latest install codex --non-interactive` | `codex plugin add` |
+| Claude Code | `npx bookmark-research@latest install claude --scope user --non-interactive` | `claude plugin install` |
+| DeepSeek Harness (dsh) | `npx bookmark-research@latest install dsh --profile web --non-interactive` | `dsh plugin add` |
 
-一次装多个：`npx bookmark-research install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code）。全部参数见[安装说明](docs/installation.md)。
+一次装多个：`npx bookmark-research@latest install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code）。全部参数见[安装说明](docs/installation.md)。
 
 **让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code 或 DeepSeek Harness (dsh)：
 
@@ -63,7 +67,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 请把 Bookmark Research 插件安装到你当前运行的这个宿主里。
 
 1. 先确认你自己是哪个宿主：codex、claude 或 dsh。
-2. 运行：npx bookmark-research install <宿主> --non-interactive --json
+2. 运行：npx bookmark-research@latest install <宿主> --non-interactive --json
    - Claude Code：加 --scope user（或 --scope project --project <目录>）。
    - DeepSeek Harness (dsh)：加 --profile <名称>；profile 名称请先问我。
 3. 命令会输出 JSON。确认 "verified": true，有 "error" 就告诉我。
@@ -89,9 +93,9 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | 用脚本改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
 
-没有全局安装时，在前面加 `npx bookmark-research`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。工具面可用 `bookmark-research config set --tool-scope-preset quick` 使用默认 21 个日常工具；`deep`（或 `all`）启用完整 43 个工具，供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
+没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。工具面可用 `bookmark-research config set --tool-scope-preset quick` 使用默认 21 个日常工具；`deep`（或 `all`）启用完整 43 个工具，供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
 
-**更新。** `bookmark-research update` 会按各自登记的来源刷新所有已安装宿主，并保留偏好、Key 和数据。重跑 `npx bookmark-research install` 或 `bookmark-research update` 也会就地升级已装的宿主（包括 Codex、Claude Code、DeepSeek Harness）。
+**更新。** 运行 `npx bookmark-research@latest install`，在向导中确认升级覆盖，即可为已安装宿主采用最新发布版。Codex 无交互升级可用 `npx bookmark-research@latest install codex --non-interactive --replace-source`。`bookmark-research update` 刷新的是已登记来源：Git／npm 选择器沿用所选 ref，随包保留的构建或固定版本仍留在该构建。两种方式均保留偏好、Key 和数据；完成后新建宿主会话。
 
 **API Key 都是可选的。** 在 `bookmark-research setup` 里输入（隐藏显示，输完当场检查，保存在仅当前用户可读的本地文件），或者设置环境变量（优先于已保存的 Key）。
 

@@ -162,16 +162,23 @@ class NpmSourceTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get('BOOKMARK_RESEARCH_TEST_PUBLISHED_NPM') == '1' and shutil.which('npm'),
                          'Published release download requires npm and explicit opt-in')
-    def test_real_published_package_supplies_all_four_host_formats(self):
+    def test_real_published_package_supplies_all_supported_host_formats(self):
         import host_install
         catalog = json.loads((ROOT / '.agents/plugins/marketplace.json').read_text())
         version = os.environ.get('BOOKMARK_RESEARCH_TEST_NPM_VERSION') or catalog['plugins'][0]['source']['version']
         with npm_source.checkout(npm_source.source('npm:bookmark-research@' + version), 90) as (root, actual):
             self.assertEqual(actual, version)
             self.assertTrue(host_install.runtime_check(root, 30)['fts5'])
-            for host in ('codex', 'claude', 'pi', 'dsh'):
+            for host in export_bundle.FORMATS:
                 output = self.base / host
-                result = export_bundle.export_bundle(host, output, root)
+                # A published baseline must use its own export contract: a new
+                # exporter's required files need not exist in an older release.
+                command = subprocess.run(
+                    [sys.executable, '-B', str(root / 'scripts/export_bundle.py'),
+                     '--format', host, '--output', str(output)],
+                    cwd=root, capture_output=True, text=True, encoding='utf-8', timeout=60)
+                self.assertEqual(command.returncode, 0, command.stderr or command.stdout)
+                result = json.loads(command.stdout)
                 self.assertEqual(result['version'], version)
                 skill = 'skills/bookmark-research/SKILL.md'
                 self.assertEqual((output / skill).read_bytes(), (root / skill).read_bytes())
