@@ -498,7 +498,9 @@ class SearchProviderTests(unittest.TestCase):
         self.assertEqual([row["provider"] for row in result["per_url"][:3]], ["exa", "parallel", "tavily"])
         self.assertEqual(result["per_url"][3]["extraction_status"], "login_required")
         self.assertEqual(result["usage"]["tool_calls"], 3)
-        self.assertEqual([a["provider"] for a in result["attempts"]], ["exa", "parallel", "tavily"])
+        # Concurrent fallback attempts can finish in either order. Source
+        # selection above still verifies the configured provider priority.
+        self.assertCountEqual([a["provider"] for a in result["attempts"]], ["exa", "parallel", "tavily"])
         for attempt in result["attempts"]:
             self.assertEqual(json.loads(Path(attempt["archive"]["response_path"]).read_text()), attempt["result"])
         self.assertEqual(result["attempts"][0]["result"], original)
