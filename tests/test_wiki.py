@@ -188,7 +188,7 @@ class WikiTests(unittest.TestCase):
         self.assertIn("[Aurora \\[core\\]](revisions/aurora/1-", entities)
         for target in re.findall(r"\]\((revisions/[^)]+)\)", catalog):
             self.assertTrue((self.wiki.directory / target).is_file(), target)
-        log = (self.wiki.directory / "log.md").read_bytes().decode("utf-8")
+        log = (self.wiki.directory / "log.md").read_text(encoding="utf-8")
         self.assertTrue(log.startswith("# Wiki log\n"))
         headings = re.findall(r"^## \[(\d{4}-\d{2}-\d{2})\] write \| (.+)$", log, re.M)
         self.assertEqual([title for _, title in headings],

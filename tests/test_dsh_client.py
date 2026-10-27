@@ -1,6 +1,7 @@
 """DSH client discovery across packaged Desktop, PATH, and explicit carriers."""
 
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -18,6 +19,23 @@ class DshClientTests(unittest.TestCase):
         self.base = Path(temporary.name).resolve()
         self.bin = self.base / "bin"
         self.bin.mkdir()
+        self.execute_flags = {}
+        if sys.platform == "win32":
+            # These fixtures model Darwin carriers, including extensionless
+            # scripts and POSIX execute bits, even on the Windows CI runner.
+            def posix_which(binary, path=None):
+                for directory in (path or "").split(os.pathsep):
+                    candidate = Path(directory) / binary
+                    if candidate.is_file() and self.execute_flags.get(str(candidate), False):
+                        return str(candidate)
+                return None
+            for patcher in (
+                mock.patch.object(dsh_client.shutil, "which", side_effect=posix_which),
+                mock.patch.object(dsh_client.os, "access", side_effect=lambda path, mode:
+                                  self.execute_flags.get(str(path), False)),
+            ):
+                patcher.start()
+                self.addCleanup(patcher.stop)
         # Discovery must not depend on whether this machine has the app.
         self.layouts = dsh_client.desktop_candidates
         self.discover()
@@ -33,6 +51,7 @@ class DshClientTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("#!/bin/sh\n")
         path.chmod(0o755 if executable else 0o644)
+        self.execute_flags[str(path)] = executable
         return path
 
     def environment(self, pnpm=False, **values):
