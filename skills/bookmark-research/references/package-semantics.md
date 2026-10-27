@@ -6,7 +6,10 @@ These bundled analysis rules cover JSON files, fields and relationships. The run
 
 ## Files and fields
 
-Section JSON uses `format: "bookmark-canvas-section"`; `sectionType` distinguishes `permanent` and `temporary`. Files reside in the protocol directories `永久栏目/` and `临时栏目/`. The entry `.canvas` stores `nodes[]`, `edges[]` and file mappings. In JSON mode, section content is not in separate Markdown files.
+Section JSON uses `format: "bookmark-canvas-section"`; `sectionType` distinguishes `permanent` and `temporary`. Files reside in the protocol directories `永久栏目/` / `Permanent/` and `临时栏目/` / `Temporary/`.
+- Chinese layout: `永久栏目/` (e.g. `A书签树.json`), `临时栏目/` (e.g. `常规链式/A-1.json`, `特殊临时栏目/Add.json`)
+- English layout: `Permanent/` (e.g. `A-PermanentBookmarks.json`), `Temporary/` (e.g. `General Chain/A-1.json`, `Special temporary/Add.json`)
+The entry `.canvas` stores `nodes[]`, `edges[]` and file mappings. In JSON mode, section content is not in separate Markdown files.
 
 One source represents one logical canvas. Each supplied directory may contain at most one entry `.canvas`. Supplying a renamed entry for the same `source_id` replaces the previous layout record; a partial export without an entry retains the previous layout.
 
@@ -25,7 +28,7 @@ One source represents one logical canvas. Each supplied directory may contain at
 
 `tags` is an array of `{color,text}` objects; color and text together distinguish tags. `note` is one plain-text string, with `noteColor` as a sibling field. Metadata containing only a note remains valid. Legacy notes without `noteColor` default to `orange`. The seven tag/note colors (`red`, `orange`, `yellow`, `green`, `blue`, `purple`, `gray`) are separate from `.canvas` color fields. Color alone does not prove a business category.
 
-File-node `file` and copy `inheritFrom` values are vault-relative paths. They may include package/vault prefixes or start directly at `永久栏目/` or `临时栏目/`. Resolve against the package file map. Do not select an arbitrary match for duplicate names, broken links or ambiguous references. External attachments are not section bookmark data.
+File-node `file` and copy `inheritFrom` values are vault-relative paths. They may include package/vault prefixes or start directly at protocol directories (`永久栏目/`, `Permanent/`, `临时栏目/`, `Temporary/`). Resolve against the package file map. Do not select an arbitrary match for duplicate names, broken links or ambiguous references. External attachments are not section bookmark data.
 
 Temporary items must be classified by `type`: a folder can have `url:""`, and a bookmark can have `children:[]`. Field presence alone does not identify its kind.
 
@@ -43,7 +46,7 @@ For a large canvas, read `.canvas` locally with Python's standard-library `json`
 
 The bounds are `[x, y, x+width, y+height]`; x increases rightward and y downward. Group membership requires full containment. For nearest-neighbor questions, use rectangle gaps (zero for overlapping rectangles) and retain direction, rather than sorting JSON array order or using centers alone. An unconnected nearby note remains an unassigned contextual clue unless its text or another stored relation establishes its subject. Copy cards use their own rectangles and links.
 
-`get_context` has section/group/item scopes, not region, nearest-neighbor or pagination parameters. Use local extraction when its scopes cannot express the task. A section JSON by itself provides card content but no surrounding layout. A `.canvas` without its referenced section files provides layout but incomplete bookmark content. Neither case requires inventing missing relationships or changing the package.
+`get_context` has section/group/item scopes and supports collection-level pagination (`collection`, `offset`, `limit`, `compact`). It defaults to 200 rows per collection; follow each collection's `next_offset` with the same `source_id` and scope until exhausted. `compact=true` omits raw JSON, descriptions, and revision. There are no region or nearest-neighbor parameters; use local extraction when its scopes cannot express the task. A section JSON by itself provides card content but no surrounding layout. A `.canvas` without its referenced section files provides layout but incomplete bookmark content. Neither case requires inventing missing relationships or changing the package.
 
 - Chain labels such as `A-1 → A-1-1` suggest derivation. A child chain may retain most content or only a subset. A/B families describe creation clues; they do not prove ongoing synchronization with permanent trees or a persistent relationship. Check descriptions, titles, URLs and actual items.
 - Groups have no explicit `children` list. Nesting comes from full containment using `x/y/width/height`. Groups contain canvas nodes; bookmarks inherit group context through sections and need not have individual canvas nodes.

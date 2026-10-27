@@ -7,9 +7,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from bookmark_index import BookmarkIndex, _dump, _reject_constant, _unique_object
-
-
-PROTOCOL_DIRS = ("永久栏目", "临时栏目")
+from package_paths import PROTOCOL_DIRS
 MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_TOTAL_BYTES = 256 * 1024 * 1024
 MAX_ENTRIES = 10000
@@ -96,7 +94,9 @@ def _zip(path, section_paths):
             entries = archive.infolist()
             if len(entries) > MAX_ENTRIES:
                 raise ValueError("Archive contains too many entries")
-            selected, roots, seen, loose = [], set(), set(), []
+            seen, loose, selected = set(), [], []
+            canvas_entries = []
+            json_entries = []
             total = 0
             for entry in entries:
                 parts = _safe_name(entry.filename)
@@ -111,26 +111,53 @@ def _zip(path, section_paths):
                     raise ValueError("Encrypted archives are unsupported")
                 if entry.is_dir() or parts[0] == "__MACOSX" or parts[-1].startswith("."):
                     continue
-                suffix = PurePosixPath(normalized).suffix
-                root = None
-                if suffix == ".canvas":
-                    root = parts[:-1]
-                elif suffix == ".json":
-                    for position, part in enumerate(parts[:-1]):
-                        if part in PROTOCOL_DIRS:
-                            root = parts[:position]
-                            break
-                    if root is None:
-                        loose.append(entry)
-                if root is not None:
-                    roots.add(root)
-                    selected.append((entry, "/".join(parts[len(root):])))
                 # Bound all decompressed sizes, including ignored files.
                 total += entry.file_size
                 if entry.file_size > MAX_FILE_BYTES or total > MAX_TOTAL_BYTES:
                     raise ValueError("Archive exceeds export size limits")
-            if len(roots) > 1:
-                raise ValueError("Archive contains multiple package roots; import each canvas as a separate source")
+                suffix = PurePosixPath(normalized).suffix
+                if suffix == ".canvas":
+                    canvas_entries.append((entry, parts))
+                elif suffix == ".json":
+                    json_entries.append((entry, parts))
+
+            if canvas_entries:
+                canvas_roots = {parts[:-1] for _, parts in canvas_entries}
+                if len(canvas_roots) > 1:
+                    raise ValueError("Archive contains multiple package roots; import each canvas as a separate source")
+                pkg_root = next(iter(canvas_roots))
+                prefix_len = len(pkg_root)
+                for entry, parts in canvas_entries:
+                    selected.append((entry, parts[-1]))
+                for entry, parts in json_entries:
+                    if parts[:prefix_len] == pkg_root:
+                        rel_parts = parts[prefix_len:]
+                        if len(rel_parts) >= 2 and rel_parts[0] in PROTOCOL_DIRS:
+                            selected.append((entry, "/".join(rel_parts)))
+                        else:
+                            loose.append(entry)
+                    else:
+                        loose.append(entry)
+            else:
+                candidates = []
+                roots = set()
+                for entry, parts in json_entries:
+                    proto_indices = [i for i, part in enumerate(parts[:-1]) if part in PROTOCOL_DIRS]
+                    if proto_indices:
+                        idx = proto_indices[-1]
+                        root = parts[:idx]
+                        roots.add(root)
+                        candidates.append((entry, parts, root, idx))
+                    else:
+                        loose.append(entry)
+                if len(roots) > 1:
+                    raise ValueError("Archive contains multiple package roots; import each canvas as a separate source")
+                if len(roots) == 1:
+                    pkg_root = next(iter(roots))
+                    for entry, parts, root, idx in candidates:
+                        if root == pkg_root:
+                            selected.append((entry, "/".join(parts[idx:])))
+
             if selected:
                 for entry in loose:
                     try:

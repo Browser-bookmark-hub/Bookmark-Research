@@ -31,6 +31,7 @@ REQUIRED_FILES = (
     "src/cli.py",
     "src/credentials.py",
     "src/onboarding.py",
+    "src/package_paths.py",
     "src/readiness.py",
     "src/mcp_server.py",
     "src/remote_mcp.py",

@@ -10,6 +10,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
+from package_paths import is_package_dir
+
 
 class Settings:
     """Load on each operation so MCP clients can change preferences without restart."""
@@ -56,8 +58,7 @@ class Settings:
             if (parent == plugin or (parent / ".codex-plugin/plugin.json").is_file()
                     or (parent / ".claude-plugin/plugin.json").is_file()):
                 raise ValueError(purpose + " must be outside plugin directories")
-            if ((parent / "永久栏目").is_dir() or (parent / "临时栏目").is_dir()
-                    or any(parent.glob("*.canvas"))):
+            if is_package_dir(parent):
                 raise ValueError(purpose + " must be outside canvas package directories")
         return path
 

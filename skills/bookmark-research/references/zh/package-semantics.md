@@ -6,7 +6,10 @@
 
 ## 文件与字段
 
-栏目 JSON 的 `format` 为 `bookmark-canvas-section`，`sectionType` 区分 `permanent` / `temporary`；文件分别位于 `永久栏目/`、`临时栏目/`。入口 `.canvas` 保存 `nodes[]`、`edges[]` 与文件映射。JSON 模式的栏目正文不在独立 Markdown 文件里。
+栏目 JSON 的 `format` 为 `bookmark-canvas-section`，`sectionType` 区分 `permanent` / `temporary`；文件分别位于正式协议目录 `永久栏目/`（或 `Permanent/`）与 `临时栏目/`（或 `Temporary/`）。
+- 中文目录：`永久栏目/`（如 `A书签树.json`）、`临时栏目/`（如 `常规链式/A-1.json`、`特殊临时栏目/添加.json`）
+- 英文目录：`Permanent/`（如 `A-PermanentBookmarks.json`）、`Temporary/`（如 `General Chain/A-1.json`、`Special temporary/Add.json`）
+入口 `.canvas` 保存 `nodes[]`、`edges[]` 与文件映射。JSON 模式的栏目正文不在独立 Markdown 文件里。
 
 一个来源对应一个逻辑画布，每次提供的目录最多有一个入口 `.canvas`。对同一 `source_id` 提供改名后的入口时，会替换此前的画布布局记录；局部导出没有入口时继续保留此前布局。
 
@@ -25,7 +28,7 @@
 
 `tags` 是 `{color,text}` 数组，按颜色与文字的组合区分标签；`note` 是单条纯文本，`noteColor` 是它的并列字段。只有 note 而没有 tags 的元数据仍然有效。旧数据有 note 而无 noteColor 时显示颜色默认 `orange`。tag/note 的七种色名（red、orange、yellow、green、blue、purple、gray）与 `.canvas` 颜色是两套字段；颜色本身不能证明业务分类。
 
-文件节点的 `file` 与 `inheritFrom` 使用 vault 相对路径，可能包含包名和 vault 子目录前缀，也可能直接从 `永久栏目/` 或 `临时栏目/` 开始。导入器按包内文件映射解析，不能把同名、断链或多义引用默认为任意一个匹配；外部附件不是栏目书签数据。
+文件节点的 `file` 与 `inheritFrom` 使用 vault 相对路径，可能包含包名和 vault 子目录前缀，也可能直接从协议目录（`永久栏目/`、`Permanent/`、`临时栏目/`、`Temporary/`）开始。导入器按包内文件映射解析，不能把同名、断链或多义引用默认为任意一个匹配；外部附件不是栏目书签数据。
 
 临时项按 `type` 分类：文件夹可能有 `url:""`，书签也可能有 `children:[]`；不能仅按字段是否存在判断类型。
 
@@ -43,7 +46,7 @@
 
 矩形为 `[x, y, x+width, y+height]`，x 向右增大，y 向下增大；组成员要求完整包含。回答最近邻时使用矩形间距（重叠时为零），并保留方向，不能排序 JSON 数组或只比较中心点。没有连接的邻近笔记仍是未明确归属的上下文线索，除非其文字或其他已存关系说明了对象。副本卡片使用自己的矩形和连接。
 
-`get_context` 支持栏目／组／条目限定，没有区域、最近邻或分页参数；无法表达请求时用本地提取。只有栏目 JSON 时有内容但缺外围布局；只有 `.canvas` 而缺少引用栏目时有布局但书签内容不完整。这两种情况都不能靠虚构关系或改写原包补齐。
+`get_context` 支持栏目／组／条目限定，并支持集合级分页（`collection`、`offset`、`limit`、`compact`）。每个集合默认最多返回 200 行；完整读取须在保持相同 `source_id` 与限定范围下跟随各集合的 `total` 与 `next_offset` 翻页。`compact=true` 会省略原始 JSON、description_md 与 revision。当前没有区域或最近邻参数，如需空间邻近提取请改用本地解析。只有栏目 JSON 时有内容但缺外围布局；只有 `.canvas` 而缺少引用栏目时有布局但书签内容不完整。这两种情况都不能靠虚构关系或改写原包补齐。
 
 - 普通链式标号 `A-1 → A-1-1` 是派生关系线索；子链可能承接大部分内容，也可能只保留子集。A/B 来源族只反映创建时线索，不能推断临时树与永久树一直同步，或凭标号虚构持久关联。结合说明、标题、URL 和实际 item 核对。
 - 卡片组没有显式 `children` 清单，嵌套关系来自 `x/y/width/height` 的完整包含。组中放的是画布节点；书签通过所属栏目获得组上下文，不代表每个书签都有单独的画布节点。

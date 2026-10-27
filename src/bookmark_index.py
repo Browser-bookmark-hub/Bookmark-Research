@@ -14,6 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
+from package_paths import (
+    PROTOCOL_DIRS,
+    dir_matches_section_type,
+    is_package_dir,
+    resolve_protocol_reference,
+)
+
+
 # The trigram tokenizer indexes three-character sequences; shorter patterns
 # cannot use it and keep the LIKE fallback.
 TRIGRAM_MINIMUM = 3
@@ -170,25 +178,13 @@ def _string(value, label, required=False):
     return value
 
 
-def _reference(reference):
+def _reference(reference, package_files=None):
     """Resolve the protocol directory suffix, not the referring file's parent.
 
     The vault root is external to an exported/moved package. Retaining the full
     protocol suffix accommodates its vault prefix without reading outside it.
     """
-    _string(reference, "vault-relative reference", True)
-    parts = PurePosixPath(reference).parts
-    if reference.startswith(("/", "\\")) or "\\" in reference or ".." in parts:
-        raise ValueError("Unsafe vault reference: " + reference)
-    if parts and ":" in parts[0]:
-        raise ValueError("Absolute/URI references are not package files")
-    for index, part in enumerate(parts):
-        if part in ("永久栏目", "临时栏目"):
-            relative = PurePosixPath(*parts[index:])
-            if relative.suffix != ".json":
-                break
-            return str(relative)
-    raise ValueError("Reference must name an internal section JSON: " + reference)
+    return resolve_protocol_reference(reference, package_files=package_files)
 
 
 SCHEMA = """
@@ -278,8 +274,7 @@ class BookmarkIndex:
             # Refuse before connecting, so even an accidentally chosen package
             # path does not acquire an empty database, journal or WAL file.
             for parent in self.db_path.parents:
-                if ((parent / "永久栏目").is_dir() or (parent / "临时栏目").is_dir()
-                        or any(parent.glob("*.canvas"))):
+                if is_package_dir(parent):
                     raise ValueError("Database must be outside imported package directories")
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(str(self.db_path) if self.db_path else ":memory:")
@@ -424,14 +419,13 @@ class BookmarkIndex:
         return "updated"
 
     @staticmethod
-    def _section(file_path, obj):
+    def _section(file_path, obj, package_files=None):
         if obj.get("format") != "bookmark-canvas-section":
             raise ValueError("Not a Bookmark Canvas section: " + file_path)
         section_type = obj.get("sectionType")
         if section_type not in ("permanent", "temporary"):
             raise ValueError("Unknown sectionType in " + file_path)
-        expected = "永久栏目/" if section_type == "permanent" else "临时栏目/"
-        if not file_path.startswith(expected):
+        if not dir_matches_section_type(file_path, section_type):
             raise ValueError("sectionType does not match protocol directory: " + file_path)
         anchor = obj.get("fileRole") == "copy-anchor" or obj.get("anchorOnly") is True
         slot = _string(obj.get("slot", ""), "slot")
@@ -457,7 +451,7 @@ class BookmarkIndex:
             "file_path": file_path, "section_type": section_type, "label": label,
             "slot": slot, "title": _string(obj.get("title", ""), "section title"),
             "description_md": _string(obj.get("descriptionMd", ""), "descriptionMd"),
-            "is_anchor": int(anchor), "inherit_path": _reference(obj.get("inheritFrom")) if anchor else None,
+            "is_anchor": int(anchor), "inherit_path": _reference(obj.get("inheritFrom"), package_files=package_files) if anchor else None,
             "raw_json": _dump(obj),
         }
 
@@ -548,7 +542,7 @@ class BookmarkIndex:
         return result
 
     @staticmethod
-    def _canvas(obj):
+    def _canvas(obj, package_files=None):
         if not isinstance(obj.get("nodes"), list) or not isinstance(obj.get("edges"), list):
             raise ValueError("Canvas requires nodes[] and edges[]")
         nodes, edges, seen = [], [], set()
@@ -571,7 +565,7 @@ class BookmarkIndex:
                     raise ValueError("Canvas dimensions must be positive")
                 geometry[key] = value
             nodes.append((node_id, dict(geometry, node_type=node_type,
-                file_path=_reference(node.get("file")) if node_type == "file" else None,
+                file_path=_reference(node.get("file"), package_files=package_files) if node_type == "file" else None,
                 label=_string(node.get("label", ""), "node label"),
                 text=_string(node.get("text", ""), "node text"), position=position, raw_json=_dump(node))))
         edge_ids = set()
@@ -644,7 +638,7 @@ class BookmarkIndex:
         if len(paths) > 1:
             raise ValueError("A package must have at most one .canvas entry; use separate sources for separate canvases")
         canvas_path = paths[0].relative_to(package).as_posix() if paths else None
-        for directory in ("永久栏目", "临时栏目"):
+        for directory in PROTOCOL_DIRS:
             paths.extend((package / directory).rglob("*.json"))
         paths = sorted(paths)
         if not paths:
@@ -653,6 +647,7 @@ class BookmarkIndex:
             "SELECT * FROM files WHERE source_id=?", (source_id,))}
         indexed_section_files = {row[0] for row in self.connection.execute(
             "SELECT file_path FROM sections WHERE source_id=?", (source_id,))}
+        package_section_files = {p.relative_to(package).as_posix() for p in paths if p.suffix == ".json"} | indexed_section_files
         changed, observed, section_ids = [], set(), set()
         # Parse and validate every changed file before starting the mutation.
         for path in paths:
@@ -670,9 +665,9 @@ class BookmarkIndex:
                 if not isinstance(obj, dict):
                     raise ValueError("File must contain one JSON object")
                 if path.suffix == ".canvas":
-                    parsed = self._canvas(obj)
+                    parsed = self._canvas(obj, package_files=package_section_files)
                 else:
-                    section_id, section = self._section(relative, obj)
+                    section_id, section = self._section(relative, obj, package_files=package_section_files)
                     if section_id in section_ids:
                         raise ValueError("Duplicate section ID in package: " + section_id)
                     section_ids.add(section_id)
