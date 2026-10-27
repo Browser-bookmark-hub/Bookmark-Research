@@ -333,13 +333,30 @@ def _print_install_summary(action, results, setup, language):
         if isinstance(readiness, dict):
             print(message("Network checks: performed", "网络检查：已执行") if readiness.get("network_checked") else
                   message("Network checks: not performed this time", "网络检查：本次未执行"))
+        checks = {row["id"]: row for row in (readiness or {}).get("checks", [])}
         for name in setup.get("needs_attention", []):
-            print(message("Needs attention: ", "需处理：") + name)
+            check = checks.get(name, {})
+            status = check.get("status")
+            detail = message("missing credentials", "缺少密钥") if status == "missing_credentials" else message("check failed", "检查失败")
+            if check.get("error_kind"):
+                detail += " (" + check["error_kind"] + ")"
+            print(message("Needs attention: ", "需处理：") + name + " — " + detail)
+        # A provider can verify fetching while its search operation fails.
+        # Keep that partial failure visible even when the overall check passes.
+        for name, check in checks.items():
+            for operation, outcome in check.get("operations", {}).items():
+                if outcome.get("status") == "failed":
+                    label = message(operation, {"search": "搜索", "fetch": "正文读取"}.get(operation, operation))
+                    detail = outcome.get("error_kind") or message("check failed", "检查失败")
+                    print(message("Needs attention: ", "需处理：") + name + " / " + label + " — " + detail)
         if setup.get("completed") is not True:
             detail = setup.get("error") or setup.get("message")
-            print(message("Setup incomplete", "配置未完成") + (": " + detail if detail else ""))
+            if setup.get("status") == "unsupported" and setup.get("completed") is None:
+                print(detail)
+            else:
+                print(message("Setup incomplete", "配置未完成") + (": " + detail if detail else ""))
     first = next((row for row in results if row.get("verified") and not row.get("error")), None)
-    if first:
+    if first and (setup or {}).get("status") != "unsupported":
         host = first.get("host") or first.get("getting_started", {}).get("host", "codex")
         command = [sys.executable, "-B", str(Path(first["installed_path"]) / "src/cli.py"),
                    "setup", "--host", _setup_host(host), "--lang", language]
@@ -623,7 +640,9 @@ def _run_setup(args, installed, host, language, guided):
     if not (installed / "src/onboarding.py").is_file():
         requested = interactive or bool(args.preferences) or args.test_retrieval
         return {"completed": False if requested else None, "status": "unsupported",
-                "message": "The installed version predates guided setup; install a newer version to use setup."}
+                "message": _message(language,
+                    "This version does not support guided setup; install a newer version to configure it.",
+                    "此版本不支持配置向导；请安装较新版本后配置。")}
     # The installed version owns its settings schema. Do not use the
     # bootstrap checkout's runtime or impose a timeout on human input.
     completed = subprocess.run(command, text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE)
@@ -632,7 +651,7 @@ def _run_setup(args, installed, host, language, guided):
         if not isinstance(setup, dict):
             raise ValueError("Setup result must be an object")
     except ValueError:
-        setup = {"error": "Setup did not return a valid result"}
+        setup = {"error": _message(language, "Setup did not return a valid result", "配置向导未返回有效结果")}
     setup["completed"] = completed.returncode == 0 and "error" not in setup
     setup["exit_code"] = completed.returncode
     setup["configuration_retained"] = existing_config and not interactive and not args.preferences
@@ -740,15 +759,20 @@ def main(argv=None):
                 if single:
                     raise
                 results.append({"host": target["host"], "error": str(error), "verified": False})
-                print(message("Warning: Failed to install into " + target["host"] + ": " + str(error),
-                              "警告：未能安装到 " + target["host"] + "：" + str(error)), file=sys.stderr)
+                if args.json:
+                    print(message("Warning: Operation failed for " + target["host"] + ": " + str(error),
+                                  "警告：操作失败，宿主 " + target["host"] + "：" + str(error)), file=sys.stderr)
         verified = [(target["host"], result) for target, result in zip(targets, results)
                     if args.action == "install" and result.get("verified") and "error" not in result]
         setup = None
         if verified:
             first_host, first = verified[0]
             setup = _run_setup(args, Path(first["installed_path"]), first_host, language, guided)
-            for host, result in verified:
+        if args.action in ("install", "update") and not args.dry_run:
+            for target, result in zip(targets, results):
+                if not result.get("verified") or result.get("error"):
+                    continue
+                host = target["host"]
                 result["getting_started"] = _guide(Path(result["installed_path"]), host, args.timeout, language)
         if single:
             result = results[0]
@@ -762,7 +786,9 @@ def main(argv=None):
             result["preferences_file"] = str(Path(args.preferences).expanduser().resolve())
             result["preferences_applied"] = False
     except KeyboardInterrupt:
-        print(json.dumps({"cancelled": True, "message": "Setup cancelled; completed installation steps are retained."}), file=sys.stderr)
+        print(json.dumps({"cancelled": True, "message": message(
+            "Setup cancelled; completed installation steps are retained.",
+            "已取消；已完成的安装步骤予以保留。")}, ensure_ascii=False), file=sys.stderr)
         return 130
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(json.dumps({"error": str(error), "verified": False}, ensure_ascii=False), file=sys.stderr)

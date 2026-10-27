@@ -114,11 +114,42 @@ class LauncherTests(unittest.TestCase):
             ["update", "--lang", "en", "--host", "claude", "--scope", "project", "--project", "/work"],
             ["update", "--lang", "en", "--host", "dsh", "--profile", "web"]])
 
+    def test_explicit_host_equals_does_not_expand_to_all_installed_hosts(self):
+        import install
+        with mock.patch.object(launcher, "installed_targets") as targets, \
+                mock.patch.object(install, "main", return_value=0) as main:
+            self.assertEqual(launcher.main(["--lang", "en", "update", "--host=codex", "--json"]), 0)
+        targets.assert_not_called()
+        main.assert_called_once_with(["update", "--lang", "en", "--host=codex", "--json"])
+
     def test_update_with_nothing_installed_fails_clearly(self):
         errors = io.StringIO()
         with mock.patch.object(sys, "stderr", errors):
             self.assertEqual(launcher.main(["update"]), 1)
         self.assertIn("Nothing is installed", errors.getvalue())
+
+    def test_all_host_structured_output_is_one_json_document_with_partial_failures(self):
+        import install
+        targets = [{"host": "claude", "scope": "user"}, {"host": "dsh", "profile": "web"}]
+        def run(arguments):
+            if "claude" in arguments:
+                print(json.dumps({"verified": True, "installed_path": "/plugins/claude"}))
+                return 0
+            print(json.dumps({"error": "native check failed", "verified": False}), file=sys.stderr)
+            return 1
+        for action, flags in (("update", ["--json"]), ("update", ["--dry-run"]), ("verify", [])):
+            for language in ("en", "zh"):
+                with self.subTest(action=action, flags=flags, language=language), \
+                        mock.patch.object(launcher, "installed_targets", return_value=targets), \
+                        mock.patch.object(install, "main", side_effect=run), \
+                        mock.patch.object(sys, "stderr", io.StringIO()):
+                    code, output = self.run_main("--lang", language, action, *flags)
+                self.assertEqual(code, 1)
+                result = json.loads(output)
+                self.assertEqual(result["language"], language)
+                self.assertEqual([row["host"] for row in result["results"]], ["claude", "dsh"])
+                self.assertTrue(result["results"][0]["verified"])
+                self.assertEqual(result["results"][1]["error"], "native check failed")
 
     def test_help_unknown_command_and_language(self):
         self.assertIn("install [HOST...]", self.run_main("--help")[1])

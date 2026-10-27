@@ -1,7 +1,9 @@
 """The `bookmark-research` command: install, configure, check and update from one entry."""
 
 import json
+import io
 import os
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 import subprocess
 import sys
@@ -111,18 +113,34 @@ def _install_action(action, arguments, language):
         from npm_source import bundled_source
         source_val = bundled_source(ROOT, install_home(), dry_run="--dry-run" in rest)
         rest = [*rest, "--source", str(source_val)]
-    if not hosts and action != "install" and "--host" not in rest:
+    if not hosts and action != "install" and not any(
+            value == "--host" or value.startswith("--host=") for value in rest):
         targets = installed_targets()
         if not targets:
             print(json.dumps({"error": "Nothing is installed yet; run bookmark-research install"}), file=sys.stderr)
             return 1
         codes = []
+        structured = "--json" in rest or action == "verify" or "--dry-run" in rest
+        combined = []
         for row in targets:
             extra = ["--host", row["host"]]
             for key in ("scope", "project", "profile"):
                 if row.get(key):
                     extra += ["--" + key, row[key]]
-            codes.append(install.main([action, "--lang", language, *extra, *rest]))
+            arguments = [action, "--lang", language, *extra, *rest]
+            if structured and len(targets) > 1:
+                output, errors = io.StringIO(), io.StringIO()
+                with redirect_stdout(output), redirect_stderr(errors):
+                    code = install.main(arguments)
+                value = json.loads(output.getvalue() or errors.getvalue())
+                combined.append({**value, "host": row["host"]})
+                codes.append(code)
+                if errors.getvalue():
+                    print(errors.getvalue(), end="", file=sys.stderr)
+            else:
+                codes.append(install.main(arguments))
+        if combined:
+            print(json.dumps({"results": combined, "language": language}, ensure_ascii=False, indent=2))
         return max(codes)
     return install.main([action, "--lang", language, *[item for host in hosts for item in ("--host", host)], *rest])
 

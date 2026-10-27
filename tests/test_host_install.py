@@ -383,14 +383,14 @@ class MultiHostInstallerTests(unittest.TestCase):
     setUp = HostInstallerTests.setUp
     calls = HostInstallerTests.calls
 
-    def main(self, *arguments):
+    def main(self, *arguments, json_output=True):
         import install
         output, errors = io.StringIO(), io.StringIO()
         setup = mock.Mock(return_value={"completed": True, "exit_code": 0})
         with mock.patch.object(install, "_run_setup", setup), \
                 mock.patch.object(install, "_print_getting_started"), \
                 mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", errors):
-            code = install.main(["install", "--non-interactive", "--skip-checks", "--json", "--source", str(self.source),
+            code = install.main(["install", "--non-interactive", "--skip-checks", *(["--json"] if json_output else []), "--source", str(self.source),
                                  "--install-dir", str(self.home), "--timeout", "30",
                                  "--claude", str(self.bin / "claude"),
                                  "--dsh", str(self.bin / "dsh"), *arguments])
@@ -446,6 +446,17 @@ class MultiHostInstallerTests(unittest.TestCase):
         self.assertTrue(result["results"][1]["verified"])
         setup.assert_called_once()
         self.assertEqual(setup.call_args.args[2], "dsh")
+
+    def test_short_multi_host_output_reports_failure_once_in_both_languages(self):
+        for language in ("en", "zh"):
+            with self.subTest(language=language), mock.patch.dict(os.environ, {"HOST_TEST_FAIL": "claude"}):
+                code, output, errors, _ = self.main("--host", "claude,dsh", "--profile", "web",
+                    "--lang", language, json_output=False)
+            self.assertEqual(code, 1)
+            self.assertEqual(errors, "")
+            self.assertEqual(output.count("injected failure"), 1)
+            self.assertIn("失败：claude" if language == "zh" else "Failed: claude", output)
+            self.assertIn("安装完成 · dsh" if language == "zh" else "Installed · dsh", output)
 
     def test_multi_host_dry_run_plans_each_host(self):
         code, output, errors, setup = self.main("--host", "claude,dsh", "--profile", "web", "--dry-run")

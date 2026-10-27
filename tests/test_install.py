@@ -71,7 +71,7 @@ class InstallerLanguageTests(unittest.TestCase):
 
 
 class InstallerOutputTests(unittest.TestCase):
-    def run_main(self, action="install", language="en", setup_changes=None, extra=()):
+    def run_main(self, action="install", language="en", setup_changes=None, extra=(), guide_changes=None):
         setup = {"completed": True, "exit_code": 0, "configuration_retained": False,
                  "credentials": {"credentials": [{"name": "EXA_API_KEY", "configured": False}]},
                  "readiness": {"network_checked": False, "host_integrations": {"irrelevant": "diagnostic"}},
@@ -81,6 +81,7 @@ class InstallerOutputTests(unittest.TestCase):
                  "first_prompt": "README usage example", "guide_url": "https://example.test/guide",
                  "configuration": {"config_path": "/config/settings.json",
                      "settings": {"archive": {"directory": "/data/knowledge"}}}}
+        guide.update(guide_changes or {})
         result = {"verified": True, "installed_path": "/plugins/bookmark-research", "version": "0.5.0-beta.20",
                   "commands": [["codex", "plugin", "add"]],
                   "runtime": {"doctor": {"config_path": "/config/settings.json"}, "mcp_tools": ["search_web"]}}
@@ -155,6 +156,55 @@ class InstallerOutputTests(unittest.TestCase):
         self.assertIn("native registration failed", output.getvalue())
         self.assertIn("Installed · dsh", output.getvalue())
         self.assertIn("Restart dsh", output.getvalue())
+
+    def test_update_reports_unreadable_settings_in_both_languages(self):
+        for language in ("en", "zh"):
+            warning = "Could not read existing settings" if language == "en" else "现有配置读取失败"
+            code, output, errors = self.run_main("update", language, guide_changes={
+                "configuration": None, "configuration_error": warning,
+                "settings_command": ["python3", "/plugins/bookmark-research/src/cli.py", "config", "show"]})
+            self.assertEqual(code, 0, errors)
+            self.assertIn(warning, output)
+            self.assertIn("config show", output)
+
+    def test_service_failure_reasons_and_partially_verified_operations_are_visible(self):
+        for language in ("en", "zh"):
+            code, output, _ = self.run_main(language=language, setup_changes={
+                "needs_attention": ["provider:exa", "service:parallel"],
+                "readiness": {"network_checked": True, "checks": [
+                    {"id": "provider:exa", "status": "failed", "error_kind": "timeout"},
+                    {"id": "service:parallel", "status": "missing_credentials"},
+                    {"id": "provider:tavily", "status": "retrieval_verified", "operations": {
+                        "search": {"status": "failed", "error_kind": "quota_exhausted"},
+                        "fetch": {"status": "verified"}}}]}})
+            self.assertEqual(code, 0)
+            self.assertIn("timeout", output)
+            self.assertIn("缺少密钥" if language == "zh" else "missing credentials", output)
+            self.assertIn("provider:tavily / " + ("搜索" if language == "zh" else "search"), output)
+            self.assertIn("quota_exhausted", output)
+            self.assertNotIn("host_integrations", output)
+
+    def test_cancellation_preserves_exit_code_and_uses_the_requested_language(self):
+        for language in ("en", "zh"):
+            output, errors = io.StringIO(), io.StringIO()
+            with mock.patch.object(install, "_run_target", side_effect=KeyboardInterrupt), \
+                    mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", errors):
+                code = install.main(["install", "--non-interactive", "--lang", language])
+            self.assertEqual(code, 130)
+            value = json.loads(errors.getvalue())
+            self.assertTrue(value["cancelled"])
+            self.assertIn("已取消" if language == "zh" else "cancelled", value["message"])
+            self.assertEqual(output.getvalue(), "")
+
+    def test_historical_optional_setup_does_not_offer_an_unsupported_command(self):
+        for language in ("en", "zh"):
+            message = "此版本不支持配置向导" if language == "zh" else "This version does not support guided setup"
+            code, output, errors = self.run_main(language=language, setup_changes={
+                "status": "unsupported", "completed": None, "message": message})
+            self.assertEqual(code, 0, errors)
+            self.assertIn(message, output)
+            self.assertNotIn("setup --host", output)
+            self.assertNotIn("配置未完成" if language == "zh" else "Setup incomplete", output)
 
 
 class InstallerTests(unittest.TestCase):

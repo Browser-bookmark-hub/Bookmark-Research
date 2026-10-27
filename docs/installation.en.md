@@ -106,7 +106,7 @@ For an older Git marketplace, Codex retains its registration and ref. The instal
 | `update` | Re-fetches the recorded npm selector, refreshes the Git source/ref, or reinstalls local files. |
 | `verify` | Checks enabled registration, cache version, FTS5 and MCP initialization/tool discovery. |
 
-The Python installer accepts the same host/setup flags. `verify --installed-path PATH` is Codex-only. Verification uses an isolated store, does not import bookmarks, and does not test provider authentication. `install` and `update` print a short summary by default: version, installed paths, checks and any required action. Add `--json` for the full machine-readable result, including with `--non-interactive`; JSON mode omits the prose summary. `verify` and `--dry-run` keep JSON output. Prompts use the terminal and diagnostics use stderr. The setup stage persists only selected preferences; unreadable settings are reported and preserved.
+The Python installer accepts the same host/setup flags. `verify --installed-path PATH` is Codex-only. Verification uses an isolated store, does not import bookmarks, and does not test provider authentication. `install` and `update` print a short summary by default: version, installed paths, checks and any required action. Add `--json` for the full machine-readable result, including with `--non-interactive`; JSON mode omits the prose summary. Updating or verifying all installed hosts returns one JSON document with a `results` list; individual host failures remain visible. `verify` and `--dry-run` keep JSON output. Prompts use the terminal and diagnostics use stderr. The setup stage persists only selected preferences; unreadable settings are reported and preserved.
 
 ### Native Codex installation of the published release
 
