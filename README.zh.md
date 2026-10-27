@@ -63,7 +63,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 请把 Bookmark Research 插件安装到你当前运行的这个宿主里。
 
 1. 先确认你自己是哪个宿主：codex、claude 或 dsh。
-2. 运行：npx bookmark-research install <宿主> --non-interactive
+2. 运行：npx bookmark-research install <宿主> --non-interactive --json
    - Claude Code：加 --scope user（或 --scope project --project <目录>）。
    - DeepSeek Harness (dsh)：加 --profile <名称>；profile 名称请先问我。
 3. 命令会输出 JSON。确认 "verified": true，有 "error" 就告诉我。

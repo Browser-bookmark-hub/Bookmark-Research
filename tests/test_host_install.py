@@ -390,7 +390,7 @@ class MultiHostInstallerTests(unittest.TestCase):
         with mock.patch.object(install, "_run_setup", setup), \
                 mock.patch.object(install, "_print_getting_started"), \
                 mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", errors):
-            code = install.main(["install", "--non-interactive", "--skip-checks", "--source", str(self.source),
+            code = install.main(["install", "--non-interactive", "--skip-checks", "--json", "--source", str(self.source),
                                  "--install-dir", str(self.home), "--timeout", "30",
                                  "--claude", str(self.bin / "claude"),
                                  "--dsh", str(self.bin / "dsh"), *arguments])

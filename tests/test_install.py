@@ -70,6 +70,93 @@ class InstallerLanguageTests(unittest.TestCase):
                 manage.assert_not_called()
 
 
+class InstallerOutputTests(unittest.TestCase):
+    def run_main(self, action="install", language="en", setup_changes=None, extra=()):
+        setup = {"completed": True, "exit_code": 0, "configuration_retained": False,
+                 "credentials": {"credentials": [{"name": "EXA_API_KEY", "configured": False}]},
+                 "readiness": {"network_checked": False, "host_integrations": {"irrelevant": "diagnostic"}},
+                 "needs_attention": []}
+        setup.update(setup_changes or {})
+        guide = {"host": "codex", "language": language, "configuration_error": None,
+                 "first_prompt": "README usage example", "guide_url": "https://example.test/guide",
+                 "configuration": {"config_path": "/config/settings.json",
+                     "settings": {"archive": {"directory": "/data/knowledge"}}}}
+        result = {"verified": True, "installed_path": "/plugins/bookmark-research", "version": "0.5.0-beta.20",
+                  "commands": [["codex", "plugin", "add"]],
+                  "runtime": {"doctor": {"config_path": "/config/settings.json"}, "mcp_tools": ["search_web"]}}
+        output, errors = io.StringIO(), io.StringIO()
+        arguments = [action, "--host", "codex", "--lang", language, *extra]
+        if action == "install":
+            arguments.extend(["--non-interactive", "--skip-checks"])
+        with mock.patch.object(install, "_run_target", return_value=result), \
+                mock.patch.object(install, "_run_setup", return_value=setup), \
+                mock.patch.object(install, "_guide", return_value=guide), \
+                mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", errors):
+            code = install.main(arguments)
+        return code, output.getvalue(), errors.getvalue()
+
+    def test_first_install_and_reinstall_are_concise_in_both_languages(self):
+        for language in ("en", "zh"):
+            for retained in (False, True):
+                with self.subTest(language=language, retained=retained):
+                    code, output, errors = self.run_main(language=language,
+                        setup_changes={"configuration_retained": retained})
+                    self.assertEqual(code, 0, errors)
+                    self.assertEqual(errors, "")
+                    for expected in ("0.5.0-beta.20", "/plugins/bookmark-research", "/config/settings.json",
+                                     "/data/knowledge", "API Key" if language == "zh" else "API keys",
+                                     "本次未执行" if language == "zh" else "not performed this time"):
+                        self.assertIn(expected, output)
+                    for hidden in ("README usage example", "https://example.test", "host_integrations", "mcp_tools", '"commands"'):
+                        self.assertNotIn(hidden, output)
+                    self.assertLessEqual(len(output.splitlines()), 12)
+                    self.assertEqual("已沿用" in output if language == "zh" else "retained" in output, retained)
+
+    def test_update_is_concise_and_does_not_repeat_onboarding(self):
+        for language in ("en", "zh"):
+            code, output, errors = self.run_main("update", language)
+            self.assertEqual(code, 0, errors)
+            self.assertIn("更新完成" if language == "zh" else "Updated", output)
+            self.assertIn("0.5.0-beta.20", output)
+            self.assertNotIn("API keys configured", output)
+            self.assertNotIn("README usage example", output)
+            self.assertLessEqual(len(output.splitlines()), 8)
+
+    def test_explicit_json_is_complete_without_a_prose_summary(self):
+        for action in ("install", "update", "verify"):
+            code, output, errors = self.run_main(action, extra=("--json",))
+            self.assertEqual(code, 0, errors)
+            result = json.loads(output)
+            self.assertTrue(result["verified"])
+            self.assertIn("commands", result)
+            self.assertIn("mcp_tools", result["runtime"])
+            if action == "install":
+                self.assertIn("readiness", result["setup"])
+            self.assertEqual(errors, "")
+
+    def test_setup_failures_and_service_attention_survive_the_short_output(self):
+        for language in ("en", "zh"):
+            code, output, _ = self.run_main(language=language, setup_changes={
+                "completed": False, "error": "Settings could not be saved",
+                "needs_attention": ["provider:tavily"]})
+            self.assertEqual(code, 1)
+            self.assertIn("Settings could not be saved", output)
+            self.assertIn("provider:tavily", output)
+            self.assertIn("配置未完成" if language == "zh" else "Setup incomplete", output)
+
+    def test_multi_host_summary_keeps_partial_failure_visible(self):
+        output = io.StringIO()
+        with mock.patch.object(sys, "stdout", output):
+            install._print_install_summary("install", [
+                {"host": "claude", "error": "native registration failed"},
+                {"host": "dsh", "verified": True, "version": "0.5.0-beta.20", "installed_path": "/plugins/dsh"}],
+                None, "en")
+        self.assertIn("Failed: claude", output.getvalue())
+        self.assertIn("native registration failed", output.getvalue())
+        self.assertIn("Installed · dsh", output.getvalue())
+        self.assertIn("Restart dsh", output.getvalue())
+
+
 class InstallerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="bookmark-install-contract-")
@@ -146,7 +233,7 @@ class InstallerTests(unittest.TestCase):
                     mock.patch.object(install, "_getting_started", return_value={}), \
                     mock.patch.object(install, "_print_getting_started"), \
                     mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", io.StringIO()):
-                code = install.main(["install", "--non-interactive", *extra])
+                code = install.main(["install", "--non-interactive", "--json", *extra])
             self.assertEqual(code, expected)
             result = json.loads(output.getvalue())
             self.assertTrue(result["verified"])
@@ -252,9 +339,10 @@ class InstallerTests(unittest.TestCase):
                                  capture_output=True, check=True, timeout=15)
         self.assertEqual(json.loads(checked.stdout), guide["configuration"])
         output = io.StringIO()
-        with mock.patch.object(install.sys, "stderr", output):
+        with mock.patch.object(install.sys, "stdout", output):
             install._print_getting_started(guide)
-        self.assertIn("tavily", output.getvalue())
+        self.assertIn(str(settings_path), output.getvalue())
+        self.assertNotIn("tavily", output.getvalue())
         self.assertNotIn("environment-secret-marker", output.getvalue() + json.dumps(guide))
         self.assertEqual(settings_path.read_text(), original)
         self.assertFalse((self.base / "user data").exists())
@@ -284,14 +372,15 @@ class InstallerTests(unittest.TestCase):
         original = '{"search":{"providers":["tavily"]},"archive":{"enabled":false}}'
         path.write_text(original)
         guides = []
-        for language, expected in (("en", "Next steps:"), ("zh", "下一步：")):
+        for language, expected in (("en", "Config file:"), ("zh", "配置文件：")):
             guide = install._getting_started(self.source, language=language)
             output = io.StringIO()
-            with mock.patch.object(install.sys, "stderr", output):
+            with mock.patch.object(install.sys, "stdout", output):
                 install._print_getting_started(guide)
             self.assertIn(expected, output.getvalue())
-            self.assertIn(guide["first_prompt"], output.getvalue())
-            self.assertIn("tavily", output.getvalue())
+            self.assertNotIn(guide["first_prompt"], output.getvalue())
+            self.assertNotIn("tavily", output.getvalue())
+            self.assertIn(str(path), output.getvalue())
             self.assertEqual(guide["language"], language)
             self.assertEqual(path.read_text(), original)
             guides.append(guide)
@@ -611,7 +700,7 @@ class NativeCodexInstallerTests(unittest.TestCase):
 
     def run_installer(self, *args, success=True):
         setup_flags = ["--non-interactive", "--skip-checks"] if args[0] == "install" else []
-        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/install.py"), *args, *setup_flags],
+        result = subprocess.run([sys.executable, "-B", str(ROOT / "scripts/install.py"), *args, *setup_flags, "--json"],
                                 cwd=self.outside, env=self.environment, text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
         self.assertNotIn("environment-secret-marker", result.stdout + result.stderr)
@@ -797,7 +886,7 @@ class NativeCodexInstallerTests(unittest.TestCase):
         with mock.patch.dict(os.environ, self.environment, clear=True), \
                 mock.patch("npm_source.checkout", side_effect=AssertionError("must not download npm")), \
                 mock.patch.object(sys, "stdout", output):
-            code = launcher.main(["install", "codex", "--replace-source", "--non-interactive", "--skip-checks"])
+            code = launcher.main(["install", "codex", "--replace-source", "--non-interactive", "--skip-checks", "--json"])
         self.assertEqual(code, 0, output.getvalue())
         result = json.loads(output.getvalue())
         self.assertTrue(result["verified"])
@@ -818,7 +907,7 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.assertTrue(first["verified"])
         self.assertTrue(first["setup"]["completed"])
         self.assertFalse(first["setup"]["readiness"]["network_checked"])
-        self.assertIn(first["getting_started"]["first_prompt"], self.last_stderr)
+        self.assertEqual(self.last_stderr, "")
         self.assertEqual(first["getting_started"]["settings_command"][2], str(Path(first["installed_path"]) / "src/cli.py"))
         self.assertFalse(self.data.exists())
         self.assertFalse(self.settings.exists())

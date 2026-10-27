@@ -63,7 +63,7 @@ Several at once: `npx bookmark-research install claude dsh --profile web --non-i
 Install the Bookmark Research plugin into the client you are running in.
 
 1. Identify your own client: codex, claude or dsh.
-2. Run: npx bookmark-research install <client> --non-interactive
+2. Run: npx bookmark-research install <client> --non-interactive --json
    - Claude Code: add --scope user (or --scope project --project <dir>).
    - DeepSeek Harness (dsh): add --profile <profile>; ask me for the profile name.
 3. The command prints JSON. Confirm "verified": true and report any "error".

@@ -281,43 +281,69 @@ def _getting_started(installed_path, timeout=30, language="auto"):
 
 
 def _print_getting_started(guide):
+    """Print only installation-specific settings, leaving usage guides in README."""
     language = resolve_language(guide.get("language", "auto"))
     message = lambda english, chinese: _message(language, english, chinese)
-    lines = ["", message("Bookmark Research installed; runtime checks passed.", "Bookmark Research 安装完成，运行检查已通过。")]
-    if guide["configuration_error"]:
-        lines.extend([guide["configuration_error"], message("After fixing the configuration, start here:", "配置修正后，按以下步骤开始：")])
-    else:
-        lines.extend(guide["configuration_summary"])
-    lines.extend([
-        "", message("Next steps:", "下一步："),
-        (message("1. Start a new Codex thread to load the plugin.", "1. 在 Codex 新建对话，让客户端加载插件。")
-         if guide.get("host", "codex") == "codex" else message(
-             "1. Restart %s to load the Skill and tools.", "1. 重启 %s 以加载 Skill 和工具。") % guide["host"]),
-        message("2. Prepare your Bookmark Canvas directory, ZIP, or single-card JSON. Replace the path below and send:",
-                "2. 准备自己的 Bookmark Canvas 目录、ZIP 或单卡 JSON，把下面的占位路径换成实际路径后发送："),
-        "   " + guide["first_prompt"],
-        message("   Manual exports become snapshots. For automatic local updates, identify a persistent live directory.",
-                "   手动导出会保存为快照；需要自动更新时，说明这是持续同步目录。"),
-        message("3. For web-only research, provide a topic directly. Research uses the current host model; no extra model address is required.",
-                "3. 只做网页研究时可直接提出主题，无需先导入书签。研究使用当前对话的模型，无需另填模型名称或地址。"),
-        "", message("Local queries require no API key. Web access depends on the selected provider's authentication and limits.",
-                    "本地书签查询不需要 API Key。网页研究使用所选服务，匿名额度和认证要求由服务方决定。"),
-        message("When needed, set EXA_API_KEY, PARALLEL_API_KEY, or TAVILY_API_KEY in the environment that launches the client.",
-                "需要密钥时，在启动客户端的环境中配置 EXA_API_KEY、PARALLEL_API_KEY 或 TAVILY_API_KEY。"),
-        "", message('Optional settings: ask "Show Bookmark Research settings" or "Use only Exa for future searches".',
-                    "可选配置：在对话中说“显示 Bookmark Research 的配置”，或“以后只用 Exa 搜索”。"),
-        message("You can change page archiving preferences in chat. Deep research always preserves its task evidence.",
-                "归档偏好也可通过对话修改；深度研究始终保留任务证据。"),
-        message("Config command (works from any directory):", "查看配置的终端命令（可从任意目录运行）："),
-        "  " + shlex.join(guide["settings_command"]),
-        message("First use and configuration: ", "首次使用与配置说明：") + guide["guide_url"],
-        message("Ask in English or Chinese; specify a different answer/report language when needed. Original quotations are preserved.",
-                "可以用中文或英文提问，也可以指定答复和报告语言；原始引用保留原文。"),
-    ])
-    if guide.get("setup_command"):
-        lines.extend([message("Reopen guided setup:", "重新打开配置向导："),
-                      "  " + shlex.join(guide["setup_command"])])
-    print("\n".join(lines), file=sys.stderr)
+    configuration = guide.get("configuration") or {}
+    if configuration.get("config_path"):
+        print(message("Config file: ", "配置文件：") + configuration["config_path"])
+    archive = configuration.get("settings", {}).get("archive", {})
+    if archive.get("directory"):
+        print(message("Archive directory: ", "归档目录：") + archive["directory"])
+    if guide.get("configuration_error"):
+        print(guide["configuration_error"])
+        print(message("Inspect settings: ", "检查配置：") + shlex.join(guide["settings_command"]))
+
+
+def _print_install_summary(action, results, setup, language):
+    """A short terminal receipt; --json retains the full diagnostic result."""
+    message = lambda english, chinese: _message(language, english, chinese)
+    for row in results:
+        host = row.get("host") or row.get("getting_started", {}).get("host", "codex")
+        if row.get("error"):
+            print(message("Failed: ", "失败：") + host + " — " + row["error"])
+            continue
+        label = message("Updated", "更新完成") if action == "update" else message("Installed", "安装完成")
+        print("Bookmark Research " + label + " · " + host)
+        print(message("Version: ", "版本：") + row.get("version", "unknown"))
+        if row.get("installed_path"):
+            print(message("Plugin directory: ", "安装目录：") + row["installed_path"])
+        if row.get("verified"):
+            print(message("Local runtime checks: passed", "本地运行检查：通过"))
+        guide = row.get("getting_started")
+        if guide:
+            _print_getting_started(guide)
+        else:
+            doctor = row.get("runtime", {}).get("doctor", {})
+            if doctor.get("config_path"):
+                print(message("Config file: ", "配置文件：") + doctor["config_path"])
+        if host == "codex":
+            print(message("Start a new Codex thread to load this build.", "在 Codex 新建对话以加载此构建。"))
+        else:
+            print(message("Restart %s to load this build.", "重启 %s 以加载此构建。") % host)
+    if setup is not None:
+        if setup.get("configuration_retained"):
+            print(message("Existing settings and credentials retained.", "已沿用原有配置与密钥。"))
+        credentials = setup.get("credentials", {}).get("credentials")
+        if isinstance(credentials, list):
+            configured = [row["name"] for row in credentials if row.get("configured")]
+            print(message("API keys configured: ", "已配置的 API Key：") + (", ".join(configured) if configured else
+                message("none (optional)", "无（可选）")))
+        readiness = setup.get("readiness")
+        if isinstance(readiness, dict):
+            print(message("Network checks: performed", "网络检查：已执行") if readiness.get("network_checked") else
+                  message("Network checks: not performed this time", "网络检查：本次未执行"))
+        for name in setup.get("needs_attention", []):
+            print(message("Needs attention: ", "需处理：") + name)
+        if setup.get("completed") is not True:
+            detail = setup.get("error") or setup.get("message")
+            print(message("Setup incomplete", "配置未完成") + (": " + detail if detail else ""))
+    first = next((row for row in results if row.get("verified") and not row.get("error")), None)
+    if first:
+        host = first.get("host") or first.get("getting_started", {}).get("host", "codex")
+        command = [sys.executable, "-B", str(Path(first["installed_path"]) / "src/cli.py"),
+                   "setup", "--host", _setup_host(host), "--lang", language]
+        print(message("Configure preferences / API keys: ", "修改配置／API Key：") + shlex.join(command))
 
 
 def _pin_interpreter():
@@ -586,11 +612,6 @@ def _run_setup(args, installed, host, language, guided):
     from settings import Settings
     existing_config = Settings().path.is_file()
     interactive = guided and (getattr(args, "interaction", "auto") == "always" or not existing_config)
-    if guided and existing_config and getattr(args, "interaction", "auto") != "always":
-        print(_message(language,
-                       "Retained existing configuration (%s). Run `bookmark-research setup` to modify preferences or keys." % Settings().path,
-                       "✓ 沿用已有研究偏好与密钥配置（%s）；如需修改请运行 bookmark-research setup。" % Settings().path),
-              file=sys.stderr)
     command = [sys.executable, "-B", str(installed / "src/cli.py"), "setup", "--lang", language,
                "--host", _setup_host(host), "--interactive" if interactive else "--non-interactive"]
     if args.preferences:
@@ -614,6 +635,7 @@ def _run_setup(args, installed, host, language, guided):
         setup = {"error": "Setup did not return a valid result"}
     setup["completed"] = completed.returncode == 0 and "error" not in setup
     setup["exit_code"] = completed.returncode
+    setup["configuration_retained"] = existing_config and not interactive and not args.preferences
     return setup
 
 
@@ -641,6 +663,8 @@ def main(argv=None):
     for action in ("install", "update", "verify"):
         command = subparsers.add_parser(action)
         command.add_argument("--lang", choices=("auto", "en", "zh"), default=argparse.SUPPRESS, help=language_help)
+        command.add_argument("--json", action="store_true", help=message(
+            "Print the full installation result as JSON", "以 JSON 输出完整安装结果"))
         command.add_argument("--host", action="append", help=message(
             "Target client: codex, claude, or dsh; repeat or comma-separate for several. Guided selection in a terminal, otherwise codex",
             "目标宿主：codex、claude 或 dsh；可重复或用逗号指定多个。终端中引导选择，非交互时默认 codex"))
@@ -661,7 +685,7 @@ def main(argv=None):
             interaction.add_argument("--interactive", dest="interaction", action="store_const", const="always",
                                      help=message("Always open the terminal wizard", "始终打开终端向导"))
             interaction.add_argument("--non-interactive", dest="interaction", action="store_const", const="never",
-                                     help=message("Agent/CI mode: explicit flags and JSON output", "Agent/CI 模式：显式参数和 JSON 输出"))
+                                     help=message("Do not prompt; add --json for machine-readable output", "不询问；需要机器可读结果时添加 --json"))
             command.set_defaults(interaction="auto")
             command.add_argument("--preferences", help=message("Preferences JSON file (no credentials)", "偏好 JSON 文件（不含密钥）"))
             command.add_argument("--skip-checks", action="store_true", help=message("Skip network readiness checks", "跳过联网就绪检查"))
@@ -726,9 +750,6 @@ def main(argv=None):
             setup = _run_setup(args, Path(first["installed_path"]), first_host, language, guided)
             for host, result in verified:
                 result["getting_started"] = _guide(Path(result["installed_path"]), host, args.timeout, language)
-            if setup.get("completed") is not True:
-                print(message("Plugin installation passed; guided setup is incomplete or unavailable. See setup in the JSON result.",
-                              "插件安装检查已通过；引导配置未完成或此版本不支持。请查看 JSON 中的 setup 结果。"), file=sys.stderr)
         if single:
             result = results[0]
             if setup is not None:
@@ -746,10 +767,10 @@ def main(argv=None):
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(json.dumps({"error": str(error), "verified": False}, ensure_ascii=False), file=sys.stderr)
         return 1
-    print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
-    for row in results:
-        if row.get("getting_started"):
-            _print_getting_started(row["getting_started"])
+    if args.json or args.action == "verify" or getattr(args, "dry_run", False):
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
+    else:
+        _print_install_summary(args.action, results, setup, language)
     if (setup or {}).get("exit_code") == 130:
         return 130
     if any("error" in row for row in results):

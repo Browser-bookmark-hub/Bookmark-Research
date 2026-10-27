@@ -138,7 +138,7 @@ python3 "/absolute/path/Bookmark Research/scripts/install.py" install
 | `update --dry-run` | 查看现有来源的更新计划 |
 | `verify` | 检查已启用注册、安装缓存版本、FTS5、MCP 初始化和工具发现 |
 
-每个动作可指定 `--codex /absolute/path/to/codex` 和 `--timeout 60`。输出为 JSON；验证或前置步骤失败时返回非零退出码。`verify --installed-path PATH` 可明确指定 `codex plugin add --json` 返回的 `installedPath`，用于 Codex 缓存布局发生变化的情况。
+每个动作可指定 `--codex /absolute/path/to/codex` 和 `--timeout 60`。`install` 与 `update` 默认只输出版本、实际路径、检查结果和需处理事项。添加 `--json` 可获取完整机器可读结果；`--non-interactive` 只控制是否询问，自动化脚本应同时传入 `--json`。JSON 模式不重复打印文字摘要；`verify` 与 `--dry-run` 继续输出 JSON。验证或前置步骤失败时返回非零退出码。`verify --installed-path PATH` 可明确指定 `codex plugin add --json` 返回的 `installedPath`，用于 Codex 缓存布局发生变化的情况。
 
 默认拒绝把 Codex 已有同名 marketplace 切换到另一个原始来源；向导确认“升级覆盖”或显式传入 `install --replace-source` 后，允许改为所选构建，仅处理本插件独占的 marketplace。旧版直接登记源码目录的安装，仅在市场中只有本插件时，通过 Codex 原生 `marketplace remove/add` 迁移到同一来源的干净导出，再执行 `plugin add`；不手写用户配置。`--dry-run` 可预览这些命令。含其他插件或来源冲突时保留现状，先用 `codex plugin marketplace list --json` 和 `codex plugin list --json` 核对来源，再在 Codex 中处理。
 
