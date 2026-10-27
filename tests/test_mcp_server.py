@@ -87,6 +87,15 @@ class McpServerTests(unittest.TestCase):
             "research_service_import", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
             "wiki_lint", "wiki_acknowledge", "wiki_refresh", "wiki_work"})
         self.assertTrue(all(tool["inputSchema"]["additionalProperties"] is False for tool in listing))
+        tools = {tool["name"]: tool for tool in listing}
+        plan = tools["plan_research"]
+        self.assertEqual(plan["inputSchema"]["properties"]["max_cards"]["maximum"], 3)
+        self.assertEqual(plan["inputSchema"]["properties"]["max_urls"]["maximum"], 8)
+        self.assertIn("max_cards accepts 1–3", plan["description"])
+        self.assertIn("max_urls accepts 1–8", plan["description"])
+        search_description = tools["search_web"]["description"]
+        self.assertIn("10-second default search.deadline_seconds", search_description)
+        self.assertIn("quota_exhausted providers enter cooldown", search_description)
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server._providers)
         self.assertEqual(self.server.handle(request("ping"))["result"], {})

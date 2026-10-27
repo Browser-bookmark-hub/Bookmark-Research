@@ -92,6 +92,8 @@ class ExportBundleTests(unittest.TestCase):
                 if format_name == "codex":
                     manifest = self.read_json(output, ".codex-plugin/plugin.json")
                     self.assertEqual(manifest, self.read_json(self.source, ".codex-plugin/plugin.json"))
+                    skill_catalog = output / manifest["skills"].removeprefix("./")
+                    self.assertTrue((skill_catalog / "bookmark-research/SKILL.md").is_file())
                     marketplace = self.read_json(output, ".agents/plugins/marketplace.json")
                     self.assertEqual(marketplace["plugins"][0]["source"], {"source": "local", "path": "./"})
                 elif format_name == "claude":

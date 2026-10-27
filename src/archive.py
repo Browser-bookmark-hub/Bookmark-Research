@@ -430,17 +430,29 @@ class SourceArchive:
         header = r"(?:\A|\n\n)(?:# |Title: )([^\n]+(?:\n[ \t][^\n]*)*)\nURL: (https?://[^\s]+)\n"
         matches = list(re.finditer(header, boundary_text))
         # A missed or malformed URL field could hide the next page boundary.
-        # Keep the whole block raw instead of assigning that page to its neighbor.
+        # Isolate the affected record instead of assigning that page to its neighbor.
         fields = [match.start() for match in re.finditer(r"(?m)^[ \t]*URL:", boundary_text)]
         matched_fields = [match.start(2) - len("URL: ") for match in matches]
-        if fields != matched_fields:
-            return rows
         try:
             keys = [cls._key(match.group(2)) for match in matches]
         except ValueError:
             return rows
         if not matches or matches[0].start() != 0 or len(set(keys)) != len(keys):
             return rows
+        rejected_matches = set()
+        if fields != matched_fields:
+            # A body may itself contain a line beginning with "URL:". That
+            # makes only its containing record ambiguous; the next recognized
+            # header still provides a safe boundary for independent records.
+            # If a malformed next-page header is present, its URL field falls
+            # into the previous segment and invalidates that segment as well.
+            for index, match in enumerate(matches):
+                start = match.start()
+                end = matches[index + 1].start() if index + 1 < len(matches) else len(boundary_text)
+                segment_fields = [field for field in fields if start <= field < end]
+                own_field = match.start(2) - len("URL: ")
+                if segment_fields != [own_field]:
+                    rejected_matches.add(match.start())
         # A provider can truncate one page inside a fence and concatenate the
         # next page before a later fence happens to close it, or leave a fence
         # unclosed; the mask then hides real page headers. Header-shaped lines
@@ -466,6 +478,10 @@ class SourceArchive:
                     return rows
                 matches = sorted(matches + hidden, key=lambda match: match.start())
         for index, match in enumerate(matches):
+            if match.start() in rejected_matches:
+                rows.append({"url": match.group(2), "title": text[match.start(1):match.end(1)],
+                             "_content_unparsed": True})
+                continue
             end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
             body = text[match.end():end]
             row = {"url": match.group(2), "title": text[match.start(1):match.end(1)]}
@@ -484,6 +500,8 @@ class SourceArchive:
 
     @staticmethod
     def _page(row):
+        if row.get("_content_unparsed") is True:
+            return None, "content_present_unparsed", "provider_extracted_text"
         status = row.get("status")
         if isinstance(status, str):
             status = status.lower()

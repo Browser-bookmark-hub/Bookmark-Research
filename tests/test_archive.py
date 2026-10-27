@@ -161,6 +161,24 @@ class ArchiveTests(unittest.TestCase):
         saved = self.capture(raw, urls)
         self.assertEqual([Path(page["body_path"]).read_text() for page in saved["pages"]], [first_body, second_body])
 
+    def test_unmatched_url_field_only_blocks_its_page_in_a_batch(self):
+        urls = ["https://example.test/" + letter for letter in "abc"]
+        bodies = ["First page is intact.",
+                  "The page includes a URL field in its body.\nURL: https://example.test/embedded",
+                  "Third page is intact."]
+        raw = {"content": [{"type": "text", "text":
+            "# A\nURL: " + urls[0] + "\n\n" + bodies[0] +
+            "\n\n# B\nURL: " + urls[1] + "\n\n" + bodies[1] +
+            "\n\n# C\nURL: " + urls[2] + "\n\n" + bodies[2]}]}
+        saved = self.capture(raw, urls)
+        pages = saved["pages"]
+        self.assertEqual(Path(pages[0]["body_path"]).read_text(), bodies[0])
+        self.assertIsNone(pages[1]["body_path"])
+        self.assertEqual(pages[1]["extraction_status"], "content_present_unparsed")
+        self.assertEqual(pages[2]["extraction_status"], "extracted")
+        self.assertEqual(Path(pages[2]["body_path"]).read_text(), bodies[2])
+        self.assertEqual(json.loads(Path(saved["response_path"]).read_text()), raw)
+
     def test_fenced_url_examples_remain_page_text_in_archives_and_compact_results(self):
         urls = ["https://example.test/a", "https://example.test/b"]
         examples = [
