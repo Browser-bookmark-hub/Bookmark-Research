@@ -116,6 +116,10 @@ class SearchProviders:
                         state.client = DeepSeekClient(headers=headers, timeout=timeout,
                                                       search_url=info.get("search_url"),
                                                       fetch_url=info.get("fetch_url"))
+                    elif info.get("client") == "perplexity":
+                        from perplexity import PerplexityClient
+                        state.client = PerplexityClient(headers=headers, timeout=timeout,
+                                                        search_url=info.get("search_url"))
                     else:
                         from jina import JinaClient
                         state.client = JinaClient(headers=headers, timeout=timeout)
@@ -201,10 +205,12 @@ class SearchProviders:
             client, before, usage = None, None, self._empty_usage()
             try:
                 if self.registry["providers"][provider].get("transport") == "http":
+                    capabilities = {purpose: {"status": "supported" if self.registry["providers"][provider].get(purpose + "_tools") else "unsupported",
+                                               "execution_verified": False}
+                                    for purpose in ("search", "fetch")}
                     return {"provider": provider, "status": "not_probed", "tools": [],
                             "network_probe_performed": False, "catalog_source": "documented_http_api",
-                            "capabilities": {purpose: {"status": "supported", "execution_verified": False}
-                                             for purpose in ("search", "fetch")},
+                            "capabilities": capabilities,
                             "authentication_state": self._authentication(provider), "usage": usage}
                 client = self._client(provider)
                 before = self._snapshot(client)
@@ -373,6 +379,8 @@ class SearchProviders:
                     skipped = True
                     raise state.cooldown_error
                 if self.registry["providers"][provider].get("transport") == "http":
+                    if not self.registry["providers"][provider].get(purpose + "_tools", []):
+                        raise McpError("Provider does not support " + purpose, "capability_unavailable")
                     tool = {"name": self.registry["providers"][provider][purpose + "_tools"][0]}
                     arguments = {"query": query} if purpose == "search" else {"urls": urls}
                     if purpose == "search":

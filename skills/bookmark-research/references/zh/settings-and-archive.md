@@ -4,7 +4,7 @@
 
 用户可直接在对话中改配置，CLI 与 MCP 使用同一套实现。当前没有独立图形设置页。
 
-provider 可选 `exa`、`parallel`、`tavily`、`jina`、`deepseek`（可选，需要 `DEEPSEEK_API_KEY`）。搜索第一轮由 `search.providers` 指定（Exa + Parallel），策略由 `search.strategy` 选择：`hedged`（默认）全并发，所有查询都有结果后最多再等 `search.grace_seconds`（默认 2）即返回；`staggered` 错峰，查询未全部解析才发下一家；`sequential` 按顺序逐家调用，只把未解析查询交给下一家；`wait_all` 等全部。首轮受 `search.deadline_seconds`（默认 10 秒）约束。provider 较慢时可用 `update_settings` 延长该值，设为 `null` 可取消期限。被放弃和未调用的 provider 分别记入 `routing.abandoned_providers` 与 `routing.not_attempted_providers`；已放弃的请求仍可能消耗服务额度。之后 `search.fallback_providers`（Tavily + 有 key 的 Jina）会读取未解析查询；设为空数组可关闭回退。provider 失败保留在 `batches` 中。收到 `quota_exhausted` 后会按服务提供的 `retry_after` 冷却该 provider；未提供时冷却 5 分钟，同时仍会尝试配置的其他回退服务。插件无法恢复已耗尽的服务额度。读取先用 `fetch.provider`，策略由 `fetch.strategy` 选择：`staggered`（默认）在当前提供商超过 `fetch.grace_seconds`（默认 25）仍未解决时并行下一家；`hedged` 全部并发；`sequential` 逐家等待；`grace_seconds` 设为 null 即回到逐家等待。被放弃的提供商记入 `abandoned_providers`；连续两次整批无可用正文的提供商会短暂跳过（`provider_stalled`）。其余 `fetch.providers` 对未成功 URL 并发兜底，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。DeepSeek Search/Fetch 使用 `DEEPSEEK_API_KEY`；它是原始 JSON tools API，错误格式兼容 OpenAI，但不是 Chat Completions 接口。密钥优先读取进程环境，其次读取私有凭据文件，公共访问仍受限额影响。
+搜索 provider 包括 `exa`、`parallel`、`tavily`、`jina`、`deepseek`，以及可选的 `perplexity`（需要 `PERPLEXITY_API_KEY`；仅搜索）。Grok 和用户自定义 OpenAI 兼容模型通过独立的 `agentic_search` 返回回答，不是 URL provider。自定义模型使用 `custom_agentic` 配置 Base URL／模型／协议，并通过 `CUSTOM_AGENTIC_API_KEY` 认证；Responses 的 `native` 模式请求 `web_search`，提示模式不能保证上游联网。回答和引用不独立核验，也不并入 URL 结果。搜索第一轮由 `search.providers` 指定（Exa + Parallel），策略由 `search.strategy` 选择：`hedged`（默认）全并发，所有查询都有结果后最多再等 `search.grace_seconds`（默认 2）即返回；`staggered` 错峰，查询未全部解析才发下一家；`sequential` 按顺序逐家调用，只把未解析查询交给下一家；`wait_all` 等全部。首轮受 `search.deadline_seconds`（默认 10 秒）约束。provider 较慢时可用 `update_settings` 延长该值，设为 `null` 可取消期限。被放弃和未调用的 provider 分别记入 `routing.abandoned_providers` 与 `routing.not_attempted_providers`；已放弃的请求仍可能消耗服务额度。之后 `search.fallback_providers`（Tavily + 有 key 的 Jina）会读取未解析查询；设为空数组可关闭回退。provider 失败保留在 `batches` 中。收到 `quota_exhausted` 后会按服务提供的 `retry_after` 冷却该 provider；未提供时冷却 5 分钟，同时仍会尝试配置的其他回退服务。插件无法恢复已耗尽的服务额度。读取先用 `fetch.provider`，策略由 `fetch.strategy` 选择：`staggered`（默认）在当前提供商超过 `fetch.grace_seconds`（默认 25）仍未解决时并行下一家；`hedged` 全部并发；`sequential` 逐家等待；`grace_seconds` 设为 null 即回到逐家等待。被放弃的提供商记入 `abandoned_providers`；连续两次整批无可用正文的提供商会短暂跳过（`provider_stalled`）。其余 `fetch.providers` 对未成功 URL 并发兜底，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。DeepSeek Search/Fetch 使用 `DEEPSEEK_API_KEY`；它是原始 JSON tools API，错误格式兼容 OpenAI，但不是 Chat Completions 接口。密钥优先读取进程环境，其次读取私有凭据文件，公共访问仍受限额影响。
 
 ## 终端向导与就绪检查
 
@@ -64,6 +64,8 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`、`deepseek`（可选，�
   "professional_research": {"enabled": false, "provider": null,
     "openai": {"model": "gpt-5.6-sol", "max_tool_calls": 24},
     "parallel": {"processor": "pro"}},
+  "custom_agentic": {"enabled": false, "base_url": "", "model": "",
+    "api_mode": "chat_completions", "search_mode": "prompt"},
   "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest", "max_source_age_days": 30},
   "wiki_preflight": true,
   "freshness_days": 30,
@@ -74,7 +76,7 @@ provider 可选 `exa`、`parallel`、`tavily`、`jina`、`deepseek`（可选，�
 }
 ```
 
-优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；`max_total_characters` 默认 24000，超过 `fair_share_min`（默认 500）时按页分配。提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki_preflight`（默认 true）让 `plan_research` 检查 Wiki 与归档；`freshness_days`（默认 30）是本地过期阈值；`plan.max_characters`（默认 8000）与 `plan.homepage_limit` 控制输出大小和首页配额。旧 `plan.min_relevance` 配置继续兼容，不再过滤候选。`tool_scope` 是服务端 MCP 目录白名单：空列表沿用预设。`tool_scope_preset` 是预设：`quick`（默认，21 个日常工具）、`deep`／`all`（完整 43 个工具）。非空 `tool_scope` 覆盖预设；`BOOKMARK_RESEARCH_TOOL_SCOPE` 覆盖两者，空值恢复全部。被隐藏的工具会拒绝调用，需改设置或预设。DSH 插件只在环境变量存在时才转发。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
+优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch_web.archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；`max_total_characters` 默认 24000，超过 `fair_share_min`（默认 500）时按页分配。提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki_preflight`（默认 true）让 `plan_research` 检查 Wiki 与归档；`freshness_days`（默认 30）是本地过期阈值；`plan.max_characters`（默认 8000）与 `plan.homepage_limit` 控制输出大小和首页配额。旧 `plan.min_relevance` 配置继续兼容，不再过滤候选。`tool_scope` 是服务端 MCP 目录白名单：空列表沿用预设。`tool_scope_preset` 是预设：`quick`（默认，22 个日常工具）、`deep`／`all`（完整 44 个工具）。非空 `tool_scope` 覆盖预设；`BOOKMARK_RESEARCH_TOOL_SCOPE` 覆盖两者，空值恢复全部。被隐藏的工具会拒绝调用，需改设置或预设。DSH 插件只在环境变量存在时才转发。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
 
 `search.cache_seconds`（0–3600，默认 0）让短时间内的相同搜索直接返回进程内缓存，不再调用提供商；这些批次标记 `cached:true`，保留原 `retrieved_at`，不消耗提供商额度。`fetch.reuse_seconds`（0–86400，默认 0）让 `research_fetch` 对窗口内已保存正文的 URL 直接返回 `reused_sources`（保留原 ID 与检索时间，不追加新快照），不再联网，也不占抓取预算。`server.network_workers`（1–16）与 `server.max_pending_calls`（1–64，且不小于 worker 数）设置 stdio 服务端并发，重启服务后生效。
 

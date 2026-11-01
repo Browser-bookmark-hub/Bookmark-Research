@@ -16,13 +16,14 @@ from package_paths import is_package_dir
 class Settings:
     """Load on each operation so MCP clients can change preferences without restart."""
 
-    PROVIDERS = ("exa", "parallel", "tavily", "jina", "deepseek")
+    PROVIDERS = ("exa", "parallel", "tavily", "jina", "deepseek", "perplexity")
+    FETCH_PROVIDERS = ("exa", "parallel", "tavily", "jina", "deepseek")
     TOOL_SCOPE_PRESETS = ("all", "quick", "deep")
     # Daily context, retrieval, knowledge storage and provider-managed research.
     # Persistent inventories and diagnostics remain in the explicit full catalog.
     QUICK_TOOLS = (
         "sync_package", "index_status", "search_bookmarks", "get_context", "plan_research",
-        "search_web", "fetch_web", "search_archive", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
+        "search_web", "agentic_search", "fetch_web", "search_archive", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
         "research_services", "research_service_prepare", "research_service_start", "research_service_status",
         "research_service_result", "research_service_cancel", "research_service_attach",
         "get_settings", "update_settings")
@@ -83,6 +84,8 @@ class Settings:
                     "openai": {"model": "gpt-5.6-sol", "max_tool_calls": 24,
                                "allow_untested_model": False},
                     "parallel": {"processor": "pro"}},
+                "custom_agentic": {"enabled": False, "base_url": "", "model": "",
+                                   "api_mode": "chat_completions", "search_mode": "prompt"},
                 "wiki": {"directory": str(cls.data_directory() / "wiki"), "after_research": "suggest",
                          "max_source_age_days": 30},
                 "wiki_preflight": True,
@@ -112,7 +115,7 @@ class Settings:
         defaults = cls.defaults()
         if set(value) - set(defaults):
             raise ValueError("Unknown settings fields; credentials belong in the environment or private credential file")
-        for section in ("search", "fetch", "server", "archive", "research", "readiness", "professional_research", "wiki", "plan", "output"):
+        for section in ("search", "fetch", "server", "archive", "research", "readiness", "professional_research", "custom_agentic", "wiki", "plan", "output"):
             if not isinstance(value.get(section), dict) or set(value[section]) != set(defaults[section]):
                 raise ValueError("Invalid settings fields in " + section)
         for label, number, minimum, maximum in (
@@ -169,8 +172,13 @@ class Settings:
             if (not isinstance(providers, list) or not minimum <= len(providers) <= len(cls.PROVIDERS)
                     or any(p not in cls.PROVIDERS for p in providers) or len(set(providers)) != len(providers)):
                 raise ValueError(section + "." + field + " must select supported providers without duplicates")
-        if value["fetch"]["provider"] not in cls.PROVIDERS:
+        if value["fetch"]["provider"] not in cls.FETCH_PROVIDERS:
             raise ValueError("fetch.provider must select a supported provider")
+        for field in ("provider", "providers"):
+            configured = value["fetch"][field]
+            names = [configured] if field == "provider" else configured
+            if any(name not in cls.FETCH_PROVIDERS for name in names):
+                raise ValueError("fetch settings may select only providers that support page extraction")
         if type(value["archive"]["enabled"]) is not bool:
             raise ValueError("archive.enabled must be a boolean")
         directory = value["archive"]["directory"]
@@ -213,6 +221,24 @@ class Settings:
         processor = services["parallel"]["processor"]
         if not isinstance(processor, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", processor):
             raise ValueError("professional_research.parallel.processor must be a processor name")
+        custom = value["custom_agentic"]
+        if type(custom["enabled"]) is not bool:
+            raise ValueError("custom_agentic.enabled must be a boolean")
+        if custom["api_mode"] not in ("chat_completions", "responses"):
+            raise ValueError("custom_agentic.api_mode must be chat_completions or responses")
+        if custom["search_mode"] not in ("prompt", "native"):
+            raise ValueError("custom_agentic.search_mode must be prompt or native")
+        if custom["search_mode"] == "native" and custom["api_mode"] != "responses":
+            raise ValueError("custom_agentic native web search requires the Responses API")
+        if not isinstance(custom["base_url"], str) or len(custom["base_url"]) > 1024:
+            raise ValueError("custom_agentic.base_url must be a string up to 1024 characters")
+        if not isinstance(custom["model"], str) or len(custom["model"]) > 192:
+            raise ValueError("custom_agentic.model must be a string up to 192 characters")
+        if custom["enabled"]:
+            from grok_search import normalize_compatible_base_url
+            normalize_compatible_base_url(custom["base_url"])
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,191}", custom["model"]):
+                raise ValueError("custom_agentic.model must be a valid model identifier")
         wiki_directory = value["wiki"]["directory"]
         if not isinstance(wiki_directory, str) or not wiki_directory.strip() or "\x00" in wiki_directory:
             raise ValueError("wiki.directory must be a nonempty path")

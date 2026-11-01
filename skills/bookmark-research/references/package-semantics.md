@@ -7,8 +7,8 @@ These bundled analysis rules cover JSON files, fields and relationships. The run
 ## Files and fields
 
 Section JSON uses `format: "bookmark-canvas-section"`; `sectionType` distinguishes `permanent` and `temporary`. Files reside in the protocol directories `永久栏目/` / `Permanent/` and `临时栏目/` / `Temporary/`.
-- Chinese layout: `永久栏目/` (e.g. `A书签树.json`), `临时栏目/` (e.g. `常规链式/A-1.json`, `特殊临时栏目/Add.json`)
-- English layout: `Permanent/` (e.g. `A-PermanentBookmarks.json`), `Temporary/` (e.g. `General Chain/A-1.json`, `Special temporary/Add.json`)
+- Chinese layout: `永久栏目/` (e.g. `A书签树.json`), `临时栏目/` (e.g. `常规链式/A-1.json`, `特殊临时栏目/AI 推荐资源.json`)
+- English layout: `Permanent/` (e.g. `A-PermanentBookmarks.json`), `Temporary/` (e.g. `General Chain/A-1.json`, `Special temporary/AI Recommended Resources.json`)
 The entry `.canvas` stores `nodes[]`, `edges[]` and file mappings. In JSON mode, section content is not in separate Markdown files.
 
 One source represents one logical canvas. Each supplied directory may contain at most one entry `.canvas`. Supplying a renamed entry for the same `source_id` replaces the previous layout record; a partial export without an entry retains the previous layout.
@@ -30,7 +30,19 @@ One source represents one logical canvas. Each supplied directory may contain at
 
 File-node `file` and copy `inheritFrom` values are vault-relative paths. They may include package/vault prefixes or start directly at protocol directories (`永久栏目/`, `Permanent/`, `临时栏目/`, `Temporary/`). Resolve against the package file map. Do not select an arbitrary match for duplicate names, broken links or ambiguous references. External attachments are not section bookmark data.
 
-Temporary items must be classified by `type`: a folder can have `url:""`, and a bookmark can have `children:[]`. Field presence alone does not identify its kind.
+Temporary items must be classified by `type`: a folder can have `url:""`, and a bookmark can have `children:[]`. Field presence alone does not identify its kind. These empty fields are part of the current serialized shape, not a request to clean the package. The derived item index omits `children` from each item projection and omits empty folder URLs; this projection does not modify the original source snapshot, which retains the complete tree. Use `folder_id` to page through a subtree as flat rows carrying parent IDs, paths and positions, avoiding a repeated nested tree in each result. For source edits, reread the original node and preserve fields unrelated to the requested change. Missing/conflicting types, nonempty folder URLs or nonempty bookmark children require checking the original node and reporting the anomaly. Do not guess a type, discard content or rewrite the source to make indexing succeed. This temporary-item convention does not change permanent-tree rules.
+
+## Tool-based reading with or without the plugin (Core Red Line)
+
+**Core Red Line Invariant**: Small files may be read directly; when handling large files or full packages, **never dump entire files or large JSONs into the conversation context**; a standalone section JSON contains only node items and metadata without `.canvas` coordinates or connections; when reading an isolated section JSON without canvas topology, **never speculate on or hallucinate spatial positions or visual layouts**.
+
+Actually call available tools to read package data; examples are not evidence of a user's current content. When the companion plugin is available, prioritize querying its local SQLite index and MCP tools. If the plugin is unavailable, use the host's file reader, terminal or code execution tools (Python, Node.js, `jq`) without making installation a prerequisite. Check actual paths and byte sizes; use a reader for small files and local Python/Node.js/`jq` scripts to parse and slice large JSON or compact `.canvas` files.
+
+- **One card:** locate its node ID and resolved file reference, then read the required section description and `tree` / `items`, or a text card's body. A copy follows `inheritFrom` to its main tree. A standalone section JSON contains only node items and metadata without `.canvas` coordinates or connections; when reading an isolated section JSON without canvas topology, never speculate on or hallucinate spatial positions or visual layouts.
+- **Multiple cards:** extract a compact layout map, then expand the requested cards and relevant relations/text as described below. Return selected records and coverage rather than dumping full large files into context.
+- **Reusable queries:** for large packages, cross-card work or repeated queries, reuse the existing source index when possible; otherwise build a local in-memory map or derived SQLite index outside the package. A small one-off read needs no database. Retain source, section ID, item ID, parent path and sibling order; do not collapse instances by URL. With the plugin, use `get_context` for layout and `search_bookmarks` for items, respecting scopes and pagination. Partial input is not a complete mirror.
+
+Index/search results are projections, not replacement source objects: item `raw_json` omits `children`, and folder projections omit an empty `url`. The original source snapshot retains these fields. Search a folder with `folder_id` to read its descendants as paginated flat rows; parent IDs, paths and positions preserve tree structure without making an ancestor count as changed whenever a descendant changes. Compact responses omit additional fields. For a user-authorized edit, the host must reread the current original node, check for intervening file changes and preserve untouched values, descendants, metadata and unknown fields under the package guide. Validate the edited file and refresh the same `source_id` before querying again. Neither reading nor building an index calls for source cleanup.
 
 ## Interpreting relationships
 
@@ -75,6 +87,39 @@ The `tags` filter matches text only; returned `tags[].color` retains color. To c
 
 `section` can match an ID, slot, label or file path. Repeated labels can select multiple cards; use a section ID for a unique card. Without `item_id`, `get_context` returns section headers, nodes, groups and edges; empty `items` does not mean an empty tree. The empty `items` page carries a `scope_note` in `pagination.items` naming the parameter it needs; read a card's bookmarks with `search_bookmarks(section:…)` or `plan_research`. Its counts cover returned sections, not an item's subtree. Find folders with `search_bookmarks(item_types:["folder"])`, then pass `folder_id` and the desired item types to read the subtree. Paginate complete listings and distinguish `synthetic:true` roots from user folders. Use item context only for additional ancestor metadata or layout.
 
+Standard targeted tree read (replace IDs with values returned by the current source):
+
+```json
+{
+  "tool": "get_context",
+  "arguments": {
+    "source_id": "<current source ID>",
+    "section": "<section ID>",
+    "item_id": "<target item ID>",
+    "collection": "items",
+    "compact": true,
+    "limit": 1
+  }
+}
+```
+
+The selected item result includes its `ancestors`; use this for the exact folder path without loading the card's full tree. To inspect a selected folder's subtree, call `search_bookmarks` with `folder_id`, `item_types:["folder","bookmark"]`, and a bounded `limit`; continue at each returned `next_offset` until `null`. The page includes the selected folder and descendants, while `total` describes the full scoped result. Do not treat a page as complete when `next_offset` is non-null.
+
+```json
+{
+  "tool": "search_bookmarks",
+  "arguments": {
+    "source_id": "<current source ID>",
+    "section": "<section ID>",
+    "folder_id": "<target folder ID>",
+    "item_types": ["folder", "bookmark"],
+    "compact": true,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
 Derived FTS5 tables exist, but the public query does not use BM25 ranking, embeddings, webpage-body search or arbitrary SQL. Retaining an unknown field does not provide a filter or an interpretation rule for it.
 
 ## Temporal context
@@ -101,7 +146,7 @@ JSON/.canvas remains the source of truth; SQLite stores derived state and regist
 
 ## Provenance and maintenance
 
-Reading-rule version: `2026-09-09`. The protocol source is the public Bookmark Canvas [AGENTS templates](https://github.com/Browser-bookmark-hub/Bookmark-Canvas/tree/main/Bookmark-Canvas-main/history_html/transfer_AI_sync/AGENTS_template). These rules extract analysis semantics without binding the plugin to a particular user's package or paths. Check upstream protocol and parser changes during maintenance; queries do not require visiting that link.
+Reading-rule version: `2026-11-01`. The protocol source is the public Bookmark Canvas [AGENTS templates](https://github.com/Browser-bookmark-hub/Bookmark-Canvas/tree/main/Bookmark-Canvas-main/history_html/transfer_AI_sync/AGENTS_template). These rules extract analysis semantics without binding the plugin to a particular user's package or paths. Check upstream protocol and parser changes during maintenance; queries do not require visiting that link.
 
 | Protocol guide material | Where it is used |
 | --- | --- |

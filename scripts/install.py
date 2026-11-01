@@ -250,6 +250,8 @@ def _getting_started(installed_path, timeout=30, language="auto"):
         "settings_command": command,
         "guide_url": "https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/main/docs/" + message(
             "installation.en.md#first-use-and-data-locations", "installation.md#首次使用与数据位置"),
+        "configuration_guide_url": "https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/main/docs/" + message(
+            "configuration.en.md", "configuration.md"),
         "configuration": None, "configuration_summary": [], "configuration_error": None,
     }
     try:
@@ -287,6 +289,10 @@ def _print_getting_started(guide):
     configuration = guide.get("configuration") or {}
     if configuration.get("config_path"):
         print(message("Config file: ", "配置文件：") + configuration["config_path"])
+    if guide.get("configuration_guide_url"):
+        print(message("Configuration JSON guide: ", "JSON 配置说明：") + guide["configuration_guide_url"])
+    if guide.get("setup_command"):
+        print(message("Change preferences later: ", "之后修改设置：") + shlex.join(guide["setup_command"]))
     archive = configuration.get("settings", {}).get("archive", {})
     if archive.get("directory"):
         print(message("Archive directory: ", "归档目录：") + archive["directory"])

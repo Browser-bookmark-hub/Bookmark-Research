@@ -184,6 +184,22 @@ Settings(config).update(json.loads(patch))
         with self.assertRaises(ValueError):
             self.settings.update({"professional_research": {"openai": {"model": "Not A Model"}}})
 
+    def test_custom_agentic_endpoint_requires_valid_protocol_and_model(self):
+        endpoint = {"enabled": True, "base_url": "https://gateway.example/v1",
+                    "model": "vendor/search-model:online", "api_mode": "responses", "search_mode": "native"}
+        self.settings.update({"custom_agentic": endpoint})
+        self.assertEqual(self.settings.load()["custom_agentic"], endpoint)
+        invalid = [
+            {**endpoint, "base_url": "https://user:pass@gateway.example/v1"},
+            {**endpoint, "base_url": "https://gateway.example/v1?token=secret"},
+            {**endpoint, "api_mode": "chat_completions"},
+            {**endpoint, "model": "bad model"},
+        ]
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.settings.update({"custom_agentic": value})
+        self.assertNotIn("CUSTOM_AGENTIC_API_KEY", self.settings.path.read_text())
+
     def test_research_preferences_reject_credentials_bad_methods_and_wiki_in_package(self):
         invalid = [{"research": {"depth": "exhaustive"}}, {"research": {"methods": []}},
             {"research": {"methods": ["fact_check", "fact_check"]}},

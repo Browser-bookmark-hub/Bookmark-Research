@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 import json
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -351,13 +352,13 @@ class Onboarding:
         hints = {"exa": ("Exa search and reading", "Exa 搜索与阅读"), "parallel": ("Parallel search and extract", "Parallel 搜索与提取"),
                  "tavily": ("Tavily search and extract", "Tavily 搜索与提取"),
                  "jina": ("Jina Reader; search needs a key", "Jina Reader；搜索需要密钥"),
-                 "deepseek": ("DeepSeek Search / Fetch; needs a key", "DeepSeek 搜索／读取；需要密钥")}
-        # One ordered list answers the former search, fallback-search and reader
-        # questions: selected providers run concurrently and also read pages,
-        # unselected providers stay as the fallback search tier.
+                 "deepseek": ("DeepSeek Search / Fetch; needs a key", "DeepSeek 搜索／读取；需要密钥"),
+                 "perplexity": ("Perplexity structured Search; needs a key; page reading uses another provider", "Perplexity 结构化搜索；需要密钥；网页读取需使用其他服务")}
+        # The selected sources are the concurrent primary tier; the remaining
+        # providers form the fallback tier. Search-only providers are labeled.
         options = [Option(name, name, name, *hints.get(name, ("", None))) for name in Settings.PROVIDERS]
-        primary = console.multiselect("Search and page-reading services (concurrent, in this order)",
-                                      "搜索与正文读取服务（并发执行，按此顺序）", options, current["search"]["providers"])
+        primary = console.multiselect("Search sources (concurrent, in this order)",
+                                      "搜索来源（并发执行，按此顺序）", options, current["search"]["providers"])
         providers = list(primary)
         fallbacks = [name for name in Settings.PROVIDERS if name not in providers]
         storage = self._storage(current)
@@ -382,12 +383,59 @@ class Onboarding:
         elif service == "parallel":
             console.say("Parallel processor remains " + config["parallel"]["processor"] + "; change it with config set if needed.",
                         "Parallel processor 沿用 " + config["parallel"]["processor"] + "；可通过 config set 修改。")
+        custom = current["custom_agentic"]
+        custom_choice = console.select("Custom OpenAI-compatible model endpoint (optional)",
+            "自定义 OpenAI 兼容模型端点（可选）", [
+                Option("disabled", "Disabled", "关闭", "keep custom model search unavailable", "不启用自定义模型搜索"),
+                Option("enabled", "Configure endpoint", "配置端点",
+                       "separate answer channel; not merged into URL search results",
+                       "独立回答通道；不并入 URL 搜索结果")],
+            "enabled" if custom["enabled"] else "disabled")
+        if custom_choice == "enabled":
+            from grok_search import normalize_compatible_base_url
+
+            def check_base_url(value):
+                try:
+                    normalize_compatible_base_url(value)
+                except ValueError as error:
+                    return (str(error), "请输入有效的 HTTP(S) Base URL，不要包含密钥、查询参数或片段。")
+                return None
+
+            base_url = normalize_compatible_base_url(console.input(
+                "OpenAI-compatible Base URL (for example https://gateway.example/v1)",
+                "OpenAI 兼容 Base URL（例如 https://gateway.example/v1）",
+                custom["base_url"], check_base_url))
+
+            def check_model(value):
+                return None if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,191}", value) else (
+                    "Use a model ID with letters, numbers, '.', '_', ':', '/', '+' or '-'.",
+                    "模型 ID 仅可包含字母、数字及 . _ : / + -。")
+
+            model = console.input("Model ID", "模型 ID", custom["model"], check_model)
+            api_mode = console.select("API protocol", "API 协议", [
+                Option("chat_completions", "Chat Completions", "Chat Completions"),
+                Option("responses", "Responses", "Responses")], custom["api_mode"])
+            search_options = [Option("prompt", "Ask the upstream model to use its own web search",
+                                     "提示上游模型使用其自身联网搜索",
+                                     "the endpoint must provide this capability",
+                                     "端点必须自己具备联网能力")]
+            if api_mode == "responses":
+                search_options.append(Option("native", "Request the Responses web_search tool",
+                                             "请求 Responses web_search 工具",
+                                             "the upstream must implement this tool",
+                                             "上游必须支持此工具"))
+            search_mode = console.select("Search capability", "搜索能力", search_options,
+                                         custom["search_mode"] if any(row.value == custom["search_mode"] for row in search_options) else "prompt")
+            custom_agentic = {"enabled": True, "base_url": base_url, "model": model,
+                              "api_mode": api_mode, "search_mode": search_mode}
+        else:
+            custom_agentic = {"enabled": False}
         # Only changed values are returned, so an unchanged answer keeps the saved
         # Wiki follow-up, readiness policy and archive toggle exactly as they were.
         result = {"research": {"depth": depth, "response_language": language},
                   "search": {"providers": providers, "fallback_providers": fallbacks},
                   "fetch": {"provider": providers[0], "providers": providers},
-                  "professional_research": services}
+                  "professional_research": services, "custom_agentic": custom_agentic}
         result.update(storage)
         return result
 
@@ -432,14 +480,16 @@ class Onboarding:
         console.note("API keys", "API 密钥", [
             ("Retrieval adapters are included; anonymous search/reading works where the provider permits it.",
              "检索适配器已包含在插件中；服务方允许时可使用匿名搜索和阅读。"),
+            ("Select keys for services enabled above; use Space to select, Enter to continue. You can skip this step.",
+             "选择上面启用的服务所需的密钥；空格勾选、回车继续，也可以跳过。"),
             ("Host MCP OAuth login stays in the host. An OpenAI API key is separate from a ChatGPT/Codex login.",
              "宿主 MCP 的 OAuth 登录由宿主管理；OpenAI API Key 与 ChatGPT/Codex 登录分开。"),
             ("Keys are hidden and saved in a local, unencrypted file readable only by your user: " + str(self.credentials.path),
              "密钥隐藏输入，并保存为仅当前用户可读的本地明文文件：" + str(self.credentials.path)),
             ("Environment variables override saved keys. Select nothing to configure credentials later.",
              "环境变量优先于保存的密钥；不选择即可稍后配置。"),
-            ("Guidance: exa.ai/docs/reference/exa-mcp · docs.parallel.ai · docs.tavily.com · jina.ai/reader · platform.openai.com/api-keys",
-             "说明：exa.ai/docs/reference/exa-mcp · docs.parallel.ai · docs.tavily.com · jina.ai/reader · platform.openai.com/api-keys")])
+            ("Key names and storage: https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/main/docs/configuration.en.md",
+             "Key 名称与保存位置说明：https://github.com/Browser-bookmark-hub/Bookmark-Research/blob/main/docs/configuration.md")])
         status = {"environment": ("set in environment (overrides saved key)", "环境变量已设置（优先于保存的密钥）"),
                   "private_file": ("configured, not yet verified", "已配置，尚未验证"), None: ("missing", "未配置")}
         options = [Option(row["name"], row["name"].split("_")[0].lower(), None, *status[row["source"] if row["configured"] else None], hint_always=True)

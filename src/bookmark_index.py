@@ -531,8 +531,12 @@ class BookmarkIndex:
                     "tag_text": "\n".join(tag["text"] for tag in normalized),
                     "path_json": _dump(list(titles)), "folder_path": " / ".join(titles),
                     "ancestor_ids_json": _dump(list(ancestor_ids)),
-                    # Full child arrays also survive in files/sections.raw_json.
-                    "raw_json": _dump({key: value for key, value in node.items() if key != "children"}),
+                    # Keep tree structure in parent_id/path/position and in the
+                    # source-file snapshot; duplicating descendants here makes
+                    # every ancestor appear changed when one child is edited.
+                    "raw_json": _dump({key: value for key, value in node.items()
+                                       if key != "children"
+                                       and not (item_type == "folder" and key == "url" and value == "")}),
                     "metadata_json": _dump(item_meta if permanent else {key: node[key] for key in ("tags", "note", "noteColor") if key in node}),
                     "added_at": added[0], "added_at_source": added[1], "added_at_confidence": added[2],
                 }))
@@ -1152,8 +1156,10 @@ class BookmarkIndex:
     def _item_result(self, row, anchors=None, section_cache=None):
         keys = row.keys()
         result = {key: row[key] for key in ("source_id", "section_id", "item_id", "parent_id", "item_type", "title",
-                                            "url", "note", "note_color", "position")
+                                            "note", "note_color", "position")
                   + (("added_at", "added_at_source", "added_at_confidence") if "added_at" in keys else ())}
+        if row["item_type"] != "folder" or row["url"]:
+            result["url"] = row["url"]
         result["added_at_precision"] = ADDED_AT_SOURCES.get(result.get("added_at_source"), (None,))[0]
         result.update(source=row["source_id"], section=row["section_id"], item=row["item_id"],
             path=json.loads(row["path_json"]), folder_path=row["folder_path"], tags=json.loads(row["tags_json"]),

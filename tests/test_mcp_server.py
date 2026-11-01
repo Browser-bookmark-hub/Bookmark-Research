@@ -78,7 +78,7 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual({tool["name"] for tool in listing}, {
             "sync_package", "source_history", "search_bookmarks", "get_context", "plan_research", "discovery_bundle", "index_status",
             "source_remove", "source_merge",
-            "search_web", "fetch_web", "search_providers", "search_archive", "get_settings", "update_settings", "research_readiness",
+            "search_web", "agentic_search", "fetch_web", "search_providers", "search_archive", "get_settings", "update_settings", "research_readiness",
             "research_start", "research_status", "research_search", "research_fetch",
             "research_source", "research_record", "research_finish", "research_inventory",
             "research_coverage", "research_import_evidence", "research_route", "research_services",
@@ -99,6 +99,17 @@ class McpServerTests(unittest.TestCase):
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server._providers)
         self.assertEqual(self.server.handle(request("ping"))["result"], {})
+
+    def test_custom_agentic_search_uses_separate_configured_answer_channel(self):
+        self.ready()
+        self.settings.update({"custom_agentic": {"enabled": True, "base_url": "https://gateway.example/v1",
+            "model": "search-model", "api_mode": "responses", "search_mode": "native"}})
+        expected = {"provider": "custom", "model": "search-model", "answer": "Answer", "citations": []}
+        with mock.patch("grok_search.OpenAICompatibleAgenticSearch.search", return_value=expected) as search:
+            response = self.call("agentic_search", {"provider": "custom", "query": "question"})
+        self.assertFalse(response["result"]["isError"], response)
+        self.assertEqual(decode_tool(response), expected)
+        search.assert_called_once_with(query="question")
 
 
 

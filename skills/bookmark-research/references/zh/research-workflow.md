@@ -15,9 +15,12 @@
 | Jina | HTTP Reader 为读取备用；有 key 时 Search 为搜索备用 | `fetch_web` 的 `jina` 支持限额内匿名读取网页／PDF；Search 需要 `JINA_API_KEY`，自动回退时缺 key 会跳过。无需另装 MCP。 |
 | Tavily | 默认搜索备用；提取可单独选择 | 同一工具传 `tavily`，或加入 `fetch.providers`；有 `TAVILY_API_KEY` 使用 Bearer，否则明确 keyless 模式；额度以服务返回为准 |
 | DeepSeek | 可选 Search／Fetch provider；原始 JSON tools API | 显式传 `deepseek` 或加入 provider 列表；需要 `DEEPSEEK_API_KEY`。Search 返回 title/url/summary（可选 content）；Fetch 返回单页 Markdown。错误格式兼容 OpenAI，但不是 Chat Completions。 |
+| Perplexity | 可选结构化 Search API；仅搜索 | 加入 `search.providers` 或 `search.fallback_providers`；需要 `PERPLEXITY_API_KEY`。返回排序后的 title/URL/snippet，不生成回答也不抓取网页；请另配正文读取服务。 |
+| xAI Grok | 可选模型生成的 Agentic 搜索；与 URL 聚合分开 | 仅在明确需要时调用 `agentic_search`；需要 `XAI_API_KEY`。回答与引用分开返回。`include_x:true` 会额外调用 X Search，可能产生额外费用。 |
+| 自定义 OpenAI 兼容模型 | 可选 Chat Completions／Responses 模型端点；与 URL 聚合分开 | 通过 setup 或设置配置 `custom_agentic` 的 Base URL／模型／协议及 `CUSTOM_AGENTIC_API_KEY`。Responses 的 `native` 模式才会请求 `web_search`；提示模式不能保证上游联网。返回模型回答和未经独立核验的引用，不作为结构化 URL provider 批次。 |
 | GitHub | 未内置专用 MCP；可配合宿主已有工具 | 公开网页可 `fetch_web`；代码、issue、release 的专项查询见 [GitHub 路由](github-and-sync.md) |
 
-先识别实际可用工具，沿用用户选定的服务与范围。`search_providers` 分操作描述认证条件；probe 检查远程 MCP 的工具列表，Jina 与 DeepSeek 则返回本地 HTTP 接口映射，不进行联网探测。配置条目不证明服务在线。调用参数与限额见 [CLI 参考](cli.md)。
+先识别实际可用工具，沿用用户选定的服务与范围。`search_providers` 分操作描述认证条件；probe 检查远程 MCP 的工具列表，Jina、DeepSeek 与 Perplexity 则返回本地 HTTP 接口映射，不进行联网探测。配置条目不证明服务在线。Grok 和自定义 OpenAI 兼容端点通过独立的 `agentic_search` 调用，不属于 URL 搜索 provider。调用参数与限额见 [CLI 参考](cli.md)。
 
 ## 选择目标与研究深度
 
@@ -33,7 +36,7 @@ Exa Agent、Parallel Task 和 OpenAI Deep Research 是独立研究接口，认�
 
 ## 合并与核验
 
-`search_web` 默认并行调用 Exa + Parallel。输入 `targets:[{target,query}]`；`target` 为稳定目标标签，同一目标可以多次查询；也可直接传纯查询字符串，等价于 `{target: s, query: s}`。按目标分别合并、去重、排序和限额；返回的 `batches` 与结果 `sources` 保留 provider、query、URL、排名及检索时间。排名分数只决定展示顺序。
+`search_web` 默认并行调用 Exa + Parallel；Perplexity 可加入同一 provider 列表，其结构化结果先归一化，再按目标合并、去重、排序和限额。输入 `targets:[{target,query}]`；`target` 为稳定目标标签，同一目标可以多次查询；也可直接传纯查询字符串，等价于 `{target: s, query: s}`。返回的 `batches` 与结果 `sources` 保留 provider、query、URL、排名及检索时间。排名分数只决定展示顺序。Grok 与自定义模型的 `agentic_search` 返回模型生成的回答和引用，不加入 URL 排名；自定义端点是否联网取决于上游，引用未经独立核验。
 
 某个查询在第一轮仍无有效 HTTP(S) 结果时，自动并发调用 `search.fallback_providers`，默认为 Tavily + 有 key 的 Jina；已有一路成功的查询不重跑。单次明确传 `providers` 会关闭自动补充服务。备用服务缺 key 时不联网，列在 `routing.skipped_providers`。检查 `unresolved_queries` 和预算不足的 `remaining_attempts`；每个备用 provider／目标／query 调用前预留一次预算。新研究会话冻结备用列表；显式会话 providers 和旧会话不会静默加入其他服务。
 

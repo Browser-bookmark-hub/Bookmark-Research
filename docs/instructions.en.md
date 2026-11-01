@@ -18,6 +18,7 @@ Bookmark Research has one execution Skill and one runtime. The execution Skill a
 | Host workflows | [Read](../skills/bookmark-research/references/host-workflows.md) | [阅读](../skills/bookmark-research/references/zh/host-workflows.md) |
 | Professional services | [Read](../skills/bookmark-research/references/research-services.md) | [阅读](../skills/bookmark-research/references/zh/research-services.md) |
 | Settings and archives | [Read](../skills/bookmark-research/references/settings-and-archive.md) | [阅读](../skills/bookmark-research/references/zh/settings-and-archive.md) |
+| User settings JSON | [Read](configuration.en.md) | [阅读](configuration.md) |
 | GitHub and sync | [Read](../skills/bookmark-research/references/github-and-sync.md) | [阅读](../skills/bookmark-research/references/zh/github-and-sync.md) |
 | Wiki | [Read](../skills/bookmark-research/references/wiki.md) | [阅读](../skills/bookmark-research/references/zh/wiki.md) |
 | Host prompt reference | [Read](prompt-reference.en.md) | [阅读](prompt-reference.md) |

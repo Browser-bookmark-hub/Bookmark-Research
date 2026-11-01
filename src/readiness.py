@@ -116,6 +116,9 @@ class Readiness:
         if test_retrieval:
             operations = copy.deepcopy(row["operations"])
             for purpose in ("search", "fetch"):
+                if not self.web.registry["providers"][name].get(purpose + "_tools"):
+                    operations[purpose]["status"] = "unsupported"
+                    continue
                 if operations[purpose]["missing"]:
                     operations[purpose]["status"] = "missing_credentials"
                     continue
@@ -140,8 +143,18 @@ class Readiness:
                     "capabilities": probe["capabilities"],
                     "next_step": "Search/fetch can be attempted. Catalog discovery does not verify retrieval authorization or quota."}
         if probe["status"] == "not_probed":
+            missing = sorted({key for operation in row.get("operations", {}).values()
+                              for key in operation.get("missing", [])})
+            supported = [purpose for purpose in ("search", "fetch")
+                         if self.web.registry["providers"][name].get(purpose + "_tools")]
+            guidance = []
+            if missing:
+                guidance.append("Configure " + ", ".join(missing) + ".")
+            if supported:
+                guidance.append("Supported operations: " + ", ".join(supported) + ".")
+            guidance.append("Use --test-retrieval for an actual check; this may use provider quota.")
             return {"status": "http_unchecked", "network_checked": False,
-                    "next_step": "Reader can be attempted anonymously; Search needs JINA_API_KEY. Use --test-retrieval for an actual check."}
+                    "next_step": " ".join(guidance)}
         return {"status": "failed", "network_checked": True,
                 "error_kind": probe.get("error_kind", "check_failed"),
                 "next_step": "Check credentials and connectivity, then refresh; another configured provider may remain available."}

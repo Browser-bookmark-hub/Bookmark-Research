@@ -1,0 +1,36 @@
+{
+  "research": {
+    "depth": "auto",
+    "prefer_host_workflows": true,
+    "response_language": "auto",
+    "methods": ["comparative_analysis", "fact_check", "benchmark_review"]
+  },
+  "search": {
+    "providers": ["exa", "parallel", "perplexity"],
+    "fallback_providers": ["tavily", "jina"],
+    "limit_per_target": 5,
+    "strategy": "hedged"
+  },
+  "fetch": {
+    "provider": "exa",
+    "providers": ["exa", "parallel", "jina"],
+    "strategy": "staggered",
+    "max_characters": 12000
+  },
+  "custom_agentic": {
+    "enabled": false,
+    "base_url": "https://gateway.example/v1",
+    "model": "provider/model-name",
+    "api_mode": "chat_completions",
+    "search_mode": "prompt"
+  },
+  "archive": {
+    "enabled": true
+  },
+  "wiki": {
+    "after_research": "suggest"
+  },
+  "output": {
+    "mode": "central"
+  }
+}

@@ -30,6 +30,8 @@ REQUIRED_FILES = (
     "src/bookmark_index.py",
     "src/cli.py",
     "src/credentials.py",
+    "src/perplexity.py",
+    "src/grok_search.py",
     "src/onboarding.py",
     "src/package_paths.py",
     "src/readiness.py",

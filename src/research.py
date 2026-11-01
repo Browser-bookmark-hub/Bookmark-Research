@@ -526,7 +526,8 @@ class ResearchSessions:
             self._integer(limit, key, 0, self.LIMITS[key])
         preferences = self.settings.load()
         names = self._providers(providers if providers is not None else preferences["search"]["providers"])
-        fetch_names = names[:] if providers is not None else Settings.fetch_providers(preferences)
+        fetch_names = ([name for name in names if name in Settings.FETCH_PROVIDERS]
+                       or Settings.fetch_providers(preferences)) if providers is not None else Settings.fetch_providers(preferences)
         search_fallbacks = [] if providers is not None else [name for name in preferences["search"]["fallback_providers"]
                                                           if name not in names]
         if not isinstance(scope, str) or len(scope) > 12000 or "\x00" in scope:

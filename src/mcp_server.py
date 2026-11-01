@@ -15,6 +15,7 @@ from pathlib import Path
 
 from release import release_version
 from settings import Settings
+from credentials import Credentials
 
 
 PROTOCOLS = ("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
@@ -48,8 +49,8 @@ SETTINGS_SCHEMA = _object_schema({
         "grace_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
         "deadline_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
         "cache_seconds": {"type": "integer", "minimum": 0, "maximum": 3600}}),
-    "fetch": _object_schema({"provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
-        "providers": PROVIDERS,
+    "fetch": _object_schema({"provider": {"type": "string", "enum": list(Settings.FETCH_PROVIDERS)},
+        "providers": dict(_array_schema({"type": "string", "enum": list(Settings.FETCH_PROVIDERS)}, len(Settings.FETCH_PROVIDERS), 1), uniqueItems=True),
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
         "max_total_characters": {"type": "integer", "minimum": 100, "maximum": 800000},
         "fair_share_min": {"type": "integer", "minimum": 0, "maximum": 100000},
@@ -70,6 +71,11 @@ SETTINGS_SCHEMA = _object_schema({
             "max_tool_calls": {"type": "integer", "minimum": 1, "maximum": 1000},
             "allow_untested_model": {"type": "boolean"}}),
         "parallel": _object_schema({"processor": _text_schema(64)})}),
+    "custom_agentic": _object_schema({
+        "enabled": {"type": "boolean"}, "base_url": _text_schema(1024),
+        "model": _text_schema(192),
+        "api_mode": {"type": "string", "enum": ["chat_completions", "responses"]},
+        "search_mode": {"type": "string", "enum": ["prompt", "native"]}}),
     "wiki": _object_schema({"directory": _text_schema(4096),
         "max_source_age_days": {"type": "integer", "minimum": 1, "maximum": 3650},
         "after_research": {"type": "string", "enum": ["suggest", "auto", "off"]}}),
@@ -153,9 +159,15 @@ TOOL_SCHEMAS = {
         "providers": PROVIDERS,
         "limit_per_target": {"type": "integer", "minimum": 1, "maximum": 20},
     }, ["targets"]),
+    "agentic_search": _object_schema({
+        "query": _text_schema(12000),
+        "provider": {"type": "string", "enum": ["grok", "custom"], "default": "grok"},
+        "include_x": {"type": "boolean", "default": False,
+                      "description": "Also search public X posts. This may incur additional provider charges."},
+    }, ["query"]),
     "fetch_web": _object_schema({
         "urls": _array_schema(_text_schema(8192), 16, 1),
-        "provider": {"type": "string", "enum": list(PROVIDER_NAMES)},
+        "provider": {"type": "string", "enum": list(Settings.FETCH_PROVIDERS)},
         "archive": {"type": "boolean"},
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
         "max_total_characters": {"type": "integer", "minimum": 100, "maximum": 800000,
@@ -195,8 +207,9 @@ TOOL_DESCRIPTIONS = {
     "discovery_bundle": "Assemble the route-② evidence bundle and decide the budget. Pass every source the host collected: only content_state=usable pages become evidence, the rest are listed with the reason they cannot be cited. The bundle is built at the richest level that fits max_characters (excerpts, then digest, then a plain URL list) and always keeps the URL list, so it degrades instead of returning nothing. steps, fetches, variants and elapsed_seconds are the host's own counters, and the plugin owns the decision: stop when budget.continue is false (steps ≤ 6, fetches ≤ 8, variants ≤ 3, 90 seconds). Cite evidence[].id in the answer; never cite a URL that has no evidence entry.",
     "index_status": "Read source modes, snapshots, counts, input availability, pending changes and monitor errors. No refresh or web fetch; unchecked means a live directory needs a recent check.",
     "search_web": "Discover sources for public queries with saved primary providers, then fallbacks for unresolved queries. search.strategy selects hedged (default), staggered, sequential or wait_all. Hedged/staggered primary search has a 10-second default search.deadline_seconds; routing lists providers abandoned at the deadline. Raise this setting or set it to null with update_settings when slower providers need more time. Provider failures remain visible in batches; quota_exhausted providers enter cooldown (using provider retry_after when supplied), while other configured fallbacks are still attempted. Explicit providers restrict the call. Targets accept target/query objects or plain query strings. Results are discovery snippets; pages are not fetched. Each result carries provider_count and corroborated: two or more providers returning one URL means link overlap, never confirmation of its content.",
+    "agentic_search": "Optional model answer/search channel, separate from search_web URL fusion. provider=grok (default) uses xAI Responses and XAI_API_KEY; include_x enables X Search. provider=custom uses the configured custom_agentic OpenAI-compatible endpoint and CUSTOM_AGENTIC_API_KEY; native web search is only requested for Responses mode when explicitly configured. Prompt mode cannot guarantee the upstream actually searches. Citations are not independently verified. Use only when selected by the user or workflow.",
     "fetch_web": "Read known URLs directly (up to 16 per call) with per-page and total text budgets. Continue saved text using capture_id and offset without refetching. Omit provider for the saved fallback order (fetch.strategy overlaps a stalled provider); specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing. Every page carries content_state, the page's own shape: usable, content_insufficient (under 400 characters or an empty-page marker), js_shell_suspected (a title and navigation but no prose), challenge_blocked, login_required (an SSO or sign-in wall), soft_404 or paywall_suspected; only usable pages are worth citing, and unavailable means no body was obtained. published_at is a day-precision date with published_at_source (provider_metadata, structured_metadata or body_date) and published_at_confidence; a bare date in the text is low confidence and never later than the fetch day. A URL with no body carries liveness: dead only for 404/410, otherwise unknown, and dead_urls lists them.",
-    "search_providers": "Describe retrieval capabilities and per-operation auth. probe=true checks MCP catalogs, not successful retrieval. Jina Reader allows anonymous access; Jina Search needs a key. Configure credentials through CLI setup, never chat.",
+    "search_providers": "Describe configured retrieval capabilities and per-operation auth. Includes Exa, Parallel, Tavily, Jina, DeepSeek and optional Perplexity structured Search. probe=true checks remote MCP catalogs, not successful retrieval; HTTP APIs (Jina, DeepSeek, Perplexity) are reported as not probed. Perplexity is search-only and requires PERPLEXITY_API_KEY. Configure credentials through CLI setup, never chat.",
     "search_archive": "Search saved page text across local archives and research tasks using literal terms. No network. Identical bodies are merged by hash; occurrences have their own pagination. Hash-mismatched bodies are skipped and counted; the index refreshes incrementally.",
 }
 
@@ -740,6 +753,15 @@ class StdioMcpServer:
             return result
         if name == "search_web":
             return self._web().search(**arguments)
+        if name == "agentic_search":
+            from grok_search import GrokSearch, OpenAICompatibleAgenticSearch
+            provider = arguments.pop("provider", "grok")
+            if provider == "grok":
+                return GrokSearch(Credentials(self.settings), self.settings.load()["timeout_seconds"]).search(**arguments)
+            if arguments.get("include_x"):
+                raise ValueError("include_x is available only for the Grok provider")
+            return OpenAICompatibleAgenticSearch(
+                self.settings, Credentials(self.settings), self.settings.load()["timeout_seconds"]).search(**arguments)
         if name == "fetch_web":
             from archive import SourceArchive
             options = dict(arguments)
@@ -801,7 +823,7 @@ class StdioMcpServer:
             return arguments.get("probe", False)
         if name == "research_readiness":
             return not arguments.get("offline", False)
-        return name in {"search_web", "research_search", "research_fetch", "wiki_refresh",
+        return name in {"search_web", "agentic_search", "research_search", "research_fetch", "wiki_refresh",
                         "research_service_start", "research_service_status", "research_service_result",
                         "research_service_cancel", "research_service_attach", "research_service_import"}
 

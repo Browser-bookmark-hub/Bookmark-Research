@@ -1,6 +1,6 @@
 # 三宿主接入与验证边界
 
-Codex、Claude Code、DeepSeek Harness 共用同一 Skill、Python CLI、stdio MCP、归档和 Wiki。宿主负责推理、搜索策略、协作与最终表达；插件默认提供 21 个日常工具。研究 API 可独立使用，完整资料审计及持久化研究记录通过 `deep` 预设按需启用。
+Codex、Claude Code、DeepSeek Harness 共用同一 Skill、Python CLI、stdio MCP、归档和 Wiki。宿主负责推理、搜索策略、协作与最终表达；插件默认提供 22 个日常工具。`search_web` 聚合插件配置的来源；Perplexity 是可选结构化搜索来源，Grok 则通过独立 `agentic_search` 返回模型回答与引用。研究 API 可独立使用，完整资料审计及持久化研究记录通过 `deep` 预设按需启用。
 
 | 宿主 | 接入 | 协作 |
 | --- | --- | --- |

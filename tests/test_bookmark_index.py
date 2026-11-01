@@ -52,9 +52,9 @@ def make_package(root):
     write_json(root, TEMP, {
         "format": "bookmark-canvas-section", "schemaVersion": 2, "sectionType": "temporary",
         "id": "temp-section-A-1", "label": "A-1", "title": "示例", "tempKind": "regular",
-        "items": [{"id": "temp-folder", "sectionId": "temp-section-A-1", "type": "folder", "title": "研究", "children": [
+        "items": [{"id": "temp-folder", "sectionId": "temp-section-A-1", "type": "folder", "title": "研究", "url": "", "children": [
             {"id": "temp-one", "sectionId": "temp-section-A-1", "type": "bookmark", "title": "模型资料",
-                "url": "https://example.test/alpha", "note": "临时笔记", "noteColor": "blue", "tags": [{"color": "green", "text": "关注"}]},
+                "url": "https://example.test/alpha", "children": [], "note": "临时笔记", "noteColor": "blue", "tags": [{"color": "green", "text": "关注"}]},
             {"id": "temp-two", "sectionId": "temp-section-A-1", "type": "bookmark", "title": "100X完成", "url": "https://example.test/other"},
         ]}],
     })
@@ -198,6 +198,29 @@ class IndexBehaviorTests(unittest.TestCase):
         self.assertEqual([entry["item_id"] for entry in item["ancestors"]], ["root", "companies"])
         self.assertNotIn("tree", context["sections"][0]["raw_json"])
         self.assertTrue(context["sections"][0]["raw_json"]["unknown_header"]["keep"])
+
+    def test_index_projection_drops_empty_placeholder_fields_and_preserves_source(self):
+        result = self.index.search("demo", item_types=["folder"], limit=10)
+        folder = next(row for row in result["results"] if row["item_id"] == "temp-folder")
+        self.assertNotIn("url", folder)
+        self.assertNotIn("url", folder["raw_json"])
+        self.assertNotIn("children", folder["raw_json"])
+
+        subtree = self.index.search("demo", folder_id="temp-folder",
+                                    item_types=["folder", "bookmark"], limit=10)
+        self.assertEqual(["temp-folder", "temp-one", "temp-two"],
+                         [row["item_id"] for row in subtree["results"]])
+        self.assertEqual(["temp-one", "temp-two"],
+                         [row["item_id"] for row in subtree["results"] if row["parent_id"] == "temp-folder"])
+
+        bookmark = self.index.search("demo", targets=["模型资料"], limit=1)["results"][0]
+        self.assertNotIn("children", bookmark["raw_json"])
+
+        stored = json.loads(self.index.connection.execute(
+            "SELECT raw_json FROM files WHERE source_id='demo' AND file_path=?", (TEMP,)).fetchone()[0])
+        stored_folder = stored["items"][0]
+        self.assertEqual("", stored_folder["url"])
+        self.assertEqual([], stored_folder["children"][0]["children"])
 
     def test_persistent_reopen_hash_skip_and_fts_content(self):
         old = self.revisions()

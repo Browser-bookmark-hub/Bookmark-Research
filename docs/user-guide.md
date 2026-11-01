@@ -52,7 +52,7 @@ MCP 进程运行期间及查询前会检查 live 目录。一次性 CLI 命令�
 
 搜索结果条数不限制数据包范围；长度参数不保证完整正文。API 结果与完整审计的任务证据独立保存，不受普通网页归档开关影响。
 
-可运行 `python3 <插件根目录>/src/cli.py setup` 引导设置偏好并隐藏输入密钥。密钥优先从宿主环境读取，其次读取配置旁的私有 `credentials.json`：`EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`；OpenAI 专业研究使用 `OPENAI_API_KEY`。访问和额度取决于服务方。宿主自身研究无需另配专业研究服务密钥。
+可运行 `python3 <插件根目录>/src/cli.py setup` 引导配置偏好、可选自定义 OpenAI 兼容模型端点并隐藏输入密钥。密钥优先从宿主环境读取，其次读取配置旁的私有 `credentials.json`，包括 `CUSTOM_AGENTIC_API_KEY`。自定义端点配置 Base URL、模型和 Chat Completions／Responses 协议；Responses 原生 `web_search` 需明确启用且上游支持，提示模式也不能保证上游实际联网。自定义模型与 Grok 通过 `agentic_search` 独立返回回答和引用，不参与 URL 排名；引用不会独立核验。Perplexity Search 是结构化 URL 来源。`search_web` 只聚合 Bookmark Research 自己配置的来源；宿主模型负责调用当前会话可见的其他搜索 MCP 并综合证据。
 
 需要诊断访问问题时，可用高级 `research_readiness` 检查所选服务和已观察到的宿主工具；cached／always／manual 控制频率，本地查询保持离线。setup 展示可选原生 MCP 的接入／授权步骤，实际 OAuth 由宿主管理。已填密钥、工具可见与实际操作成功分别报告，检查不会创建付费研究任务。详见[配置与就绪检查](../skills/bookmark-research/references/zh/settings-and-archive.md)。
 

@@ -7,8 +7,8 @@
 ## 文件与字段
 
 栏目 JSON 的 `format` 为 `bookmark-canvas-section`，`sectionType` 区分 `permanent` / `temporary`；文件分别位于正式协议目录 `永久栏目/`（或 `Permanent/`）与 `临时栏目/`（或 `Temporary/`）。
-- 中文目录：`永久栏目/`（如 `A书签树.json`）、`临时栏目/`（如 `常规链式/A-1.json`、`特殊临时栏目/添加.json`）
-- 英文目录：`Permanent/`（如 `A-PermanentBookmarks.json`）、`Temporary/`（如 `General Chain/A-1.json`、`Special temporary/Add.json`）
+- 中文目录：`永久栏目/`（如 `A书签树.json`）、`临时栏目/`（如 `常规链式/A-1.json`、`特殊临时栏目/AI 推荐资源.json`）
+- 英文目录：`Permanent/`（如 `A-PermanentBookmarks.json`）、`Temporary/`（如 `General Chain/A-1.json`、`Special temporary/AI Recommended Resources.json`）
 入口 `.canvas` 保存 `nodes[]`、`edges[]` 与文件映射。JSON 模式的栏目正文不在独立 Markdown 文件里。
 
 一个来源对应一个逻辑画布，每次提供的目录最多有一个入口 `.canvas`。对同一 `source_id` 提供改名后的入口时，会替换此前的画布布局记录；局部导出没有入口时继续保留此前布局。
@@ -30,7 +30,19 @@
 
 文件节点的 `file` 与 `inheritFrom` 使用 vault 相对路径，可能包含包名和 vault 子目录前缀，也可能直接从协议目录（`永久栏目/`、`Permanent/`、`临时栏目/`、`Temporary/`）开始。导入器按包内文件映射解析，不能把同名、断链或多义引用默认为任意一个匹配；外部附件不是栏目书签数据。
 
-临时项按 `type` 分类：文件夹可能有 `url:""`，书签也可能有 `children:[]`；不能仅按字段是否存在判断类型。
+临时项按 `type` 分类：文件夹可能有 `url:""`，书签也可能有 `children:[]`；不能仅按字段是否存在判断类型。这些空字段属于当前序列化形状，不是要求清理原包。派生条目索引会在每条 item 投影中省略 `children`，并省略 folder 的空 URL；原始源快照仍保留完整树，不会被投影改写。用 `folder_id` 分页读取子树，结果以扁平条目返回并保留 parent ID、路径和顺序，避免每个祖先重复携带整棵子树。编辑源文件时须回读原节点，无关字段按原样保留。类型缺失/冲突、folder 非空 URL 或 bookmark 非空 children 时，核对原节点并报告异常，不猜类型、不丢弃内容，也不为使索引通过而改写原包。此约定仅用于临时项，不改变永久树规则。
+
+## 有无插件都通过工具读取（核心红线）
+
+**核心红线约束**：小文件可直接读取；面对大文件或整包数据，**严禁使用直接读取工具将其全量倾倒进对话上下文**；单卡栏目 JSON 本身仅包含节点内容，不含 `.canvas` 画布坐标与连线，缺少 `.canvas` 拓扑文件时，**严禁凭空臆测或虚构空间几何位置与布局关系**。
+
+必须实际调用可用工具读取数据，示例不等于用户当前包的证据。插件可用时，优先复用其本地索引库（SQLite）与 MCP 工具；插件不可用时，使用宿主的文件读取、终端或代码执行工具（Python、Node.js、`jq` 等），不把安装作为前置条件。先查实际路径与字节大小；小文件用读取工具，大 JSON 或紧凑 `.canvas` 用本地 Python、Node.js 或 `jq` 定点切片解析。
+
+- **单卡**：按节点 ID 与解析后的文件引用定位，读取所需栏目说明与 `tree` / `items`，或 text 卡正文；副本沿 `inheritFrom` 找主树。单卡 JSON 本身仅包含节点内容，不含 `.canvas` 画布坐标与连线；在只有单卡 JSON 缺少 `.canvas` 拓扑文件时，不要凭空臆测或虚构其空间几何位置与布局关系。
+- **多卡**：先提取精简布局映射，再按下文方法展开目标卡片、相关关系与文本。只返回命中记录及覆盖范围，不将大文件全文倾倒进上下文。
+- **复用查询**：大包、跨卡或反复查询时，能复用来源索引就复用；否则建立脚本内存映射或包外 SQLite 等派生索引。一次性小文件读取不强制建库。保留来源、section ID、item ID、父路径与同级顺序，不按 URL 合并实例。使用插件时以 `get_context` 读布局、`search_bookmarks` 读条目，并遵守范围与分页；局部输入不是完整镜像。
+
+索引/搜索结果是投影，不能作为完整源对象覆盖文件：item `raw_json` 省略 `children`，folder 行省略空 `url`；原始源快照保留这些字段。通过 `folder_id` 查询并分页读取子树，扁平结果用 parent ID、路径和顺序表达层级，避免修改一个子书签时把所有祖先都算作更新；compact 还会省略其他字段。用户授权编辑时，宿主须回读当前原节点，检查文件是否被其他操作修改，并按包内指南保留未改值、后代、元数据与未知字段。写后校验文件，再刷新同一 `source_id` 后查询。读取或建索引不要求清理原包。
 
 ## 关系如何解释
 
@@ -75,6 +87,39 @@
 
 `section` 可以匹配 ID、slot、label 或文件路径；同一个 label 可能选中多张卡片，要唯一定位时用 section ID。`get_context` 不传 `item_id` 时返回栏目头、节点、组和边，`items` 为空不代表空树，此时 `pagination.items` 会带 `scope_note` 说明缺哪个参数；读某张卡的书签用 `search_bookmarks(section:…)` 或 `plan_research`。其 counts 是返回栏目的总数，不是某个条目的子树计数。用 `search_bookmarks(item_types:["folder"])` 找文件夹，再传 `folder_id` 和所需条目类型读取子树。完整列表需分页，并区分 `synthetic:true` 根容器与用户文件夹。需要额外祖先元数据或布局时才读条目 context。
 
+树状定点读取的标准流程（将 ID 替换为当前来源查询得到的值）：
+
+```json
+{
+  "tool": "get_context",
+  "arguments": {
+    "source_id": "<当前来源 ID>",
+    "section": "<栏目 ID>",
+    "item_id": "<目标条目 ID>",
+    "collection": "items",
+    "compact": true,
+    "limit": 1
+  }
+}
+```
+
+目标条目结果包含 `ancestors`，可用它还原精确父路径，不必加载整张卡的树。要检查选中文件夹的子树，改用 `search_bookmarks`，传 `folder_id`、`item_types:["folder","bookmark"]` 与有限的 `limit`；按返回的 `next_offset` 继续读取，直到为 `null`。结果页包含目标文件夹及其后代，`total` 是该范围的总数；`next_offset` 非空时不能把当前页当作完整结果。
+
+```json
+{
+  "tool": "search_bookmarks",
+  "arguments": {
+    "source_id": "<当前来源 ID>",
+    "section": "<栏目 ID>",
+    "folder_id": "<目标文件夹 ID>",
+    "item_types": ["folder", "bookmark"],
+    "compact": true,
+    "limit": 50,
+    "offset": 0
+  }
+}
+```
+
 已有 FTS5 派生表，但公开查询未使用 BM25 排名、embedding、网页正文检索或任意 SQL。未知字段保存在原始对象中，不意味着已有对应过滤器或模型理解规则。
 
 ## 时间上下文
@@ -101,7 +146,7 @@ JSON/.canvas 始终是事实来源，SQLite 保存派生状态与来源登记。
 
 ## 依据与维护
 
-阅读规则版本：`2026-09-09`。协议依据为 Bookmark Canvas 的公开 [AGENTS 模板](https://github.com/Browser-bookmark-hub/Bookmark-Canvas/tree/main/Bookmark-Canvas-main/history_html/transfer_AI_sync/AGENTS_template)；本参考提取适用于分析的格式语义，不绑定某个使用者的数据包、内容或文件路径。维护时核对上游协议与解析器，运行查询不需要访问该链接。
+阅读规则版本：`2026-11-01`。协议依据为 Bookmark Canvas 的公开 [AGENTS 模板](https://github.com/Browser-bookmark-hub/Bookmark-Canvas/tree/main/Bookmark-Canvas-main/history_html/transfer_AI_sync/AGENTS_template)；本参考提取适用于分析的格式语义，不绑定某个使用者的数据包、内容或文件路径。维护时核对上游协议与解析器，运行查询不需要访问该链接。
 
 | 协议指南内容 | 本插件吸收的位置 |
 | --- | --- |

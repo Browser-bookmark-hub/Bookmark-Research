@@ -16,7 +16,7 @@
 ## 它是怎么工作的
 
 - **本地理解层。** 数据包按结构读，而不是一张平铺的 URL 清单：卡片与分组的位置、连线的方向与标签、同一书签在不同卡片的出现位置（空间上下文）；日期字段、ID 中协议定义的日期段，以及真正改过内容的 Git 提交（时间上下文）。这些都是离线查询。
-- **外部调研走三条路线。** 读取已知 URL 不需要推理；Agentic 搜索由宿主模型自己规划、搜索、阅读并追查缺口；Deep Research 可直接调用 OpenAI／Parallel 研究 API；完整清单与覆盖审计在明确需要时启用。宿主已有的浏览器与爬虫可提供来源正文。
+- **外部调研走三条路线。** 读取已知 URL 不需要推理；Agentic 搜索由宿主模型自己规划、搜索、阅读并追查缺口；Deep Research 可直接调用 OpenAI／Parallel 研究 API；完整清单与覆盖审计在明确需要时启用。`search_web` 聚合已配置的 URL 搜索来源（可选 Perplexity Search）；`agentic_search` 可按需返回 Grok 或用户自定义 OpenAI 兼容模型的回答与引用。自定义模型是否真正联网取决于上游能力，且不参加 URL 排名。
 - **可复核的知识存储。** 完成的研究可以沉淀成 Wiki：带历史版本和相互链接的已审核页面，之后提问直接复用，不必重新搜索网页。
 
 ## 环境要求
@@ -43,11 +43,12 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 1. **装到哪些宿主** —— 方向键移动、空格勾选；检测到的 CLI 默认已勾选，随后显示安装计划让你确认。
 2. **默认研究深度（可选）** —— 保持 `auto` 就会按每次请求自动定档；只有想钉死一个默认时才改成 `quick`、`agentic` 或 `deep`。
 3. **答复和报告语言** —— 跟随提问语言、中文或英文。
-4. **搜索与正文读取服务** —— 一个有序多选列表；未选中的服务自动作为备用搜索层。
+4. **搜索来源** —— 一个有序多选列表；未选中的服务自动作为备用搜索层。Perplexity 只提供搜索结果，网页读取由其他服务完成。
 5. **存放位置** —— 默认数据目录、自定义统一目录（归档与研究报告），或研究报告放在书签文件／文件夹旁边。
 6. **可选专业研究 API** —— 默认关闭：OpenAI Deep Research 或 Parallel Task API。
-7. **API Key** —— 逐个隐藏输入，当场检查；全部可选，可整段跳过。
-8. **服务检查** —— 自动运行并逐个报告；样例搜索／阅读自检需另行选择。
+7. **自定义模型端点（可选）** —— 输入兼容 Base URL、模型和协议；联网能力取决于上游。
+8. **API Key** —— 空格勾选上面所选服务需要的 Key，回车继续，再逐个隐藏输入；全部可选，可跳过。Key 与偏好分开保存。
+9. **服务检查** —— 报告已配置服务；样例搜索／阅读自检需另行选择。
 
 回车即保留当前选项，所以整轮可能只需按几次回车。装好后新建一个宿主会话，让 Skill 和 MCP 工具生效。Wiki 默认建议整理；已有保存授权时直接执行。服务诊断保留 15 分钟缓存，按需调用。
 
@@ -91,9 +92,10 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | 打开菜单 | `bookmark-research` · `bookmark` · `bookmark research` |
 | 查看已装宿主、偏好、保存位置、最近研究、Key 状态 | `bookmark-research status` |
 | 用脚本改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
+| JSON 配置说明与示例 | [配置指南](docs/configuration.md) · [部分配置 JSON](config/settings.example.json) |
 | 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
 
-没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。工具面可用 `bookmark-research config set --tool-scope-preset quick` 使用默认 21 个日常工具；`deep`（或 `all`）启用完整 43 个工具，供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
+没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。工具面可用 `bookmark-research config set --tool-scope-preset quick` 使用默认 22 个日常工具；`deep`（或 `all`）启用完整 44 个工具，供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
 
 **更新。** 运行 `npx bookmark-research@latest install`，在向导中确认升级覆盖，即可为已安装宿主采用最新发布版。Codex 无交互升级可用 `npx bookmark-research@latest install codex --non-interactive --replace-source`。`bookmark-research update` 刷新的是已登记来源：Git／npm 选择器沿用所选 ref，随包保留的构建或固定版本仍留在该构建。两种方式均保留偏好、Key 和数据；完成后新建宿主会话。
 
@@ -106,9 +108,12 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | `TAVILY_API_KEY` | Tavily 备用搜索与提取 | 使用免 Key 模式 |
 | `JINA_API_KEY` | Jina 搜索 | Jina Reader 仍可匿名读取网页 |
 | `DEEPSEEK_API_KEY` | 可选的 DeepSeek Search / Fetch | 不选择即可；其他 provider 仍可用 |
+| `PERPLEXITY_API_KEY` | 可选的 Perplexity 结构化 Search | 只提供搜索来源，不提供网页抓取 |
+| `XAI_API_KEY` | 可选的 Grok Agentic 搜索 | 独立 `agentic_search` 工具，不参与 URL 聚合 |
+| `CUSTOM_AGENTIC_API_KEY` | 可选的用户自定义 OpenAI 兼容端点 | 单独的 `agentic_search` 通道；在 setup 中配置 Base URL／模型／协议 |
 | `OPENAI_API_KEY` | 可选的 OpenAI Deep Research 任务 | 功能关闭；宿主自己的研究不受影响 |
 
-Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿主会话里让 agent 改（「显示 Bookmark Research 的配置」「以后只用 Exa 搜索」），它会调用 `update_settings` 工具。
+在 setup 的密钥步骤，用空格勾选已启用服务所需的 Key，再在隐藏输入框逐个输入；不选即可跳过。Key 保存在独立的私有 `credentials.json`，也可由环境变量提供，且环境变量优先。Key 不放进 `prefs.json` 或 `settings.json`；设置 JSON 导入会拒绝凭据字段。每个 Key 对应的服务见[配置指南](docs/configuration.md)。偏好也可以直接在宿主会话里让 agent 改（「显示 Bookmark Research 的配置」「以后只用 Exa 搜索」），它会调用 `update_settings` 工具。
 
 ## 数据保存在哪里
 
@@ -141,9 +146,11 @@ Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿�
 | 层 | 组成 | 运行方式 | 需要配置 |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) 及 11 份方法参考，每份都有[中文版](skills/bookmark-research/references/zh/skill-guide.md) | 由宿主加载 | 不需要 |
-| 本地 MCP | `bookmark-research`，默认 21 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
+| 本地 MCP | `bookmark-research`，默认 22 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
 | 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取）、[Tavily](https://tavily.com)（备用搜索） | HTTPS，不启动本地进程 | 可选 API Key |
-| 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索）；[DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/)（可选；原始 JSON tools API） | HTTPS | 可选 `JINA_API_KEY`、`DEEPSEEK_API_KEY` |
+| 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索）；[DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/)；[Perplexity Search](https://docs.perplexity.ai/api-reference/search-post)（结构化结果） | HTTPS | 可选 provider Key |
+| 模型搜索 API | [xAI Grok Responses](https://docs.x.ai/developers/tools/web-search)，可选网页与 X 搜索 | HTTPS | 可选 `XAI_API_KEY`；通过独立 `agentic_search` 调用 |
+| 自定义模型 API | 用户配置的 OpenAI 兼容 Chat Completions／Responses 端点 | 用户配置的 HTTP(S) Base URL | `CUSTOM_AGENTIC_API_KEY`；须配置模型与协议，联网由上游决定 |
 | 可选的宿主 MCP | Exa Agent、Parallel Task MCP、Tavily Research | 需自行加到宿主里 | `bookmark-research setup` 会给出步骤 |
 
 本地 MCP 的工具：
@@ -151,7 +158,7 @@ Key 不接受对话、命令参数或 JSON 文件。偏好也可以直接在宿�
 | 分类 | 工具 |
 | --- | --- |
 | 画布上下文 | `sync_package`、`index_status`、`search_bookmarks`、`get_context`、`plan_research` |
-| 联网与归档 | `search_web`、`fetch_web`、`search_archive` |
+| 联网与归档 | `search_web`、`agentic_search`、`fetch_web`、`search_archive` |
 | Wiki | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search` |
 | 研究 API | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach` |
 | 配置 | `get_settings`、`update_settings` |

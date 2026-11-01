@@ -145,6 +145,15 @@ class ReadinessTests(SetupFixture):
             self.engine.check(providers=["exa"])
         self.assertEqual(self.web.probe.call_count, 4)
 
+    def test_http_provider_guidance_uses_its_own_operations_and_credentials(self):
+        self.web.probe.return_value = {"providers": [{"status": "not_probed", "provider": "perplexity"}]}
+        result = self.engine.check(providers=["perplexity"], refresh=True)
+        check = result["checks"][0]
+        self.assertEqual(check["status"], "http_unchecked")
+        self.assertIn("PERPLEXITY_API_KEY", check["next_step"])
+        self.assertIn("search", check["next_step"])
+        self.assertNotIn("JINA_API_KEY", check["next_step"])
+
     def test_openai_probe_is_a_model_get_not_a_research_job(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": "openai"}})
         self.credentials.save("OPENAI_API_KEY", "test-openai-key")
@@ -276,27 +285,37 @@ class OnboardingTests(SetupFixture):
         self.assertFalse(result["readiness"]["network_checked"])
         self.assertNotIn("hidden-key-in-store", output.getvalue() + json.dumps(result))
 
+    def test_setup_configures_custom_agentic_endpoint_separately_from_its_key(self):
+        answers = "\n\n\n1\n\n2\nhttps://gateway.example/v1\nopenrouter/model:online\n2\n2\n"
+        prefs = Onboarding(self.settings, Console(io.StringIO(answers), io.StringIO()))._preferences()
+        self.settings.update(prefs)
+        self.assertEqual(self.settings.load()["custom_agentic"], {
+            "enabled": True, "base_url": "https://gateway.example/v1", "model": "openrouter/model:online",
+            "api_mode": "responses", "search_mode": "native"})
+        self.credentials.save("CUSTOM_AGENTIC_API_KEY", "separate-secret")
+        self.assertNotIn("separate-secret", self.settings.path.read_text())
+
     def test_storage_question_sets_archive_and_output_together(self):
         default_output = self.settings.load()["output"]["directory"]
-        # Prompts: depth, language, services, storage, professional API.
-        defaults = Onboarding(self.settings, Console(io.StringIO("\n" * 5), io.StringIO()))._preferences()
+        # Prompts include the optional custom model endpoint after professional APIs.
+        defaults = Onboarding(self.settings, Console(io.StringIO("\n" * 6), io.StringIO()))._preferences()
         for section in ("archive", "output", "wiki", "readiness"):
             self.assertNotIn(section, defaults)
         root = self.base / "store"
         output = io.StringIO()
-        answers = "\n\n\n2\n" + str(root) + "\n\n"
+        answers = "\n\n\n2\n" + str(root) + "\n\n\n"
         chosen = Onboarding(self.settings, Console(io.StringIO(answers), output))._preferences()
         self.assertEqual(chosen["archive"], {"directory": str(root / "knowledge")})
         self.assertEqual(chosen["output"], {"mode": "central", "directory": str(root / "research")})
         self.assertIn(default_output, output.getvalue())
         self.assertIn("new research tasks only", output.getvalue())
-        beside = Onboarding(self.settings, Console(io.StringIO("\n\n\n3\n\n"), io.StringIO(), "zh"))._preferences()
+        beside = Onboarding(self.settings, Console(io.StringIO("\n\n\n3\n\n\n"), io.StringIO(), "zh"))._preferences()
         self.assertEqual(beside["output"], {"mode": "beside_input"})
         self.assertNotIn("archive", beside)
         # A saved custom location is reset only when the default folder is chosen.
         self.settings.update({"archive": {"directory": str(root / "knowledge")},
                               "output": {"mode": "beside_input", "directory": str(root / "research")}})
-        reset = Onboarding(self.settings, Console(io.StringIO("\n\n\n1\n\n"), io.StringIO()))._preferences()
+        reset = Onboarding(self.settings, Console(io.StringIO("\n\n\n1\n\n\n"), io.StringIO()))._preferences()
         defaults = Settings.defaults()
         self.assertEqual(reset["archive"], {"directory": defaults["archive"]["directory"]})
         self.assertEqual(reset["output"], {"mode": "central", "directory": defaults["output"]["directory"]})
@@ -569,8 +588,8 @@ class RecheckTests(SetupFixture):
         fixed = {"checks": [{"id": "retrieval:exa", "status": "retrieval_verified"}],
                  "host_integrations": {"host": "codex", "native_research_mcps": []}}
         output = io.StringIO()
-        # 6 preference/key prompts accept defaults, then re-enter yes, keep EXA preselected, secret, integrations.
-        console = Console(io.StringIO("\n" * 6 + "y\n\n\n"), output)
+        # 7 preference prompts accept defaults, then re-enter yes, keep EXA preselected, secret, integrations.
+        console = Console(io.StringIO("\n" * 7 + "y\n\n\n"), output)
         with mock.patch("onboarding.Readiness") as engine, mock.patch("getpass.getpass", return_value="new-exa-key"):
             engine.return_value.check.side_effect = [failed, fixed]
             result = Onboarding(self.settings, console).run()

@@ -11,7 +11,7 @@ Reference material moved from the README: components, data model, research modes
 | **Skill** | [`skills/bookmark-research/SKILL.md`](../skills/bookmark-research/SKILL.md) | Guides package reading, local queries, source verification, and research reports |
 | **MCP server** | [`src/mcp_server.py`](../src/mcp_server.py), started with `python3 src/cli.py serve` | One local `bookmark-research` server with the [shared tool catalog](#mcp-tools) |
 | **Python CLI** | [`src/cli.py`](../src/cli.py) | Runs the same queries and research workflows directly, including from a host without MCP |
-| **Web providers** | [`config/providers.json`](../config/providers.json), [`src/provider_adapters.py`](../src/provider_adapters.py), [`src/jina.py`](../src/jina.py) | Exa, Parallel, Jina HTTP, DeepSeek Search/Fetch and Tavily behind one MCP; schema checks, session reuse and visible partial failures |
+| **Web providers** | [`config/providers.json`](../config/providers.json), [`src/provider_adapters.py`](../src/provider_adapters.py), [`src/jina.py`](../src/jina.py) | Exa, Parallel, Jina HTTP, DeepSeek Search/Fetch, Perplexity structured Search and Tavily behind one MCP; Grok and custom OpenAI-compatible model answers are exposed separately |
 | **Research and coverage** | [`src/research.py`](../src/research.py), [`src/research_coverage.py`](../src/research_coverage.py) | Complete source inventory, all bookmark instances, budgets, evidence, substantive review and reports |
 | **Host workflows** | [`hosts/`](../hosts/) and [`src/routing.py`](../src/routing.py) | Native Codex delegation, Claude workflow and DSH workflow adapter |
 | **Professional research** | [`src/research_services.py`](../src/research_services.py) | Optional provider-owned background tasks, saved run IDs and secondary-report import |
@@ -183,8 +183,9 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | `search_bookmarks` | Query bookmarks for multiple targets while retaining item context |
 | `get_context` | Read section, card, group, connection, and item-ancestor context; `compact:true` drops raw JSON, descriptions and revisions |
 | `plan_research` | Local preflight for one question: ranked cards and bookmarks, Wiki and archive pointers, relevance, freshness, fetch ownership, and a route; missing-file cards are flagged and their URLs are kept |
-| `search_providers` | List configured web providers |
-| `search_web` | Search through Exa / Parallel / Tavily / keyed Jina and merge results per target |
+| `search_providers` | List configured web providers and per-operation authentication requirements |
+| `search_web` | Search through configured Exa / Parallel / Tavily / Jina / DeepSeek / Perplexity providers and merge results per target |
+| `agentic_search` | Optional Grok or configured custom-model answer/search channel with citations; not URL-fused |
 | `fetch_web` | Read known URLs under a per-page and batch budget, optionally archive text, and continue a saved extract with `capture_id`/`offset` |
 | `search_archive` | Literal full-text search over saved page text in the knowledge archive and all research evidence, merged by content hash |
 | `get_settings` | Read current settings and storage paths |
@@ -215,11 +216,14 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 | **Jina** | HTTP Reader supports anonymous webpage/PDF reading; Search requires `JINA_API_KEY`. The hosted Jina MCP is not used. |
 | **Tavily** | Built-in search fallback and selectable extraction; `TAVILY_API_KEY` uses Bearer, otherwise explicit keyless mode |
 | **DeepSeek Search / Fetch** | Optional raw JSON tools API (`/v1/tools/search`, `/v1/tools/fetch`); requires `DEEPSEEK_API_KEY`; OpenAI-compatible error shape, not a Chat Completions tool |
+| **Perplexity Search** | Optional structured Search API provider; requires `PERPLEXITY_API_KEY`; returns sources only and does not read pages |
+| **xAI Grok** | Optional Responses API tool `agentic_search`; requires `XAI_API_KEY`; returns a model answer and citations outside URL fusion |
+| **Custom model endpoint** | Optional OpenAI-compatible Chat Completions or Responses endpoint; configured Base URL/model/protocol and `CUSTOM_AGENTIC_API_KEY`; separate answer channel, upstream search support is not inferred |
 | **GitHub** | Use the host's existing GitHub MCP or `gh` for repository-specific tasks. No GitHub MCP is bundled; public pages can also be read through Exa / Parallel. |
 
-All retrieval providers run through the plugin's own MCP or CLI; additional host MCP registrations are unnecessary. Search starts with Exa + Parallel under a selectable strategy (hedged by default) with a grace window and total deadline, and uses configured fallbacks for unresolved queries; reading falls back to Parallel + Jina after Exa. Anonymous/keyless access and quotas depend on each service's policy; optional credentials use `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY` or `DEEPSEEK_API_KEY` in the launching environment. Local queries work offline.
+Bookmark Research aggregates only its configured providers; the host model may call other visible host/MCP search tools and compare their evidence. Search starts with Exa + Parallel under a selectable strategy (hedged by default) with a grace window and total deadline, and uses configured fallbacks for unresolved queries; Perplexity can be added to either search tier. Reading falls back to Parallel + Jina after Exa. Grok and the custom OpenAI-compatible endpoint are separate answer channels; custom search behavior depends on the configured upstream. Anonymous/keyless access and quotas depend on each service's policy; optional credentials use `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY`, `DEEPSEEK_API_KEY` or `PERPLEXITY_API_KEY` for retrieval, `XAI_API_KEY` for Grok, and `CUSTOM_AGENTIC_API_KEY` for the custom model. Local queries work offline.
 
-`search_providers` describes configuration without network access; `probe:true` discovers remote MCP tools, while Jina and DeepSeek HTTP mappings remain explicitly `not_probed`. Discovery does not prove successful retrieval. Each MCP process reuses remote sessions and a bounded tool catalog. Calls are not automatically replayed after errors. Historical implementation notes remain available in Git history.
+`search_providers` describes configuration without network access; `probe:true` discovers remote MCP tools, while Jina, DeepSeek and Perplexity HTTP mappings remain explicitly `not_probed`. Discovery does not prove successful retrieval. Each MCP process reuses remote sessions and a bounded tool catalog. Calls are not automatically replayed after errors. Historical implementation notes remain available in Git history.
 
 ### Package rules and AGENTS.md
 
@@ -237,7 +241,7 @@ The Skill currently produces answers and research reports. It does not generate 
 
 This directory is the **Codex native plugin**, with its manifest at `.codex-plugin/plugin.json`. In Codex 0.153.4, the MCP configuration explicitly uses `cwd: "."` and runs `python3 src/cli.py serve` from the installed plugin directory. That native entry does not expand `${PLUGIN_ROOT}`; the Claude export uses its own path convention.
 
-The Codex manifest forwards these environment variable names through `env_vars`: `BOOKMARK_RESEARCH_DATA_DIR`, `BOOKMARK_RESEARCH_CONFIG`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, and `OPENAI_API_KEY`. Actual paths and credentials come from the user's runtime environment.
+The Codex manifest and DSH adapter forward provider credentials including `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY`, `DEEPSEEK_API_KEY`, `PERPLEXITY_API_KEY`, `XAI_API_KEY` and `CUSTOM_AGENTIC_API_KEY`, along with the configured data/config paths. Actual paths and credentials come from the user's runtime environment.
 
 Run the relevant command **from this directory** to generate another format:
 

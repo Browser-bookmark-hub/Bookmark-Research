@@ -18,6 +18,7 @@ Bookmark Research 共用一个执行 Skill 和一套运行时。执行 Skill 及
 | 宿主工作流 | [Read](../skills/bookmark-research/references/host-workflows.md) | [阅读](../skills/bookmark-research/references/zh/host-workflows.md) |
 | 专业研究服务 | [Read](../skills/bookmark-research/references/research-services.md) | [阅读](../skills/bookmark-research/references/zh/research-services.md) |
 | 配置与归档 | [Read](../skills/bookmark-research/references/settings-and-archive.md) | [阅读](../skills/bookmark-research/references/zh/settings-and-archive.md) |
+| 用户配置 JSON | [Read](configuration.en.md) | [阅读](configuration.md) |
 | GitHub 与同步 | [Read](../skills/bookmark-research/references/github-and-sync.md) | [阅读](../skills/bookmark-research/references/zh/github-and-sync.md) |
 | Wiki | [Read](../skills/bookmark-research/references/wiki.md) | [阅读](../skills/bookmark-research/references/zh/wiki.md) |
 | 宿主提示完整说明 | [Read](prompt-reference.en.md) | [阅读](prompt-reference.md) |

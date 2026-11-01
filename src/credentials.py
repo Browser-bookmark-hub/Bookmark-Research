@@ -10,7 +10,8 @@ from settings import Settings
 
 
 class Credentials:
-    NAMES = ("EXA_API_KEY", "PARALLEL_API_KEY", "TAVILY_API_KEY", "JINA_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY")
+    NAMES = ("EXA_API_KEY", "PARALLEL_API_KEY", "TAVILY_API_KEY", "JINA_API_KEY", "DEEPSEEK_API_KEY",
+             "PERPLEXITY_API_KEY", "XAI_API_KEY", "CUSTOM_AGENTIC_API_KEY", "OPENAI_API_KEY")
 
     def __init__(self, settings=None):
         settings = settings if settings is not None else Settings()

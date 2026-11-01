@@ -69,9 +69,11 @@ Codex 分支管理 `bookmark-research@bookmark-research`。已通过 `personal` 
 
 ## 向导与就绪检查
 
-安装成功后只需回答少数问题：研究深度（默认 `auto`，按每次请求自动定档）、答复语言、搜索与正文读取服务（一个有序多选列表；未选中的服务自动作为备用搜索层）、归档与研究结果的存放位置（默认数据目录、自定义统一目录，或研究报告放在书签文件／文件夹旁边、放不了时退回统一目录；只影响新任务），以及可选专业 API。Wiki 整理、联网前的可用性检查与连通性检查都按默认值自动启用（分别为「建议并先询问」「15 分钟缓存」和自动检查），可随时在后续 `setup` 或 `config set` 中修改。回车保留显示的偏好。API Key 掩码输入并立即检查，失败可重新输入；密钥单独保存为配置旁权限 `0600` 的 `credentials.json`，是本地明文文件；可用 `BOOKMARK_RESEARCH_CREDENTIALS` 指定位置。环境变量优先于保存的密钥，密钥不进入偏好 JSON、安装包、安装记录或就绪检查输出。ChatGPT／Codex 登录与 OpenAI API Key 分开。
+安装后的终端向导会询问研究深度、答复语言、搜索来源、存放位置和可选专业 API，并可配置自定义模型端点。之后的 API Key 步骤先列出 Key 名称与状态：用空格勾选已启用服务所需的 Key，按回车后在隐藏输入框逐个输入；留空或不选都可以跳过。Key 会单独保存到配置旁权限为 `0600` 的 `credentials.json`，这是未加密的本地文件；也可使用环境变量，环境变量优先。`BOOKMARK_RESEARCH_CREDENTIALS` 可指定凭据路径。Key 不会进入偏好 JSON、安装包、安装记录或就绪检查输出。ChatGPT／Codex 登录与 OpenAI API Key 分开。
 
-以后随时运行 `python3 <安装路径>/src/cli.py setup` 重开向导，完整命令（JSON 结果中的 `getting_started.setup_command`）会在安装结束时打印；在源码中可运行：
+多选项配置的是搜索来源主层与备用层；Perplexity 只提供结构化搜索结果，不能读取页面，正文读取仍使用单独配置的 provider。setup 也可配置自定义 OpenAI 兼容模型端点的 Base URL、模型和协议，并在密钥步骤设置 `CUSTOM_AGENTIC_API_KEY`。该端点经独立 `agentic_search` 调用，不参与普通 URL 聚合；原生 Responses 搜索工具需明确选择且由上游支持，普通 Chat Completions 提示不能保证联网。
+
+安装或升级收据会打印配置 JSON 指南链接和重开向导的命令。升级会保留当前 Key 和偏好，不会自动重新询问 Key；要新增、替换 Key 或改偏好，运行收据给出的 `setup` 命令，或 `bookmark-research setup`。以后也可运行 `bookmark-research config set --input <偏好文件.json>` 导入部分偏好；字段说明与可复制示例见[用户配置 JSON 指南](configuration.md)。完整安装路径命令也会在 JSON 结果的 `getting_started.setup_command` 中提供。在源码中可运行：
 
 ```sh
 python3 src/cli.py setup --host claude_code --lang zh

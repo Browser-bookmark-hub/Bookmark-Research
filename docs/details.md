@@ -21,12 +21,12 @@
 
 不需要固定提示词。完整数据包研究保留所有原始 URL 和重复书签语境；只有明确限定卡片、分组或专题时才缩小范围。搜索摘要、搜索结果的第一页和外部报告都不能代替原始网页审阅。
 
-一个插件保留一个 MCP 聚合入口和一个执行 Skill；后端服务数量与入口数量无关。MCP 内置 Exa、Parallel、Tavily 搜索／读取适配器、Jina HTTP 接口、可选的 DeepSeek Search／Fetch 接口和 OpenAI／Parallel 研究 API 客户端。Skill 负责根据任务选择并执行三种流程：
+一个插件保留一个 MCP 聚合入口和一个执行 Skill；后端服务数量与入口数量无关。MCP 内置 Exa、Parallel、Tavily 搜索／读取适配器、Jina HTTP 接口、可选的 DeepSeek Search／Fetch 与 Perplexity Search 接口、Grok 和自定义 OpenAI 兼容 Agentic 搜索通道，以及 OpenAI／Parallel 研究 API 客户端。普通 URL 来源由 `search_web` 聚合；模型回答和引用单独返回，不参加 URL 排名。自定义模型是否联网由上游能力决定，工具会标明引用未经独立核验。Skill 负责根据任务选择并执行三种流程：
 
 | 场景 | 基础流程 | 检索与委派支持 |
 | --- | --- | --- |
 | URL 直读 | 当前模型读取已知页面并回答 | Exa 未读到的 URL 交给 Parallel + Jina Reader 并发读取；可配置 Tavily 提取。 |
-| Agentic Web Search | 当前宿主模型先规划 → 搜索／读文 → 判断证据 → 针对缺口补查 | Exa + Parallel 按 `search.strategy` 提供搜索结果（默认并发对冲）；无有效网址的查询再交给 Tavily + 有 key 的 Jina。普通问题无需完整研究会话。 |
+| Agentic Web Search | 当前宿主模型先规划 → 搜索／读文 → 判断证据 → 针对缺口补查 | 优先使用当前宿主实际暴露的搜索工具；`search_web` 聚合已配置服务（Exa + Parallel 默认并发对冲，Perplexity 可选；未解析查询交给 Tavily + Jina）。需要 Grok/X 或已配置的自定义模型通道时按需调用 `agentic_search`，由宿主评估独立回答和未经核验的引用。普通问题无需完整研究会话。 |
 | Deep Research | 直接向研究 API 提交完整问题，观察进度并审阅报告 | 可选 OpenAI／Parallel API；宿主已有研究能力亦可使用。完整清单与覆盖审计按需启用。 |
 
 三个基座共用这套方法：Codex 原生子代理、Claude 普通子代理或已启用团队、已配置的 DSH 子代理／工作流；具体差异与官方依据见 [宿主兼容说明](harness-compatibility.md)。整包脚本用于分组研究。API 可独立调用，无需先运行宿主调查或创建本地研究会话。运行中和结果未知的任务先观察，保留 operation ID，避免重复创建。
@@ -67,7 +67,7 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 
 可以读取公开 GitHub 仓库页面、README、文件和 issues；读取 README 不等于遍历整个代码仓库。代码审查按任务选择具体文件或宿主已有 GitHub 工具，插件未额外安装 GitHub MCP。
 
-网络访问依赖服务方的认证与额度。可运行 `python3 src/cli.py setup` 隐藏输入密钥，或在宿主环境设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`、`OPENAI_API_KEY`。密钥默认保存为配置旁仅当前用户可读的 `credentials.json`，环境变量优先。无需给宿主研究额外填写一套模型地址。
+网络访问依赖服务方的认证与额度。可运行 `python3 src/cli.py setup` 隐藏输入密钥，或在宿主环境设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`、`DEEPSEEK_API_KEY`、`PERPLEXITY_API_KEY`、`XAI_API_KEY`、`CUSTOM_AGENTIC_API_KEY`、`OPENAI_API_KEY`。密钥默认保存为配置旁仅当前用户可读的 `credentials.json`，环境变量优先。Perplexity 是结构化搜索来源；Grok 和自定义模型通过独立 `agentic_search` 返回模型回答和引用，不会自动并入 `search_web` 的 URL 聚合。
 
 需要诊断服务访问问题时，可从高级工具面调用 `research_readiness`，显式检查默认在首次、配置／密钥变化或 15 分钟过期时刷新。向导可改为每题检查或仅手动检查；本地查询不联网。结果区分密钥配置、目录可达、实际检索与宿主 OAuth，检查不会启动专业研究任务。
 

@@ -380,7 +380,7 @@ class InstallerTests(unittest.TestCase):
         settings_path = self.base / "user settings.json"
         original = '{"search":{"providers":["tavily"],"limit_per_target":3},"archive":{"enabled":false}}'
         settings_path.write_text(original)
-        guide = install._getting_started(self.source)
+        guide = install._guide(self.source, "codex", 30, "en")
         self.assertIsNone(guide["configuration_error"])
         self.assertTrue(guide["configuration"]["config_exists"])
         self.assertEqual(guide["configuration"]["settings"]["search"]["providers"], ["tavily"])
@@ -392,6 +392,10 @@ class InstallerTests(unittest.TestCase):
         with mock.patch.object(install.sys, "stdout", output):
             install._print_getting_started(guide)
         self.assertIn(str(settings_path), output.getvalue())
+        self.assertIn("Configuration JSON guide:", output.getvalue())
+        self.assertIn("configuration.en.md", output.getvalue())
+        self.assertIn("Change preferences later:", output.getvalue())
+        self.assertIn(str(self.source / "src/cli.py"), output.getvalue())
         self.assertNotIn("tavily", output.getvalue())
         self.assertNotIn("environment-secret-marker", output.getvalue() + json.dumps(guide))
         self.assertEqual(settings_path.read_text(), original)

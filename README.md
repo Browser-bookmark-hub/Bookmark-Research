@@ -16,7 +16,7 @@ The stable release includes bilingual Canvas package support, safer Exa batch re
 ## How it works
 
 - **Local understanding.** A Bookmark Canvas package is read as structure, not a flat URL list: card and group layout, edges with their direction and labels, and the same bookmark appearing across cards (spatial context); dated fields, protocol-defined date segments in IDs, and Git commits that changed content (temporal context). These queries run offline.
-- **External research takes one of three routes.** Reading a known URL needs no reasoning; agentic search has the host model plan, search, read and follow the gaps; deep research can use the OpenAI or Parallel research API directly. Persistent inventories and coverage checks are available when you explicitly need a complete collection audit. Host browsers and crawlers can supply source text.
+- **External research takes one of three routes.** Reading a known URL needs no reasoning; agentic search has the host model plan, search, read and follow the gaps; deep research can use the OpenAI or Parallel research API directly. `search_web` aggregates configured URL providers such as Perplexity Search; `agentic_search` can return a separate Grok or user-configured OpenAI-compatible model answer and citations. Custom model search depends on the selected upstream's web capability and is not URL-fused. Persistent inventories and coverage checks are available when you explicitly need a complete collection audit. Host browsers and crawlers can supply source text.
 - **Reviewed knowledge store.** Finished research can be compiled into a Wiki of reviewed pages with revisions and links, reused by later questions instead of searching the web again.
 
 ## Requirements
@@ -43,11 +43,12 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 1. **Clients** — arrow keys and Space to toggle; detected CLIs are preselected. The install plan is shown for confirmation.
 2. **Research depth (optional)** — leave `auto` and the depth is picked from each request; set `quick`, `agentic` or `deep` only to pin one default.
 3. **Answer and report language** — follow the question, Chinese or English.
-4. **Search and page-reading services** — one ordered multiselect. Unselected providers become the fallback search tier.
+4. **Search sources** — one ordered multiselect. Unselected providers become the fallback search tier. Perplexity is search-only; page reading uses a separate provider.
 5. **Storage** — the default data folder, one custom folder for archives and reports, or reports beside the bookmark file or folder.
 6. **Optional professional APIs** — off by default: OpenAI Deep Research or the Parallel Task API.
-7. **API keys** — one hidden prompt per selected key, checked immediately; every key is optional.
-8. **Service check** — runs on its own and reports each provider; a sample search/read test is opt-in.
+7. **Custom model endpoint (optional)** — enter a compatible Base URL, model and protocol; web-search support depends on the upstream.
+8. **API keys** — select the variables for services you enabled (Space to toggle, Enter to continue), then enter each value in a hidden prompt; optional and skippable. Values are saved separately from preferences.
+9. **Service check** — reports configured providers; a sample search/read test is opt-in.
 
 Enter keeps the highlighted value, so a full run can be just a few keystrokes. Then start a new client session so the Skill and MCP tools load. Wiki follow-up suggests retention and honors existing authorization. Optional service diagnostics retain a 15-minute cache.
 
@@ -92,9 +93,10 @@ Install notes:
 | Menu | `bookmark-research` · `bookmark` · `bookmark research` |
 | Clients, preferences, storage, recent research, key status | `bookmark-research status` |
 | Scripted preferences | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
+| Configuration JSON guide and example | [Guide](docs/configuration.en.md) · [Partial JSON](config/settings.example.json) |
 | Update or verify all clients | `bookmark-research update` · `bookmark-research verify` |
 
-Use `npx bookmark-research@latest …` if the command is not installed globally. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards. `--lang zh` shows the wizard and menu in Chinese. The default `quick` preset exposes 21 everyday tools. Use `bookmark-research config set --tool-scope-preset deep` for the full 43-tool catalog when a persistent collection audit is needed. An explicit `tool_scope` list still overrides the preset.
+Use `npx bookmark-research@latest …` if the command is not installed globally. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards. `--lang zh` shows the wizard and menu in Chinese. The default `quick` preset exposes 22 everyday tools. Use `bookmark-research config set --tool-scope-preset deep` for the full 44-tool catalog when a persistent collection audit is needed. An explicit `tool_scope` list still overrides the preset.
 
 **Update.** Run `npx bookmark-research@latest install` and confirm the upgrade/overwrite plan to adopt the latest release for your installed clients. For Codex without prompts, use `npx bookmark-research@latest install codex --non-interactive --replace-source`. `bookmark-research update` refreshes the recorded source: Git/npm selectors follow their selected ref, while a bundled build or pinned release stays on that build. Both paths preserve preferences, keys and data. Start a new host session afterwards.
 
@@ -107,9 +109,12 @@ Use `npx bookmark-research@latest …` if the command is not installed globally.
 | `TAVILY_API_KEY` | Tavily search fallback and extraction | Keyless mode |
 | `JINA_API_KEY` | Jina search | Jina Reader still reads pages anonymously |
 | `DEEPSEEK_API_KEY` | Optional DeepSeek Search / Fetch | Not selected; other providers still work |
+| `PERPLEXITY_API_KEY` | Optional Perplexity structured Search | Search results only; no page extraction |
+| `XAI_API_KEY` | Optional Grok Agentic search | Separate `agentic_search` answer channel; not URL-fused |
+| `CUSTOM_AGENTIC_API_KEY` | Optional user-configured OpenAI-compatible endpoint | Separate `agentic_search` channel; set Base URL/model/protocol in setup |
 | `OPENAI_API_KEY` | Optional OpenAI Deep Research runs | Feature off; host-led research still works |
 
-Keys are never accepted in chat, command arguments or JSON files. Preferences can also be changed by asking the agent in a client session ("Show Bookmark Research settings", "Use only Exa for future searches"); it uses the `update_settings` tool.
+At the setup key step, select the keys for enabled services with Space, then enter each key at the hidden prompt; leave the selection empty to skip. Keys go to the separate private `credentials.json` or can come from environment variables, which take precedence. They are not part of `prefs.json` or `settings.json`; the settings JSON import rejects credential fields. Preferences can also be changed by asking the agent in a client session ("Show Bookmark Research settings", "Use only Exa for future searches"); it uses the `update_settings` tool. See the [configuration guide](docs/configuration.en.md) for every key and service.
 
 ## Where data is stored
 
@@ -142,9 +147,10 @@ A bundle of one Skill, one local MCP server, and the remote MCPs and services th
 | Layer | Component | Runs as | Setup |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) and method references, each with a [Chinese copy](skills/bookmark-research/references/zh/skill-guide.md) | Loaded by the client | None |
-| Local MCP | `bookmark-research`, 21 default tools (below) | Python process started by the client | Installed for you |
+| Local MCP | `bookmark-research`, 22 default tools (below) | Python process started by the client | Installed for you |
 | Remote MCPs, called by the local MCP | [Exa](https://exa.ai) (search, page reading), [Parallel](https://parallel.ai) (search, fallback reading), [Tavily](https://tavily.com) (search fallback) | HTTPS, no local process | Optional API keys |
-| HTTP services, called by the local MCP | [Jina Reader](https://jina.ai/reader) (fallback reading; search with a key); [DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/) (optional; raw JSON tools API) | HTTPS | Optional `JINA_API_KEY`, `DEEPSEEK_API_KEY` |
+| HTTP services, called by the local MCP | [Jina Reader](https://jina.ai/reader) (fallback reading; search with a key); [DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/); [Perplexity Search](https://docs.perplexity.ai/api-reference/search-post) (structured results only) | HTTPS | Optional provider keys |
+| Model search API | [xAI Grok Responses](https://docs.x.ai/developers/tools/web-search) with optional Web Search and X Search | HTTPS | Optional `XAI_API_KEY`; invoked separately via `agentic_search` |
 | Optional client MCPs | Exa Agent, Parallel Task MCP, Tavily Research | Added to your client by you | `bookmark-research setup` shows the steps |
 
 Default MCP tools:
@@ -152,7 +158,7 @@ Default MCP tools:
 | Group | Tools |
 | --- | --- |
 | Canvas context | `sync_package`, `index_status`, `search_bookmarks`, `get_context`, `plan_research` |
-| Web and archives | `search_web`, `fetch_web`, `search_archive` |
+| Web and archives | `search_web`, `agentic_search`, `fetch_web`, `search_archive` |
 | Wiki | `wiki_write`, `wiki_get`, `wiki_list`, `wiki_search` |
 | Research API | `research_services`, `research_service_prepare`, `_start`, `_status`, `_result`, `_cancel`, `_attach` |
 | Settings | `get_settings`, `update_settings` |

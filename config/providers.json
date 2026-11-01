@@ -104,6 +104,20 @@
       "required_env": {"search": "DEEPSEEK_API_KEY", "fetch": "DEEPSEEK_API_KEY"},
       "authentication": "Bearer DEEPSEEK_API_KEY. Raw JSON Search/Fetch API; OpenAI-compatible error shape. Search costs $0.75 per 1,000 successful requests (official docs).",
       "docs": "https://api-docs.deepseek.com/guides/search/"
+    },
+    "perplexity": {
+      "label": "Perplexity Search",
+      "url": "https://api.perplexity.ai/search",
+      "transport": "http",
+      "client": "perplexity",
+      "search_url": "https://api.perplexity.ai/search",
+      "search_tools": ["perplexity_search"],
+      "fetch_tools": [],
+      "direct_client": true,
+      "optional_bearer_env": "PERPLEXITY_API_KEY",
+      "required_env": {"search": "PERPLEXITY_API_KEY"},
+      "authentication": "Bearer PERPLEXITY_API_KEY. Structured Search API results; does not generate an answer or fetch arbitrary URLs.",
+      "docs": "https://docs.perplexity.ai/api-reference/search-post"
     }
   },
   "default_providers": [
