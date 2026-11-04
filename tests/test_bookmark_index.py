@@ -569,6 +569,8 @@ class IndexBehaviorTests(unittest.TestCase):
         # 3. search with score=True adds score hints and orders by score
         scored_res = self.index.search("demo", targets=["示例"], score=True)
         self.assertEqual(scored_res["score_mode"], "hint")
+        self.assertEqual(scored_res["score_candidate_pool"]["truncated"], False)
+        self.assertEqual(scored_res["score_candidate_pool"]["selection"], "newest_added_at_first")
         self.assertIn("score_note", scored_res)
         self.assertTrue(len(scored_res["results"]) > 0)
         for r in scored_res["results"]:

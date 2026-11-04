@@ -41,6 +41,10 @@ class AuditCriticalFixesTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)
 
+    def test_non_ascii_title_slug_falls_back_to_research_id(self):
+        self.assertEqual(ResearchSessions._slug("中文研究标题", "r-0123456789abcdef"),
+                         "r-0123456789abcdef")
+
     def test_research_auto_save_slug_and_merge(self):
         """Fix 1.1 & 5.1: Auto-save creates page using store._slug and merges existing sections."""
         sessions = ResearchSessions(directory=self.research_dir, settings=self.settings, db_path=self.db_path)

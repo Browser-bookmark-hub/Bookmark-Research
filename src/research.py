@@ -90,12 +90,14 @@ class ResearchSessions:
         return research_id
 
     @staticmethod
-    def _slug(value):
+    def _slug(value, fallback=None):
         raw = (value or "").strip().lower()
         slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
         slug = re.sub(r"-+", "-", slug)[:80]
         if slug and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,79}", slug):
             return slug
+        if fallback is not None:
+            return ResearchSessions._slug(fallback)
         from wiki import WikiStore
         return WikiStore._slug(value)
 
@@ -1781,7 +1783,11 @@ class ResearchSessions:
                         "reviewer": "auto_research",
                         "note": "Auto-synthesized reviewed claims from research session %s" % state["research_id"]
                     }
-                    candidate_page_id = ranked[0]["page_id"] if ranked else self._slug(state.get("title") or state.get("topic") or state.get("brief") or state["research_id"])
+                    if ranked:
+                        candidate_page_id = ranked[0]["page_id"]
+                    else:
+                        title = state.get("title") or state.get("topic") or state.get("brief") or state["research_id"]
+                        candidate_page_id = self._slug(title, fallback=state["research_id"])
                     expected_rev = 0
                     existing = None
                     try:

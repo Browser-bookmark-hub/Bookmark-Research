@@ -1375,10 +1375,16 @@ class BookmarkIndex:
         result = query(targets)
         if score:
             result["score_mode"] = "hint"
+            result["score_candidate_pool"] = {
+                "truncated": result["total"] > max(1000, offset + page_size * 5),
+                "selection": "newest_added_at_first",
+                "candidate_limit": max(1000, offset + page_size * 5),
+            }
             result["score_note"] = (
                 "Item scores are non-binding ranking hints based on field weights "
                 "(title_prefix: 140, title_contains: 135, tag: 110, note: 90, folder_path: 60, url: 40) "
-                "plus time confidence bonus (high: +10, medium: +5, low: +2). Filter matching remains literal substring."
+                "plus time confidence bonus (high: +10, medium: +5, low: +2). Filter matching remains literal substring. "
+                "When score_candidate_pool.truncated is true, only the newest-added candidates were ranked."
             )
         section_rows = self._sections(source_id, section) if section is not None else []
         anchors = {row["section_id"]: row["canonical_id"] for row in section_rows if row["is_anchor"]}

@@ -83,6 +83,8 @@ kind 为 topic 或 entity。每节必须有有效 claim；每页至多 24 个不
 
 `wiki.max_source_age_days` 默认 30 天，可设 1–3650 天。相同正文的新快照可以延长有效期，内容变化仍需审阅，旧历史资料的导入不会覆盖较新的版本判断。版本登记覆盖同一研究根目录中的任务，以及当前配置的网页归档根目录。提供商可能返回缓存，所以新快照和 `current` 都不保证网页源站实时有效；目前没有自动后台网页监控。
 
+`settings.wiki.aliases` 可配置显式查询别名组，例如 `[["pricing", "定价", "价格"]]`；别名仅改善字面召回，不代表页面等价。`lookup_url(url, source_id?)` 可查找精确 URL 对应的所有书签实例及其章节、父文件夹和副本锚点。`traverse_graph(start_id, max_depth, direction?)` 沿画布边和分组成员关系遍历，并分页返回路径。`merge_search_results` 合并真实宿主／MCP 搜索批次，按 URL 和相同正文去重并保留提供商来源；应传入实际观察到的结果，不要重构或编造结果。`search_bookmarks(score=true)` 保留字面匹配集合，并增加非约束性的 `score` 与 `field_hits` 提示。若 `score_candidate_pool.truncated` 为 true，排序仅使用最新加入的候选池，较旧的高分结果可能未参与排序。
+
 新修订记录使用相对于研究任务的证据路径；`wiki_get` 将已验证的证据解析到当前任务位置，旧绝对路径记录也可读取，不改写历史。迁移／同步时同时保留 Wiki 索引、修订及其引用的研究 state、inventory 和证据，并保留相对布局以维持 Markdown 链接。在目标机器配置本地数据／研究路径；仅复制 Wiki Markdown 不足以保留可验证的知识库。Git 同步交给宿主，存放位置避开画布管理目录。
 
 每次写入会重新生成 `index.md`（按 kind 列出当前页面：链接、标题、一行摘要、版本、日期、结论数），并向 `log.md` 追加 `## [日期] write | 标题 (rN)` 及 page ID、修改说明和研究 ID。可阅读或 grep 它们了解全貌；`index.json` 与版本文件仍是准确数据，`index.md` 过期或缺失时 `wiki_lint` 给出 `catalog_stale`／`catalog_missing` 警告，下次写入即重新生成。
