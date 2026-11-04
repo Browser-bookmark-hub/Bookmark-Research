@@ -48,7 +48,8 @@ SETTINGS_SCHEMA = _object_schema({
         "strategy": {"type": "string", "enum": ["hedged", "staggered", "sequential", "wait_all"]},
         "grace_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
         "deadline_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
-        "cache_seconds": {"type": "integer", "minimum": 0, "maximum": 3600}}),
+        "cache_seconds": {"type": "integer", "minimum": 0, "maximum": 3600,
+                          "description": "Search result cache TTL in seconds. 0 disables cache (always fresh network requests). Maximum 3600s (1 hour)."}}),
     "fetch": _object_schema({"provider": {"type": "string", "enum": list(Settings.FETCH_PROVIDERS)},
         "providers": dict(_array_schema({"type": "string", "enum": list(Settings.FETCH_PROVIDERS)}, len(Settings.FETCH_PROVIDERS), 1), uniqueItems=True),
         "max_characters": {"type": "integer", "minimum": 100, "maximum": 100000},
@@ -57,7 +58,8 @@ SETTINGS_SCHEMA = _object_schema({
         "strategy": {"type": "string", "enum": ["sequential", "staggered", "hedged"]},
         "grace_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
         "deadline_seconds": {"type": ["number", "null"], "minimum": 0, "maximum": 60},
-        "reuse_seconds": {"type": "integer", "minimum": 0, "maximum": 86400}}),
+        "reuse_seconds": {"type": "integer", "minimum": 0, "maximum": 86400,
+                          "description": "Fetch page body reuse window in seconds. 0 disables reuse (always re-fetch). Default 0; up to 86400s (24 hours)."}}),
     "server": _object_schema({"network_workers": {"type": "integer", "minimum": 1, "maximum": 16},
         "max_pending_calls": {"type": "integer", "minimum": 1, "maximum": 64}}),
     "archive": _object_schema({"enabled": {"type": "boolean"}, "directory": _text_schema(4096)}),
@@ -76,9 +78,17 @@ SETTINGS_SCHEMA = _object_schema({
         "model": _text_schema(192),
         "api_mode": {"type": "string", "enum": ["chat_completions", "responses"]},
         "search_mode": {"type": "string", "enum": ["prompt", "native"]}}),
+    "browser": _object_schema({
+        "enabled": {"type": "boolean"},
+        "driver": {"type": "string", "enum": ["auto", "playwright", "cdp", "mock"]},
+        "cdp_url": _text_schema(1024),
+        "headless": {"type": "boolean"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60},
+        "max_concurrency": {"type": "integer", "minimum": 1, "maximum": 8}}),
     "wiki": _object_schema({"directory": _text_schema(4096),
         "max_source_age_days": {"type": "integer", "minimum": 1, "maximum": 3650},
-        "after_research": {"type": "string", "enum": ["suggest", "auto", "off"]}}),
+        "after_research": {"type": "string", "enum": ["suggest", "auto", "off"]},
+        "aliases": _array_schema(_array_schema(_text_schema(100), 50, 1), 50)}),
     "wiki_preflight": {"type": "boolean"},
     "freshness_days": {"type": "integer", "minimum": 1, "maximum": 3650},
     "plan": _object_schema({"max_characters": {"type": "integer", "minimum": 1000, "maximum": 50000},
@@ -123,8 +133,16 @@ TOOL_SCHEMAS = {
         "offset": {"type": "integer", "minimum": 0, "maximum": 1000000000, "default": 0},
         "count_only": {"type": "boolean", "default": False},
         "compact": {"type": "boolean", "default": False},
+        "score": {"type": "boolean", "default": False,
+                  "description": "Return non-binding ranking score and field_hits hints; literal match set is preserved."},
         "refresh": {"type": "boolean", "default": True},
     }, ["source_id"]),
+    "lookup_url": _object_schema({
+        "url": _text_schema(8192),
+        "source_id": IDENTIFIER,
+        "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 1000000000, "default": 0},
+    }, ["url"]),
     "get_context": _object_schema({
         "source_id": IDENTIFIER, "section": IDENTIFIER, "group_id": IDENTIFIER,
         "item_id": IDENTIFIER, "refresh": {"type": "boolean", "default": True},
@@ -132,6 +150,15 @@ TOOL_SCHEMAS = {
         "offset": {"type": "integer", "minimum": 0, "maximum": 1000000000, "default": 0},
         "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 200},
         "compact": {"type": "boolean", "default": False},
+    }, ["source_id"]),
+    "traverse_graph": _object_schema({
+        "source_id": IDENTIFIER, "section": IDENTIFIER, "group_id": IDENTIFIER,
+        "item_id": IDENTIFIER, "node_id": IDENTIFIER,
+        "max_depth": {"type": "integer", "minimum": 1, "maximum": 10, "default": 2},
+        "direction": {"type": "string", "enum": ["all", "out", "in"], "default": "all"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 1000000000, "default": 0},
+        "refresh": {"type": "boolean", "default": True},
     }, ["source_id"]),
     "plan_research": _object_schema({
         "source_id": IDENTIFIER, "question": _text_schema(2000),
@@ -159,11 +186,34 @@ TOOL_SCHEMAS = {
         "providers": PROVIDERS,
         "limit_per_target": {"type": "integer", "minimum": 1, "maximum": 20},
     }, ["targets"]),
+    "merge_search_results": _object_schema({
+        "batches": _array_schema(_object_schema({
+            "target": _text_schema(2000),
+            "provider": _text_schema(100),
+            "query": _text_schema(2000),
+            "status": {"type": "string", "enum": ["ok", "error"]},
+            "results": _array_schema(_object_schema({
+                "url": _text_schema(2048),
+                "title": {"type": "string", "maxLength": 500},
+                "snippet": {"type": "string", "maxLength": 100000},
+                "content": {"type": "string", "maxLength": 100000},
+                "rank": {"type": "integer", "minimum": 1, "maximum": 100000}
+            }, ["url"]), 500),
+            "error": {"type": "string", "maxLength": 2000}
+        }, ["target", "provider", "query", "status"]), 50, 1),
+        "targets": _array_schema(_text_schema(2000), 50),
+        "limit_per_target": {"type": "integer", "minimum": 1, "maximum": 50},
+        "archive": {"type": "boolean", "default": False}
+    }, ["batches"]),
     "agentic_search": _object_schema({
         "query": _text_schema(12000),
         "provider": {"type": "string", "enum": ["grok", "custom"], "default": "grok"},
         "include_x": {"type": "boolean", "default": False,
                       "description": "Also search public X posts. This may incur additional provider charges."},
+        "rewrite_query": {"type": "boolean", "default": False,
+                          "description": "Decompose and reformulate search queries before searching."},
+        "max_iterations": {"type": "integer", "minimum": 1, "maximum": 5, "default": 1,
+                           "description": "Budget bound for multi-step agentic refinement iterations (1-5)."}
     }, ["query"]),
     "fetch_web": _object_schema({
         "urls": _array_schema(_text_schema(8192), 16, 1),
@@ -190,6 +240,8 @@ TOOL_SCHEMAS = {
             "description": "Occurrences listed per merged body. Each result reports occurrence_count, occurrences_truncated and occurrences_next_offset."},
         "occurrence_offset": {"type": "integer", "minimum": 0, "maximum": 10000000, "default": 0,
             "description": "Continue a body's occurrence list from this offset."},
+        "expand_versions": {"type": "boolean", "default": False,
+            "description": "When true, expand all version captures by SHA-256 instead of grouping by URL."},
     }, ["query"]),
 }
 
@@ -201,16 +253,19 @@ TOOL_DESCRIPTIONS = {
     "source_history": "List saved source versions and managed snapshot paths, including partial-import data. Reimport a snapshot to recover it. Does not refresh sources or rewrite research inventories.",
     "source_remove": "Preview deletion of an imported source, index rows and managed snapshots; confirm=true performs it. Frozen research inventories remain, but item resolution stops and citing Wiki pages need review. For identical duplicates, prefer source_merge.",
     "source_merge": "Preview merging an identical source into into_source_id; confirm=true transfers path aliases and drops the duplicate. Synchronized content versions must match; synchronize legacy sources first.",
-    "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
+    "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. score=true returns non-binding ranking score and field_hits hints while preserving literal match set. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
+    "lookup_url": "Reverse index: find all bookmark item instances for an exact URL across sections and sources, with chronological added_at, parent folders and copy anchor cards. source_id is optional.",
     "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default. compact=true drops raw_json, description_md and revision; pair it with a collection to reach the smallest budget.",
+    "traverse_graph": "Multi-hop graph traversal along canvas edges and group memberships starting from a node, section, group or bookmark item. Returns the impact surface: reached sections, groups, text annotations and edge paths up to max_depth hops with deterministic sorting and pagination.",
     "plan_research": "Read local candidates for a question: matching bookmarks and canvas text/group/edge labels, independently searched Wiki pages and archived sources, and source dates. source_id is optional. max_cards accepts 1–3 (default 3); max_urls accepts 1–8 (default 8). Larger values are rejected. Scores rank candidates without rejecting them; the host decides relevance, depth and whether to search. question_urls lists known URLs to read directly. No network or research task is started.",
     "discovery_bundle": "Assemble the route-② evidence bundle and decide the budget. Pass every source the host collected: only content_state=usable pages become evidence, the rest are listed with the reason they cannot be cited. The bundle is built at the richest level that fits max_characters (excerpts, then digest, then a plain URL list) and always keeps the URL list, so it degrades instead of returning nothing. steps, fetches, variants and elapsed_seconds are the host's own counters, and the plugin owns the decision: stop when budget.continue is false (steps ≤ 6, fetches ≤ 8, variants ≤ 3, 90 seconds). Cite evidence[].id in the answer; never cite a URL that has no evidence entry.",
     "index_status": "Read source modes, snapshots, counts, input availability, pending changes and monitor errors. No refresh or web fetch; unchecked means a live directory needs a recent check.",
     "search_web": "Discover sources for public queries with saved primary providers, then fallbacks for unresolved queries. search.strategy selects hedged (default), staggered, sequential or wait_all. Hedged/staggered primary search has a 10-second default search.deadline_seconds; routing lists providers abandoned at the deadline. Raise this setting or set it to null with update_settings when slower providers need more time. Provider failures remain visible in batches; quota_exhausted providers enter cooldown (using provider retry_after when supplied), while other configured fallbacks are still attempted. Explicit providers restrict the call. Targets accept target/query objects or plain query strings. Results are discovery snippets; pages are not fetched. Each result carries provider_count and corroborated: two or more providers returning one URL means link overlap, never confirmation of its content.",
+    "merge_search_results": "Fuse and deduplicate search results from host-native tools or other MCPs. Deduplicates by URL and text SHA-256, computes RRF scores, preserves provider provenance, and optionally archives extracts into knowledge storage.",
     "agentic_search": "Optional model answer/search channel, separate from search_web URL fusion. provider=grok (default) uses xAI Responses and XAI_API_KEY; include_x enables X Search. provider=custom uses the configured custom_agentic OpenAI-compatible endpoint and CUSTOM_AGENTIC_API_KEY; native web search is only requested for Responses mode when explicitly configured. Prompt mode cannot guarantee the upstream actually searches. Citations are not independently verified. Use only when selected by the user or workflow.",
     "fetch_web": "Read known URLs directly (up to 16 per call) with per-page and total text budgets. Continue saved text using capture_id and offset without refetching. Omit provider for the saved fallback order (fetch.strategy overlaps a stalled provider); specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing. Every page carries content_state, the page's own shape: usable, content_insufficient (under 400 characters or an empty-page marker), js_shell_suspected (a title and navigation but no prose), challenge_blocked, login_required (an SSO or sign-in wall), soft_404 or paywall_suspected; only usable pages are worth citing, and unavailable means no body was obtained. published_at is a day-precision date with published_at_source (provider_metadata, structured_metadata or body_date) and published_at_confidence; a bare date in the text is low confidence and never later than the fetch day. A URL with no body carries liveness: dead only for 404/410, otherwise unknown, and dead_urls lists them.",
     "search_providers": "Describe configured retrieval capabilities and per-operation auth. Includes Exa, Parallel, Tavily, Jina, DeepSeek and optional Perplexity structured Search. probe=true checks remote MCP catalogs, not successful retrieval; HTTP APIs (Jina, DeepSeek, Perplexity) are reported as not probed. Perplexity is search-only and requires PERPLEXITY_API_KEY. Configure credentials through CLI setup, never chat.",
-    "search_archive": "Search saved page text across local archives and research tasks using literal terms. No network. Identical bodies are merged by hash; occurrences have their own pagination. Hash-mismatched bodies are skipped and counted; the index refreshes incrementally.",
+    "search_archive": "Search saved page text across local archives and research tasks using literal terms. No network. By default, results are grouped by URL, reporting version counts, time span, and distinct versions. Set expand_versions=true to view separate captures merged by body hash. Occurrences have their own pagination. Hash-mismatched bodies are skipped and counted; the index refreshes incrementally.",
 }
 
 RESEARCH_ID = _text_schema(80)
@@ -369,9 +424,13 @@ TOOL_SCHEMAS.update({
     "wiki_write": _object_schema({"page_id": RESEARCH_ID, "page": WIKI_PAGE, "change_note": _text_schema(4000),
         "sources": _array_schema(_object_schema({"id": RESEARCH_ID, "url": _text_schema(8192),
             "text": _text_schema(2000000), "capture_id": _text_schema(128), "title": _text_schema(2000),
-            "retrieved_at": _text_schema(64), "kind": {"type": "string", "enum": ["page", "local_document", "external_report"]}},
+            "retrieved_at": _text_schema(64), "kind": {"type": "string", "enum": ["page", "local_document", "external_report"]},
+            "bookmark_refs": _array_schema(_object_schema({"source_id": IDENTIFIER, "section_id": IDENTIFIER,
+                                                            "item_id": IDENTIFIER}, ["source_id", "section_id", "item_id"]), 100),
+            "inventory_ids": dict(_array_schema(RESEARCH_ID, 10000), uniqueItems=True)},
             ["id", "url"]), 16, 1),
         "expected_revision": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "ignore_duplicate_warning": {"type": "boolean", "description": "When true, suppresses duplicate concept warnings if URLs or titles overlap with existing pages."},
         "reviewed_input_version": {**_text_schema(200), "description": "The already-synchronized input version this page was checked against; closes source_input_changed for cited tasks at that version."}},
         ["page_id", "page", "change_note"]),
     "wiki_acknowledge": _object_schema({"page_id": RESEARCH_ID, "note": _text_schema(4000),
@@ -715,7 +774,12 @@ class StdioMcpServer:
             options = dict(arguments)
             options.pop("refresh", None)
             return ResearchPlan(settings=self.settings, wiki=self._wiki(), raw=self._raw()).build(**options)
-        if name in ("search_bookmarks", "get_context", "plan_research"):
+        if name == "lookup_url":
+            index = self._local()
+            with index.read_snapshot():
+                return index.lookup_url(arguments["url"], source_id=arguments.get("source_id"),
+                                        limit=arguments.get("limit", 100), offset=arguments.get("offset", 0))
+        if name in ("search_bookmarks", "get_context", "traverse_graph", "plan_research"):
             options = dict(arguments)
             refresh = options.pop("refresh", True)
             pagination = {key: options.pop(key, default) for key, default in (
@@ -733,6 +797,8 @@ class StdioMcpServer:
                     from research_plan import ResearchPlan
                     result = ResearchPlan(index=index, settings=self.settings,
                                           wiki=self._wiki(), raw=self._raw()).build(**options)
+                elif name == "traverse_graph":
+                    result = index.traverse(**options)
                 else:
                     method = index.search if name == "search_bookmarks" else index.context
                     result = method(**options)
@@ -789,6 +855,9 @@ class StdioMcpServer:
             options = dict(arguments)
             probe = options.pop("probe", False)
             return self._web().probe(**options) if probe else self._web().describe(**options)
+        if name == "merge_search_results":
+            from search_results import fuse_results
+            return fuse_results(arguments, archive=arguments.get("archive", False), settings=self.settings)
         raise RpcError(-32602, "Unknown tool: " + name)
 
     def _tool_result(self, value, is_error=False):

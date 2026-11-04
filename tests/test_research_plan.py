@@ -55,6 +55,8 @@ class ResearchPlanTests(unittest.TestCase):
         self.assertIn("本地", terms)
         self.assertIn("部署", terms)
         self.assertNotIn("2", terms)
+        self.assertNotIn("么本", terms)
+        self.assertNotIn("地部", terms)
         self.assertLessEqual(len(terms), 12)
         self.assertEqual(BookmarkIndex.plan_terms("Lumen"), ["Lumen"])
         self.assertEqual(BookmarkIndex.plan_terms("书"), ["书"])
@@ -62,6 +64,18 @@ class ResearchPlanTests(unittest.TestCase):
         for bad in ("", "   ", None, 7):
             with self.assertRaises(ValueError):
                 BookmarkIndex.plan_terms(bad)
+
+    def test_cjk_cross_word_bigram_noise_is_eliminated(self):
+        terms = BookmarkIndex.plan_terms("本地部署有哪些路径")
+        self.assertIn("本地", terms)
+        self.assertIn("部署", terms)
+        self.assertIn("路径", terms)
+        self.assertNotIn("地部", terms)
+        self.assertNotIn("署有", terms)
+        self.assertNotIn("些路", terms)
+        self.assertNotIn("有哪些", terms)
+        note_terms = BookmarkIndex.plan_terms("我的书签和笔记")
+        self.assertEqual(note_terms, ["书签", "笔记"])
 
     def two_common_one_rare(self, root):
         write_card(root, "R1 稀有", "temp-section-R1", "R1",
@@ -187,7 +201,7 @@ class ResearchPlanTests(unittest.TestCase):
         self.assertEqual(["https://a.test/x", "https://b.test/y"], ResearchPlan.question_urls(question))
         # The URL is an instruction to read it, not a search term: its scheme
         # and host would otherwise match half the package.
-        self.assertEqual(["对比", "和"], BookmarkIndex.plan_terms(question))
+        self.assertEqual(["对比"], BookmarkIndex.plan_terms(question))
         built = ResearchPlan(index=index, settings=self.settings).build(source_id, question)
         self.assertEqual(["https://a.test/x", "https://b.test/y"], built["question_urls"])
 

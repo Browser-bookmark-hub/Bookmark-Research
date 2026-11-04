@@ -9,13 +9,14 @@ from source_manager import SourceManager
 
 
 class SourceWatcher:
-    def __init__(self, db_path, interval=1.0, debounce=2.0, deletion_grace=5.0, on_change=None):
+    def __init__(self, db_path, interval=1.0, debounce=2.0, deletion_grace=5.0, on_change=None, verify_hashes=False):
         for value in (interval, debounce, deletion_grace):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
                 raise ValueError("Watcher intervals must be finite positive seconds")
         self.db_path = Path(db_path)
         self.interval, self.debounce, self.deletion_grace = interval, debounce, deletion_grace
         self.on_change = on_change
+        self.verify_hashes = bool(verify_hashes)
         self.stop_event, self.ready = threading.Event(), threading.Event()
         self.thread = None
         self.last_error = None
@@ -35,6 +36,7 @@ class SourceWatcher:
         return {"running": bool(self.thread and self.thread.is_alive() and not self.stop_event.is_set()),
                 "mechanism": "poll", "interval_seconds": self.interval,
                 "debounce_seconds": self.debounce, "deletion_grace_seconds": self.deletion_grace,
+                "verify_hashes": self.verify_hashes,
                 "error": self.last_error, "lifetime": "host_process"}
 
     def run(self):
@@ -50,7 +52,7 @@ class SourceWatcher:
                         for source_id in manager.live_sources():
                             if self.stop_event.is_set():
                                 break
-                            result = manager.refresh(source_id, force=False)
+                            result = manager.refresh(source_id, force=False, verify_hashes=self.verify_hashes)
                             signature = (result["state"], result.get("version_id"),
                                          tuple(result.get("pending_files", [])), result.get("error"))
                             if self.on_change is not None and signature != previous.get(source_id):

@@ -832,3 +832,103 @@ class SourceArchive:
                 "source_version_tracking": tracking,
                 "pages": [{**row, "body_path": str(bodies[row["requested_url"]]) if row["body_file"] else None}
                           for row in manifest["pages"]]}
+
+    def save_search_batch(self, payload, ranked_hits):
+        archived_at = datetime.now(timezone.utc)
+        capture_id = archived_at.strftime("%Y%m%dT%H%M%S%fZ-") + uuid.uuid4().hex[:12]
+        captures = self.directory / "sources"
+        Settings.external_path(str(captures), "Archive directory")
+        if captures.is_symlink():
+            raise ValueError("Archive captures must not be a symlink")
+        captures.mkdir(parents=True, exist_ok=True)
+        destination = captures / capture_id
+
+        providers = list(dict.fromkeys(b.get("provider", "host_search") for b in payload.get("batches", []) if isinstance(b, dict)))
+        primary_provider = providers[0] if providers else "host_search"
+
+        manifest = {
+            "schema_version": 2,
+            "capture_id": capture_id,
+            "capture_type": "host_search_batch",
+            "query": payload.get("query"),
+            "source_attribution_version": self.ATTRIBUTION_VERSION,
+            "archived_at": archived_at.isoformat(),
+            "provider": primary_provider,
+            "tool": "merge_search_results",
+            "retrieved_at": archived_at.isoformat(),
+            "requested_urls": [h["url"] for h in ranked_hits],
+            "request_arguments": {"limit_per_target": payload.get("limit_per_target", 10)},
+            "requested_max_characters": 12000,
+            "character_limit_applied": False,
+            "response_file": "response.json",
+            "page_store": "content_addressed",
+            "pages": [],
+            "origin_freshness": "unknown",
+            "forced_live_fetch": False,
+            "note": "Saved host search backflow results and snippets."
+        }
+
+        with tempfile.TemporaryDirectory(prefix=".capture-", dir=captures) as temporary:
+            stage = Path(temporary) / "capture"
+            stage.mkdir()
+            self._write_json(stage / "response.json", payload)
+            manifest["response_sha256"] = hashlib.sha256((stage / "response.json").read_bytes()).hexdigest()
+            bodies = {}
+            for hit in ranked_hits:
+                url = hit["url"]
+                title = hit.get("title", "")
+                body = None
+                for src in hit.get("sources", []):
+                    text = src.get("content") or src.get("snippet") or ""
+                    if text and (body is None or len(text) > len(body)):
+                        body = text
+                if not body and hit.get("snippet"):
+                    body = hit["snippet"]
+
+                status = "extracted" if body else "no_extract"
+                entry = {
+                    "requested_url": url,
+                    "returned_url": url,
+                    "title": title,
+                    "extraction_status": status,
+                    "content_kind": "search_snippet" if body else "unknown",
+                    "content_state": content_state(title, body, status),
+                    "body_file": None,
+                    "page_body_archived": False,
+                    "completeness": "partial",
+                    "provider_crawled_at": None,
+                    "fragment_scope_verified": False,
+                    "sha256": None
+                }
+                published = published_at(body, None, reference=archived_at.isoformat())
+                entry["published_at"], entry["published_at_source"], entry["published_at_confidence"] = published
+                if body is not None:
+                    target, digest = self._store_page(body)
+                    entry.update(body_file="../../%s/%s" % (self.PAGES, target.name), page_body_archived=True,
+                                 sha256=digest, characters=len(body))
+                    bodies[url] = target
+                manifest["pages"].append(entry)
+            self._write_json(stage / "manifest.json", manifest)
+            stage.rename(destination)
+
+        tracking = "indexed"
+        try:
+            from source_versions import SourceVersions
+            SourceVersions(self.directory / "source-versions.sqlite3").record("capture:" + capture_id, [
+                {"id": str(position), "url": page["requested_url"], "sha256": page["sha256"],
+                 "retrieved_at": manifest["retrieved_at"], "provider": manifest["provider"]}
+                for position, page in enumerate(manifest["pages"]) if page["page_body_archived"]])
+        except (OSError, ValueError, sqlite3.Error):
+            tracking = "unavailable"
+
+        return {
+            "status": "saved",
+            "capture_id": capture_id,
+            "directory": str(destination),
+            "manifest_path": str(destination / "manifest.json"),
+            "response_path": str(destination / "response.json"),
+            "source_version_tracking": tracking,
+            "pages_archived": len(bodies),
+            "pages": [{**row, "body_path": str(bodies[row["requested_url"]]) if row["body_file"] else None}
+                      for row in manifest["pages"]]
+        }

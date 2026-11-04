@@ -19,8 +19,15 @@ class WikiSearchIndex:
         return re.sub(r"\s+", "", text.casefold())
 
     @classmethod
-    def terms(cls, query):
-        return [list(next((group for group in cls.ALIASES if term in group), (term,)))
+    def terms(cls, query, extra_aliases=None):
+        alias_groups = list(cls.ALIASES)
+        if extra_aliases:
+            for group in extra_aliases:
+                if isinstance(group, (list, tuple)):
+                    cleaned = tuple(dict.fromkeys(str(term).strip() for term in group if str(term).strip()))
+                    if cleaned and cleaned not in alias_groups:
+                        alias_groups.append(cleaned)
+        return [list(next((group for group in alias_groups if term in group), (term,)))
                 for term in dict.fromkeys(query.casefold().split())]
 
     @classmethod
@@ -38,7 +45,10 @@ class WikiSearchIndex:
         try:
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("CREATE TABLE IF NOT EXISTS documents (page_id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, "
-                               "title TEXT NOT NULL, body TEXT NOT NULL, aliases TEXT NOT NULL)")
+                               "title TEXT NOT NULL, body TEXT NOT NULL, aliases TEXT NOT NULL, headings TEXT NOT NULL DEFAULT '')")
+            cols = {col[1] for col in connection.execute("PRAGMA table_info(documents)").fetchall()}
+            if "headings" not in cols:
+                connection.execute("ALTER TABLE documents ADD COLUMN headings TEXT NOT NULL DEFAULT ''")
             connection.execute("CREATE TABLE IF NOT EXISTS postings (gram TEXT NOT NULL, page_id TEXT NOT NULL "
                                "REFERENCES documents(page_id) ON DELETE CASCADE, PRIMARY KEY(gram,page_id)) WITHOUT ROWID")
             connection.execute("CREATE INDEX IF NOT EXISTS postings_page ON postings(page_id)")
@@ -59,16 +69,18 @@ class WikiSearchIndex:
     @staticmethod
     def row(page_id, pointer, record):
         page = record["page"]
+        headings = "\n".join(section["heading"] for section in page.get("sections", []))
         body = "\n\n".join(section["heading"] + "\n" + section["text"] for section in page["sections"])
         aliases = "\n".join(page.get("aliases", []))
-        return {"page_id": page_id, "sha256": pointer["sha256"], "title": page["title"], "body": body, "aliases": aliases}
+        return {"page_id": page_id, "sha256": pointer["sha256"], "title": page["title"],
+                "body": body, "aliases": aliases, "headings": headings}
 
     def _put(self, connection, page_id, pointer, record):
         from archive import SourceArchive
         row = self.row(page_id, pointer, record)
         connection.execute("DELETE FROM documents WHERE page_id=?", (page_id,))
-        connection.execute("INSERT INTO documents VALUES (?,?,?,?,?)",
-                           tuple(row[key] for key in ("page_id", "sha256", "title", "body", "aliases")))
+        connection.execute("INSERT INTO documents (page_id, sha256, title, body, aliases, headings) VALUES (?,?,?,?,?,?)",
+                           tuple(row[key] for key in ("page_id", "sha256", "title", "body", "aliases", "headings")))
         connection.executemany("INSERT INTO postings VALUES (?,?)",
                                ((gram, page_id) for gram in self.grams(row["title"] + "\n" + row["body"] + "\n" + row["aliases"])))
         urls = {SourceArchive._key(citation["url"]) for evidence in record["evidence"]
@@ -113,6 +125,48 @@ class WikiSearchIndex:
                         pending.append(row[0])
         return {"direct_page_ids": sorted(direct), "page_ids": sorted(affected), "unreadable_page_ids": invalid}
 
+    def detect_duplicates(self, index, load_revision, page_id, title, urls):
+        with self.connection() as connection:
+            self._sync(connection, index, load_revision)
+            rows = connection.execute("SELECT page_id, title FROM documents WHERE page_id != ?", (page_id,)).fetchall()
+            url_matches = {}
+            for url in (urls or ()):
+                for row in connection.execute("SELECT page_id FROM dependencies WHERE url=? AND page_id != ?", (url, page_id)):
+                    url_matches.setdefault(row[0], set()).add(url)
+            norm_new = self.normalize(title) if title else ""
+            tokens_new = set(re.findall(r"\w+", title.lower())) if title else set()
+            duplicates = []
+            for row in rows:
+                other_id, other_title = row["page_id"], row["title"]
+                reasons = []
+                matched_urls = sorted(url_matches.get(other_id, set()))
+                if matched_urls:
+                    reasons.append("overlapping_urls")
+                norm_other = self.normalize(other_title) if other_title else ""
+                tokens_other = set(re.findall(r"\w+", other_title.lower())) if other_title else set()
+                similar_title = False
+                if norm_new and norm_other:
+                    if norm_new == norm_other:
+                        similar_title = True
+                    elif (norm_new in norm_other or norm_other in norm_new) and min(len(norm_new), len(norm_other)) >= 4:
+                        similar_title = True
+                    elif tokens_new and tokens_other:
+                        union = tokens_new | tokens_other
+                        if union and (len(tokens_new & tokens_other) / len(union)) >= 0.7:
+                            similar_title = True
+                if similar_title:
+                    reasons.append("similar_title")
+                if reasons:
+                    duplicates.append({
+                        "page_id": other_id,
+                        "title": other_title,
+                        "reasons": reasons,
+                        "overlapping_urls": matched_urls,
+                        "candidate_merge_target": other_id,
+                        "suggestion": f"Consider reviewing or merging with existing Wiki page '{other_id}' ({other_title})."
+                    })
+            return duplicates
+
     def candidates(self, index, load_revision, groups):
         with self.connection() as connection:
             invalid = self._sync(connection, index, load_revision)
@@ -140,7 +194,7 @@ class WikiSearchIndex:
         return rows, invalid
 
     @classmethod
-    def match(cls, row, query, groups):
+    def match(cls, row, query, groups, doc_freq=None):
         text = (row["title"] + "\n" + row["body"] + "\n" + row["aliases"]).casefold()
         squashed = cls.normalize(text)
         terms = list(dict.fromkeys(query.casefold().split()))
@@ -150,8 +204,12 @@ class WikiSearchIndex:
                   for variants in groups]
         if not all(chosen):
             return None
-        rank = sum(min(text.count(term), 20) + (5 if term in row["title"].casefold() else 0)
-                   for term in chosen) + (10 if literal or spacing else 0)
+        headings = row.get("headings", "").casefold()
+        rank = sum(
+            (min(text.count(term), 20) + (15 if term in row["title"].casefold() else 0) + (8 if term in headings else 0))
+            * (float(max(1, len(term))) / max(1, doc_freq.get(term, 1)) if doc_freq else 1.0)
+            for term in chosen
+        ) + (10 if literal or spacing else 0)
         positions = [row["body"].casefold().find(term) for term in chosen if term in row["body"].casefold()]
         begin = max(0, min(positions, default=0) - 60)
         return {"rank": rank, "snippet": row["body"][begin:begin + 500],

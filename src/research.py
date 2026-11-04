@@ -90,6 +90,16 @@ class ResearchSessions:
         return research_id
 
     @staticmethod
+    def _slug(value):
+        raw = (value or "").strip().lower()
+        slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
+        slug = re.sub(r"-+", "-", slug)[:80]
+        if slug and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,79}", slug):
+            return slug
+        from wiki import WikiStore
+        return WikiStore._slug(value)
+
+    @staticmethod
     def _registry():
         """Return the location registry; an unreadable registry means legacy lookup only."""
         try:
@@ -1155,7 +1165,7 @@ class ResearchSessions:
                                {"fetch_calls": Settings.fetch_call_count(names[0], fresh) if fresh else 0}, execute)
 
     def import_evidence(self, research_id, operation_id, question_id, url, text, provenance,
-                        inventory_ids=None, title=""):
+                        inventory_ids=None, title="", bookmark_refs=None):
         """Save host-read page text or a secondary report without fetching it.
 
         A report can cite original input IDs, but those references never count
@@ -1189,14 +1199,16 @@ class ResearchSessions:
         if "run_id" in provenance:
             self._text(provenance["run_id"], "External run id", 2000)
         supplied_ids = None
+        is_internal_wiki = state.get("topic", "").startswith("Wiki: ") or state.get("brief", "").startswith("Wiki: ")
         if inventory_ids is not None:
             if not isinstance(inventory_ids, list):
                 raise ValueError("inventory_ids must be a list")
             supplied_ids = list(dict.fromkeys(self._identifier(value, "Inventory id") for value in inventory_ids))
-            for identifier in supplied_ids:
-                self._find(state.get("inventory", []), identifier, "inventory item")
+            if state.get("inventory") or not is_internal_wiki:
+                for identifier in supplied_ids:
+                    self._find(state.get("inventory", []), identifier, "inventory item")
         linked_ids, _ = self._source_links(state, url)
-        if kind != "external_report" and supplied_ids is not None and set(supplied_ids) - set(linked_ids):
+        if kind != "external_report" and supplied_ids is not None and (state.get("inventory") or not is_internal_wiki) and set(supplied_ids) - set(linked_ids):
             raise ValueError("Imported page URL does not match the selected original inventory URL")
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         if "text_sha256" in provenance and provenance["text_sha256"] != digest:
@@ -1229,7 +1241,7 @@ class ResearchSessions:
                       "provenance": provenance, "review": {"verdict": "unreviewed", "text": None},
                       "inventory_ids": [] if kind == "external_report" else identifiers,
                       "referenced_inventory_ids": (supplied_ids or []) if kind == "external_report" else [],
-                      "bookmark_refs": [] if kind == "external_report" else refs}
+                      "bookmark_refs": bookmark_refs if bookmark_refs is not None else ([] if kind == "external_report" else refs)}
             # The commit assigns the source id and writes its manifest together.
             # The request snapshot cannot predict ids allocated by other writers.
             return {"status": "ok", "sources": [source], "next_action":
@@ -1731,6 +1743,8 @@ class ResearchSessions:
             policy = "suggest"
         if policy == "off":
             return {"policy": "off"}
+        if state.get("topic", "").startswith("Wiki: ") or state.get("brief", "").startswith("Wiki: "):
+            return {"policy": policy, "skip_reason": "internal_wiki_session", "candidates": [], "draft": None}
         eligible = [claim["id"] for claim in state["claims"] if claim.get("status", "active") == "active"
                     and all(self._find(state["sources"], citation["source_id"], "source").get("review", {}).get("verdict")
                             == "accepted" for citation in claim["citations"])]
@@ -1747,7 +1761,71 @@ class ResearchSessions:
             ranked = sorted(candidates.values(), key=lambda row: (-len(row["matched_terms"]), row["page_id"]))[:5]
         except Exception:  # A Wiki problem must never undo a saved report.
             ranked = []
+        draft_page = self._wiki_page(drafts, state)
+        written_page = None
+        skip_reason = None
         if policy == "auto":
+            if not drafts:
+                skip_reason = "insufficient_evidence" if not state.get("claims") else "no_accepted_claims"
+            elif state.get("status") == "active":
+                skip_reason = "session_active"
+            elif state.get("dry_run"):
+                skip_reason = "dry_run"
+            else:
+                try:
+                    from wiki import WikiStore
+                    store = WikiStore(settings=self.settings, research_sessions=self)
+                    auto_page = copy.deepcopy(draft_page["page"])
+                    auto_page["review"] = {
+                        "method": "model",
+                        "reviewer": "auto_research",
+                        "note": "Auto-synthesized reviewed claims from research session %s" % state["research_id"]
+                    }
+                    candidate_page_id = ranked[0]["page_id"] if ranked else self._slug(state.get("title") or state.get("topic") or state.get("brief") or state["research_id"])
+                    expected_rev = 0
+                    existing = None
+                    try:
+                        existing = store.get(candidate_page_id)
+                    except Exception:
+                        existing = None
+                    if existing and existing.get("page"):
+                        expected_rev = existing.get("revision", 0)
+                        merged_sections = copy.deepcopy(existing["page"].get("sections", []))
+                        existing_headings = {s.get("heading") for s in merged_sections}
+                        for s in auto_page.get("sections", []):
+                            if s.get("heading") not in existing_headings and len(merged_sections) < WikiStore.MAX_SECTIONS:
+                                merged_sections.append(s)
+                                existing_headings.add(s.get("heading"))
+                        auto_page["sections"] = merged_sections
+                        existing_links = existing["page"].get("links", [])
+                        merged_links = copy.deepcopy(existing_links)
+                        existing_link_targets = {l.get("page_id") for l in merged_links}
+                        for l in auto_page.get("links", []):
+                            if l.get("page_id") not in existing_link_targets and len(merged_links) < 32:
+                                merged_links.append(l)
+                                existing_link_targets.add(l.get("page_id"))
+                        auto_page["links"] = merged_links
+                        if existing["page"].get("aliases"):
+                            auto_page["aliases"] = existing["page"]["aliases"]
+                    write_result = store.write(
+                        candidate_page_id,
+                        auto_page,
+                        change_note="Auto-saved research %s" % state["research_id"],
+                        expected_revision=expected_rev
+                    )
+                    written_page = {
+                        "status": "written",
+                        "page_id": write_result["page_id"],
+                        "revision": write_result["revision"],
+                        "markdown_file": write_result.get("markdown_file")
+                    }
+                except Exception as exc:
+                    conflict = "revision changed" in str(exc).lower()
+                    written_page = {
+                        "status": "conflict_aborted" if conflict else "failed",
+                        "error": str(exc),
+                        "skip_reason": "revision_conflict" if conflict else "write_failed"
+                    }
             instruction = ("Without asking the user, write or update Wiki pages with the reviewed claims: update a matching "
                            "candidate page (read it with wiki_get and pass its expected_revision) or create a new page from "
                            "eligible_claims, citing only those claims and marking inference statements as inference. "
@@ -1756,9 +1834,16 @@ class ResearchSessions:
             instruction = ("Present the candidate Wiki pages to update, or a proposed new page built from eligible_claims "
                            "(group them by question_id into draft sections; each claim carries exact first quotes and an "
                            "inference mark), to the user. Honor existing authorization; otherwise obtain confirmation before writing.")
-        return {"policy": policy, "candidates": ranked, "eligible_claim_ids": eligible, "eligible_claims": drafts,
-                "draft": self._wiki_page(drafts, state), "instruction": instruction,
-                "work": {"tool": "wiki_work", "arguments": {"research_id": state["research_id"]}}}
+        follow_up = {"policy": policy, "candidates": ranked, "eligible_claim_ids": eligible, "eligible_claims": drafts,
+                     "draft": draft_page, "instruction": instruction,
+                     "work": {"tool": "wiki_work", "arguments": {"research_id": state["research_id"]}}}
+        if written_page:
+            follow_up["written_page"] = written_page
+            follow_up.update(written_page)
+        elif skip_reason:
+            follow_up["status"] = "skipped"
+            follow_up["skip_reason"] = skip_reason
+        return follow_up
 
     @staticmethod
     def _question_gap(question, state):

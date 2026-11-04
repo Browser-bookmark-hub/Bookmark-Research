@@ -311,7 +311,7 @@ class OutputLocationTests(unittest.TestCase):
         result = self.sessions.finish(rid, "Nothing found.", status="incomplete")
         self.assertEqual(result["status"], "incomplete")
         self.assertEqual(result["wiki_follow_up"]["candidates"], [])
-        self.assertEqual(result["wiki_follow_up"]["policy"], "suggest")
+        self.assertEqual(result["wiki_follow_up"]["policy"], "auto")
         self.assertTrue(Path(result["artifacts"]["report"]).is_file())
 
 

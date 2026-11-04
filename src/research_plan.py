@@ -87,7 +87,17 @@ class ResearchPlan:
         if not terms:
             return [], None
         try:
-            return self._wiki().search_terms(terms, limit=limit), None
+            results = self._wiki().search_terms(terms, limit=limit)
+            if hasattr(self._wiki(), "_log_metric"):
+                pids = [row.get("page_id") for row in results if row.get("page_id")]
+                self._wiki()._log_metric(
+                    "plan_research",
+                    page_id=pids[0] if len(pids) == 1 else None,
+                    page_ids=pids if len(pids) > 1 else None,
+                    hit_count=len(results),
+                    reused=bool(results)
+                )
+            return results, None
         except Exception as exc:  # local optional check; never hide the bookmark scope
             return [], "Wiki preflight unavailable: " + str(exc)
 

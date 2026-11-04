@@ -99,7 +99,7 @@ class WikiTests(unittest.TestCase):
         self.assertFalse(Path(record["evidence"][0]["citations"][0]["body_file"]).is_absolute())
         self.wiki.write("sessions", self.page(title="Revised sessions"), "Revise title", expected_revision=1)
         snapshots = {path.relative_to(self.wiki.directory): path.read_bytes()
-                     for path in self.wiki.directory.rglob("*") if path.is_file()}
+                     for path in self.wiki.directory.rglob("*") if path.is_file() and path.name != "metrics.jsonl"}
         moved = self.root / "moved"
         moved.mkdir()
         shutil.move(str(self.research.directory), moved / "research")
@@ -119,7 +119,7 @@ class WikiTests(unittest.TestCase):
         self.assertEqual(search["results"][0]["validation"]["status"], "current")
         self.assertEqual(wiki.lint()["status"], "ok")
         self.assertEqual({path.relative_to(wiki.directory): path.read_bytes()
-                          for path in wiki.directory.rglob("*") if path.is_file()}, snapshots)
+                          for path in wiki.directory.rglob("*") if path.is_file() and path.name != "metrics.jsonl"}, snapshots)
         Path(citation["body_file"]).write_text("Changed evidence after moving.")
         self.assertEqual(wiki.get("sessions")["validation"]["status"], "stale")
         self.assertEqual(wiki.search("reusable")["total"], 0)

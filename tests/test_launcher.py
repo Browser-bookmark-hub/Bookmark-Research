@@ -58,7 +58,7 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(value["python"]["executable"], sys.executable)
         data = (self.base / "data").resolve()
         self.assertEqual(value["output"], {"mode": "central", "directory": str(data / "research")})
-        self.assertEqual(value["wiki"], {"directory": str(data / "wiki"), "after_research": "suggest"})
+        self.assertEqual(value["wiki"], {"directory": str(data / "wiki"), "after_research": "auto"})
         self.assertEqual(value["recent_research"]["tasks"], [])
 
     def test_status_lists_the_newest_registered_research_tasks(self):

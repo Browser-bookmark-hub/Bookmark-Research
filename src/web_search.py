@@ -120,6 +120,9 @@ class SearchProviders:
                         from perplexity import PerplexityClient
                         state.client = PerplexityClient(headers=headers, timeout=timeout,
                                                         search_url=info.get("search_url"))
+                    elif info.get("client") == "browser":
+                        from browser_client import BrowserClient
+                        state.client = BrowserClient(settings=self.settings, timeout=timeout)
                     else:
                         from jina import JinaClient
                         state.client = JinaClient(headers=headers, timeout=timeout)
@@ -205,6 +208,15 @@ class SearchProviders:
             client, before, usage = None, None, self._empty_usage()
             try:
                 if self.registry["providers"][provider].get("transport") == "http":
+                    if provider == "browser":
+                        enabled = self.settings.load().get("browser", {}).get("enabled", False)
+                        capabilities = {"search": {"status": "unsupported", "execution_verified": False},
+                                        "fetch": {"status": "supported" if enabled else "disabled", "execution_verified": False}}
+                        return {"provider": provider, "status": "ok" if enabled else "not_configured", "tools": ["browser_render"] if enabled else [],
+                                "network_probe_performed": False, "catalog_source": "local_browser_driver",
+                                "capabilities": capabilities,
+                                "authentication_state": {"configured": enabled, "credential_configured": enabled, "credential_validity_verified": False, "oauth_implemented": False},
+                                "usage": usage}
                     capabilities = {purpose: {"status": "supported" if self.registry["providers"][provider].get(purpose + "_tools") else "unsupported",
                                                "execution_verified": False}
                                     for purpose in ("search", "fetch")}
@@ -879,7 +891,9 @@ class SearchProviders:
         attempts, coverage, ranks = [], {}, {}
 
         def quality(row):
-            return (row["status"] == "ok", row.get("characters", 0) > 0,
+            usable = row.get("content_state") not in ("js_shell_suspected", "challenge_blocked", "unavailable")
+            return (row["status"] == "ok" and usable,
+                    row["status"] == "ok", row.get("characters", 0) > 0,
                     row["extraction_status"] not in ("request_failed", "unrecognized_or_not_returned",
                                                      "no_content_returned", "content_present_unparsed"))
 
@@ -907,11 +921,18 @@ class SearchProviders:
                     coverage[row["url"]] = {**row, "provider": fetched["provider"]}
                     ranks[row["url"]] = rank
 
-        def unresolved():
-            return [url for url in urls if coverage.get(url, {}).get("status") != "ok"]
+        def unresolved(remaining_providers=()):
+            def needs_work(u):
+                current = coverage.get(u)
+                if not current or current.get("status") != "ok":
+                    return True
+                if current.get("content_state") in ("js_shell_suspected", "challenge_blocked") and any(p == "browser" for p in remaining_providers):
+                    return True
+                return False
+            return [url for url in urls if needs_work(url)]
 
         def assemble(abandoned=()):
-            pending = unresolved()
+            pending = [url for url in urls if coverage.get(url, {}).get("status") != "ok"]
             successful = len(urls) - len(pending)
             return {"mode": "waterfall", "urls": urls, "providers": providers, "attempts": attempts,
                     "status": "ok" if not pending else "partial" if successful else "error",
@@ -926,7 +947,7 @@ class SearchProviders:
 
         if strategy == "sequential":
             for stage, names in enumerate((providers[:1], providers[1:])):
-                pending = [url for url in urls if coverage.get(url, {}).get("status") != "ok"]
+                pending = unresolved(names)
                 if not pending or not names:
                     break
                 if stage and reserve_fallback is not None:
@@ -1011,15 +1032,15 @@ class SearchProviders:
                     # One provider finished with work left: reserve and hand the
                     # pending URLs to every remaining provider at once, exactly
                     # like the sequential fallback stage.
-                    pending = unresolved()
                     names = queue[:]
+                    pending = unresolved(names)
                     if names and reserve_fallback is not None:
                         names = list(reserve_fallback(names, pending))
                     queue[:] = []
                     start(names, pending)
                 elif queue and last_dispatch is not None and time.monotonic() >= last_dispatch + grace:
-                    pending = unresolved()
                     names = [queue.pop(0)]
+                    pending = unresolved(names)
                     if reserve_fallback is not None:
                         names = list(reserve_fallback(names, pending))
                     start(names, pending)

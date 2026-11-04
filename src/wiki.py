@@ -16,7 +16,7 @@ import shutil
 import sqlite3
 import uuid
 from contextlib import ExitStack, contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from research import ResearchSessions
@@ -427,7 +427,8 @@ class WikiStore:
         prepared = {}
         for source in sources:
             if not isinstance(source, dict) or set(source) - {
-                    "id", "url", "text", "capture_id", "title", "retrieved_at", "kind"}:
+                    "id", "url", "text", "capture_id", "title", "retrieved_at", "kind",
+                    "bookmark_refs", "inventory_ids"}:
                 raise ValueError("Invalid Wiki source fields")
             identifier = ResearchSessions._identifier(source.get("id"), "Source id")
             if identifier in prepared:
@@ -438,6 +439,46 @@ class WikiStore:
                 raise ValueError("Invalid Wiki source kind")
             if kind == "page" or (kind == "local_document" and not url.startswith("file://")):
                 SourceArchive._key(url)
+            bookmark_refs = source.get("bookmark_refs")
+            inventory_ids = source.get("inventory_ids")
+            if bookmark_refs is not None:
+                if not isinstance(bookmark_refs, list):
+                    raise ValueError("bookmark_refs must be a list")
+                for ref in bookmark_refs:
+                    if not isinstance(ref, dict) or set(ref) != {"source_id", "section_id", "item_id"}:
+                        raise ValueError("Invalid bookmark_ref structure; needs source_id, section_id, item_id")
+                    ResearchSessions._identifier(ref["source_id"], "Bookmark ref source_id")
+                    ResearchSessions._identifier(ref["section_id"], "Bookmark ref section_id")
+                    ResearchSessions._identifier(ref["item_id"], "Bookmark ref item_id")
+                db_exists = (str(self.research.db_path) == ":memory:") or (
+                    self.research.db_path and Path(self.research.db_path).is_file()
+                )
+                if not db_exists:
+                    raise ValueError("Bookmark database is not available to validate bookmark_refs")
+                from bookmark_index import BookmarkIndex
+                with BookmarkIndex(self.research.db_path) as index:
+                    for ref in bookmark_refs:
+                        row = index.connection.execute(
+                            "SELECT url FROM items WHERE source_id=? AND section_id=? AND item_id=?",
+                            (ref["source_id"], ref["section_id"], ref["item_id"]),
+                        ).fetchone()
+                        if row is None:
+                            raise ValueError("Bookmark reference does not exist: %s/%s/%s" % (
+                                ref["source_id"], ref["section_id"], ref["item_id"]))
+                        item_url = row[0]
+                        if item_url != url:
+                            try:
+                                if SourceArchive._key(item_url) != SourceArchive._key(url):
+                                    raise ValueError("Bookmark reference %s belongs to %s, not %s" % (
+                                        ref["item_id"], item_url, url))
+                            except Exception:
+                                raise ValueError("Bookmark reference %s belongs to %s, not %s" % (
+                                    ref["item_id"], item_url, url))
+            if inventory_ids is not None:
+                if not isinstance(inventory_ids, list):
+                    raise ValueError("inventory_ids must be a list")
+                for inv_id in inventory_ids:
+                    ResearchSessions._identifier(inv_id, "Inventory id")
             capture_id = source.get("capture_id")
             if capture_id and source.get("text") is not None:
                 raise ValueError("Use capture_id or source text, not both")
@@ -454,9 +495,14 @@ class WikiStore:
                                   retrieved_at=saved.get("retrieved_at"))
             elif source.get("retrieved_at") is not None:
                 provenance["retrieved_at"] = source["retrieved_at"]
-            prepared[identifier] = {"url": url, "text": self._text(text, "Source text", 2000000),
-                                    "title": self._text(source.get("title") or url, "Source title", 2000),
-                                    "provenance": provenance}
+            entry = {"url": url, "text": self._text(text, "Source text", 2000000),
+                     "title": self._text(source.get("title") or url, "Source title", 2000),
+                     "provenance": provenance}
+            if bookmark_refs is not None:
+                entry["bookmark_refs"] = bookmark_refs
+            if inventory_ids is not None:
+                entry["inventory_ids"] = inventory_ids
+            prepared[identifier] = entry
         value = copy.deepcopy(page)
         if not isinstance(value, dict) or not isinstance(value.get("sections"), list):
             raise ValueError("page needs authored sections")
@@ -529,10 +575,11 @@ class WikiStore:
         shutil.rmtree(path)
 
     def write(self, page_id, page, change_note, expected_revision=0, reviewed_input_version=None,
-              acknowledge_all=False, sources=None):
+              acknowledge_all=False, sources=None, ignore_duplicate_warning=False):
         if sources is None:
             return self._write_page(page_id, page, change_note, expected_revision,
-                                    reviewed_input_version, acknowledge_all)
+                                    reviewed_input_version, acknowledge_all,
+                                    ignore_duplicate_warning=ignore_duplicate_warning)
         page_id = self._slug(page_id)
         self._text(change_note, "Change note")
         ResearchSessions._integer(expected_revision, "expected_revision", 0, 10000)
@@ -544,12 +591,14 @@ class WikiStore:
         with ExitStack() as cleanup:
             compiled = self._compile_page(page_id, page, sources, cleanup)
             result = self._write_page(page_id, compiled, change_note, expected_revision,
-                                      reviewed_input_version, acknowledge_all)
+                                      reviewed_input_version, acknowledge_all,
+                                      sources=sources,
+                                      ignore_duplicate_warning=ignore_duplicate_warning)
             cleanup.pop_all()
             return result
 
     def _write_page(self, page_id, page, change_note, expected_revision=0, reviewed_input_version=None,
-                    acknowledge_all=False):
+                    acknowledge_all=False, sources=None, ignore_duplicate_warning=False):
         """Create at revision 0, or update the explicit revision read by the caller.
 
         ``reviewed_input_version`` records that the page was checked against that
@@ -569,6 +618,18 @@ class WikiStore:
             index = self._index()
             cache = {}
             evidence = [self._evidence(*reference, cache) for reference in references]
+            from archive import SourceArchive
+            raw_urls = []
+            if sources:
+                raw_urls.extend(s.get("url") for s in sources if isinstance(s, dict) and s.get("url"))
+            for ev in evidence:
+                for cit in ev.get("citations", []):
+                    if cit.get("url"):
+                        raw_urls.append(cit["url"])
+            canonical_urls = {SourceArchive._key(u) for u in raw_urls if u}
+            duplicate_warnings = []
+            if not ignore_duplicate_warning:
+                duplicate_warnings = self._detect_duplicate_concepts(page_id, page.get("title", ""), canonical_urls, index)
             previous = index["pages"].get(page_id)
             if expected_revision != (previous["revision"] if previous else 0):
                 raise ValueError("Wiki revision changed; read the current page before updating")
@@ -633,12 +694,17 @@ class WikiStore:
                 WikiSearchIndex(self._path("search.sqlite3")).update(page_id, pointer, record)
             except (OSError, ValueError, sqlite3.Error):
                 search_index = "unavailable"
+        self._log_metric("wiki_write", page_id=page_id, hit_count=1)
         from wiki_work import WikiWork
-        return {"page_id": page_id, **pointer, "status": "written", "directory": str(self.directory),
-                "artifacts": self._artifacts(pointer), "semantic_review": "caller_declared",
-                "acknowledged": acknowledged, "search_index": search_index,
-                "work_receipt": WikiWork.receipt(record, pointer),
-                "catalog": {key: str(self._path(key)) for key in ("index.md", "log.md")}}
+        receipt = {"page_id": page_id, **pointer, "status": "written", "directory": str(self.directory),
+                   "artifacts": self._artifacts(pointer), "semantic_review": "caller_declared",
+                   "acknowledged": acknowledged, "search_index": search_index,
+                   "work_receipt": WikiWork.receipt(record, pointer),
+                   "catalog": {key: str(self._path(key)) for key in ("index.md", "log.md")}}
+        if duplicate_warnings and not ignore_duplicate_warning:
+            receipt["duplicate_concept_warning"] = duplicate_warnings
+            receipt["warnings"] = duplicate_warnings
+        return receipt
 
     def acknowledge(self, page_id, note, expected_revision=None):
         """Re-publish a page unchanged, recording that its sources were re-reviewed.
@@ -743,11 +809,66 @@ class WikiStore:
                 raise ValueError("Wiki revision belongs to a different page")
             if revision is None or record["revision"] == revision:
                 issues = self._issues(record, index, resolve_paths=True)
+                self._log_metric("wiki_get", page_id=page_id, hit_count=1, reused=True)
                 return {**record, "artifacts": self._artifacts(pointer), "validation": self._validation(issues)}
             if record["previous"] is not None and record["previous"]["revision"] >= record["revision"]:
                 raise ValueError("Invalid Wiki revision history")
             pointer = record["previous"]
         raise ValueError("Unknown Wiki page or revision")
+
+    def _detect_duplicate_concepts(self, page_id, title, urls, index):
+        try:
+            return WikiSearchIndex(self._path("search.sqlite3")).detect_duplicates(
+                index, self._revision, page_id, title, urls
+            )
+        except (OSError, ValueError, sqlite3.Error):
+            from archive import SourceArchive
+            norm_new = WikiSearchIndex.normalize(title) if title else ""
+            tokens_new = set(re.findall(r"\w+", title.lower())) if title else set()
+            duplicates = []
+            for other_id, pointer in index.get("pages", {}).items():
+                if other_id == page_id:
+                    continue
+                other_title = pointer.get("title", "")
+                norm_other = WikiSearchIndex.normalize(other_title) if other_title else ""
+                tokens_other = set(re.findall(r"\w+", other_title.lower())) if other_title else set()
+                reasons = []
+                similar_title = False
+                if norm_new and norm_other:
+                    if norm_new == norm_other:
+                        similar_title = True
+                    elif (norm_new in norm_other or norm_other in norm_new) and min(len(norm_new), len(norm_other)) >= 4:
+                        similar_title = True
+                    elif tokens_new and tokens_other:
+                        union = tokens_new | tokens_other
+                        if union and (len(tokens_new & tokens_other) / len(union)) >= 0.7:
+                            similar_title = True
+                if similar_title:
+                    reasons.append("similar_title")
+                matched_urls = []
+                if urls:
+                    try:
+                        record = self._revision(pointer)
+                        rec_urls = {
+                            SourceArchive._key(c["url"]) for ev in record.get("evidence", [])
+                            for c in ev.get("citations", [])
+                            if c.get("url") and (c.get("provenance") or {}).get("kind") not in ("local_document", "external_report")
+                        }
+                        matched_urls = sorted(urls & rec_urls)
+                        if matched_urls:
+                            reasons.append("overlapping_urls")
+                    except Exception:
+                        pass
+                if reasons:
+                    duplicates.append({
+                        "page_id": other_id,
+                        "title": other_title,
+                        "reasons": reasons,
+                        "overlapping_urls": matched_urls,
+                        "candidate_merge_target": other_id,
+                        "suggestion": f"Consider reviewing or merging with existing Wiki page '{other_id}' ({other_title})."
+                    })
+            return duplicates
 
     def _affected(self, index, urls):
         try:
@@ -907,7 +1028,8 @@ class WikiStore:
         query = self._text(query, "Wiki query", 500)
         ResearchSessions._integer(offset, "offset", 0, 10000000)
         ResearchSessions._integer(limit, "limit", 1, 100)
-        groups = WikiSearchIndex.terms(query)
+        extra_aliases = self.settings.load().get("wiki", {}).get("aliases", [])
+        groups = WikiSearchIndex.terms(query, extra_aliases=extra_aliases)
         index, matches, excluded, cache = self._index(), [], [], {}
         search_index = "indexed"
         try:
@@ -922,16 +1044,24 @@ class WikiStore:
                 except (OSError, ValueError, KeyError, TypeError):
                     invalid.append(page_id)
         excluded.extend(invalid)
+        doc_freq = {}
+        for candidate in candidates:
+            cand_text = (candidate["title"] + "\n" + candidate["body"] + "\n" + candidate.get("aliases", "")).casefold()
+            cand_squashed = WikiSearchIndex.normalize(cand_text)
+            for variants in groups:
+                matched_variant = next((variant for variant in variants if WikiSearchIndex.normalize(variant) in cand_squashed), None)
+                if matched_variant:
+                    doc_freq[matched_variant] = doc_freq.get(matched_variant, 0) + 1
         checked = 0
         for candidate in candidates:
-            match = WikiSearchIndex.match(candidate, query, groups)
+            match = WikiSearchIndex.match(candidate, query, groups, doc_freq=doc_freq)
             if match is None:
                 continue
             page_id = candidate["page_id"]
             pointer = index["pages"][page_id]
             try:
                 record = self._revision(pointer)
-                match = WikiSearchIndex.match(WikiSearchIndex.row(page_id, pointer, record), query, groups)
+                match = WikiSearchIndex.match(WikiSearchIndex.row(page_id, pointer, record), query, groups, doc_freq=doc_freq)
                 if match is None:
                     continue
                 checked += 1
@@ -949,6 +1079,7 @@ class WikiStore:
             except (OSError, ValueError, KeyError, TypeError):
                 excluded.append(page_id)
         matches.sort(key=lambda row: (-row[0], row[1]["page_id"]))
+        self._log_metric("wiki_search", hit_count=len(matches))
         return {"query": query, "results": [row[1] for row in matches[offset:offset + limit]], "total": len(matches),
                 "next_offset": offset + limit if offset + limit < len(matches) else None,
                 "excluded_stale_pages": len(excluded), "excluded_page_ids": excluded[:100],
@@ -1052,7 +1183,88 @@ class WikiStore:
                 lines.extend(["", "[Saved text](%s) · [Manifest](%s) · [Response](%s) · SHA-256: `%s`" %
                               (artifacts["body_file"], artifacts["manifest_file"], artifacts["response_file"],
                                citation["source_sha256"]), ""])
-        lines.extend(["## Update record", "", record["change_note"], ""])
         if record["previous"]:
             lines.extend(["[Previous revision](%s)" % link(self._path(record["previous"]["markdown_file"])), ""])
         return "\n".join(lines) + "\n"
+
+    def _log_metric(self, action, page_id=None, hit_count=None, reused=None, page_ids=None):
+        try:
+            path = self._path("metrics.jsonl")
+            entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "action": action,
+                "page_id": page_id,
+                "hit_count": hit_count,
+                "reused": reused,
+            }
+            if page_ids:
+                entry["page_ids"] = list(dict.fromkeys(page_ids))
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    def metrics_summary(self, days=30):
+        """Summarize append-only Wiki usage metrics over the past N days."""
+        ResearchSessions._integer(days, "days", 1, 3650)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=days)
+        path = self._path("metrics.jsonl")
+        summary = {
+            "days": days,
+            "since": cutoff.isoformat(),
+            "total_hits": 0,
+            "searches": 0,
+            "reads": 0,
+            "writes": 0,
+            "plan_preflights": 0,
+            "reused_pages": [],
+            "actions": {},
+        }
+        if not path.is_file():
+            return summary
+        reused_set = set()
+        try:
+            with path.open("r", encoding="utf-8") as stream:
+                for line in stream:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except Exception:
+                        continue
+                    ts_str = record.get("timestamp")
+                    if not ts_str:
+                        continue
+                    try:
+                        ts = datetime.fromisoformat(ts_str)
+                    except Exception:
+                        continue
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    if ts < cutoff:
+                        continue
+                    action = record.get("action", "unknown")
+                    summary["actions"][action] = summary["actions"].get(action, 0) + 1
+                    hit_count = record.get("hit_count") or 0
+                    if action == "wiki_search":
+                        summary["searches"] += 1
+                        summary["total_hits"] += hit_count
+                    elif action == "wiki_get":
+                        summary["reads"] += 1
+                    elif action == "wiki_write":
+                        summary["writes"] += 1
+                    elif action == "plan_research":
+                        summary["plan_preflights"] += 1
+                        summary["total_hits"] += hit_count
+                    if record.get("reused"):
+                        if record.get("page_id"):
+                            reused_set.add(record["page_id"])
+                        for pid in record.get("page_ids", []):
+                            reused_set.add(pid)
+        except Exception:
+            pass
+        summary["reused_pages"] = sorted(reused_set)
+        return summary
+

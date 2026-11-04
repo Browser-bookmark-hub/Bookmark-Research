@@ -343,15 +343,17 @@ class RawLibrary:
         text = re.sub(r"\s+", " ", text).strip()
         return ("…" if start > 0 else "") + text + ("…" if start + width < len(body) else "")
 
-    def search(self, query, limit=10, offset=0, url=None, occurrence_limit=50, occurrence_offset=0):
+    def search(self, query, limit=10, offset=0, url=None, occurrence_limit=50, occurrence_offset=0, expand_versions=False):
         """Literal search over saved page text; every term must occur (quoted query = one phrase).
 
-        Identical bodies are merged by SHA-256, so one result can have many
-        occurrences. Occurrences are paged with ``occurrence_limit`` /
-        ``occurrence_offset``: every result reports the true ``occurrence_count``,
-        whether the page is complete, and the offset that continues it.
+        By default, results are grouped by URL, reporting version counts,
+        time spans, and all captured versions. When expand_versions=True,
+        bodies are merged by SHA-256. Occurrences are paged with
+        occurrence_limit / occurrence_offset.
         """
         terms = self._terms(query)
+        if type(expand_versions) is not bool:
+            raise ValueError("expand_versions must be a boolean")
         for value, label, minimum, maximum in ((limit, "limit", 1, 50), (offset, "offset", 0, 10000000),
                                                (occurrence_limit, "occurrence_limit", 1, 1000),
                                                (occurrence_offset, "occurrence_offset", 0, 10000000)):
@@ -376,49 +378,148 @@ class RawLibrary:
                 clauses.append("d.sha256 IN (SELECT sha256 FROM occurrences WHERE instr(lower(url), lower(?)) > 0)")
                 parameters.append(url)
             base = ("FROM page_text JOIN documents d ON d.id = page_text.rowid WHERE " + " AND ".join(clauses))
-            total = connection.execute("SELECT COUNT(*) " + base, parameters).fetchone()[0]
             order = "bm25(page_text), d.id DESC" if fts else "d.id DESC"
-            rows = connection.execute("SELECT d.sha256, d.characters, page_text.body " + base +
-                                      " ORDER BY " + order + " LIMIT ? OFFSET ?",
-                                      parameters + [limit, offset]).fetchall()
-            results = []
-            for sha256, characters, body in rows:
-                count = connection.execute("SELECT COUNT(*) FROM occurrences WHERE sha256 = ?",
-                                           (sha256,)).fetchone()[0]
-                occurrences = []
-                for row in connection.execute(
-                        "SELECT kind, capture_id, research_id, source_id, path, url, title, retrieved_at "
-                        "FROM occurrences WHERE sha256 = ? "
-                        "ORDER BY (retrieved_at IS NULL), retrieved_at DESC, unit, position "
-                        "LIMIT ? OFFSET ?", (sha256, occurrence_limit, occurrence_offset)):
-                    kind, capture_id, research_id, source_id, path, found_url, title, retrieved_at = row
-                    entry = {"kind": kind}
-                    if kind == "archive":
-                        entry["capture_id"] = capture_id
-                    else:
-                        entry.update(research_id=research_id, source_id=source_id)
-                    entry.update(path=path, url=found_url, title=title, retrieved_at=retrieved_at)
-                    occurrences.append(entry)
-                shown = occurrence_offset + len(occurrences)
-                results.append({"sha256": sha256, "characters": characters,
-                                "url": next((entry["url"] for entry in occurrences if entry["url"]), None),
-                                "title": next((entry["title"] for entry in occurrences if entry["title"]), None),
-                                "snippet": self._snippet(body, terms),
-                                "occurrence_count": count,
-                                "occurrence_offset": occurrence_offset,
-                                "occurrences_truncated": shown < count,
-                                "occurrences_next_offset": shown if shown < count else None,
-                                "occurrences": occurrences})
+
+            if expand_versions:
+                total = connection.execute("SELECT COUNT(*) " + base, parameters).fetchone()[0]
+                rows = connection.execute("SELECT d.sha256, d.characters, page_text.body " + base +
+                                          " ORDER BY " + order + " LIMIT ? OFFSET ?",
+                                          parameters + [limit, offset]).fetchall()
+                results = []
+                for sha256, characters, body in rows:
+                    count = connection.execute("SELECT COUNT(*) FROM occurrences WHERE sha256 = ?",
+                                               (sha256,)).fetchone()[0]
+                    occurrences = []
+                    for row in connection.execute(
+                            "SELECT kind, capture_id, research_id, source_id, path, url, title, retrieved_at "
+                            "FROM occurrences WHERE sha256 = ? "
+                            "ORDER BY (retrieved_at IS NULL), retrieved_at DESC, unit, position "
+                            "LIMIT ? OFFSET ?", (sha256, occurrence_limit, occurrence_offset)):
+                        kind, capture_id, research_id, source_id, path, found_url, title, retrieved_at = row
+                        entry = {"kind": kind}
+                        if kind == "archive":
+                            entry["capture_id"] = capture_id
+                        else:
+                            entry.update(research_id=research_id, source_id=source_id)
+                        entry.update(path=path, url=found_url, title=title, retrieved_at=retrieved_at)
+                        occurrences.append(entry)
+                    shown = occurrence_offset + len(occurrences)
+                    results.append({"sha256": sha256, "characters": characters,
+                                    "url": next((entry["url"] for entry in occurrences if entry["url"]), None),
+                                    "title": next((entry["title"] for entry in occurrences if entry["title"]), None),
+                                    "snippet": self._snippet(body, terms),
+                                    "occurrence_count": count,
+                                    "occurrence_offset": occurrence_offset,
+                                    "occurrences_truncated": shown < count,
+                                    "occurrences_next_offset": shown if shown < count else None,
+                                    "occurrences": occurrences})
+            else:
+                doc_rows = connection.execute("SELECT d.sha256, d.characters " + base +
+                                              " ORDER BY " + order, parameters).fetchall()
+                shas = [row[0] for row in doc_rows]
+                sha_chars = {row[0]: row[1] for row in doc_rows}
+
+                occ_map = {}
+                if shas:
+                    for i in range(0, len(shas), 900):
+                        chunk = shas[i : i + 900]
+                        placeholders = ",".join("?" for _ in chunk)
+                        q = (
+                            "SELECT sha256, kind, capture_id, research_id, source_id, path, url, title, retrieved_at "
+                            "FROM occurrences WHERE sha256 IN (" + placeholders + ") "
+                            "ORDER BY (retrieved_at IS NULL), retrieved_at DESC, unit, position"
+                        )
+                        for r in connection.execute(q, chunk):
+                            occ_map.setdefault(r[0], []).append(r[1:])
+
+                groups = {}
+                for sha256 in shas:
+                    characters = sha_chars[sha256]
+                    occ_rows = occ_map.get(sha256, [])
+                    found_url = next((r[5] for r in occ_rows if r[5]), None)
+                    grp_key = found_url if found_url else sha256
+                    if grp_key not in groups:
+                        groups[grp_key] = {
+                            "url": found_url,
+                            "versions": [],
+                            "all_occurrences": [],
+                        }
+                    v_title = next((r[6] for r in occ_rows if r[6]), None)
+                    v_retrieved = next((r[7] for r in occ_rows if r[7]), None)
+                    groups[grp_key]["versions"].append({
+                        "sha256": sha256,
+                        "characters": characters,
+                        "title": v_title,
+                        "retrieved_at": v_retrieved,
+                        "occurrence_count": len(occ_rows),
+                    })
+                    for r in occ_rows:
+                        k, cap_id, res_id, src_id, p, u, t, ret_at = r
+                        entry = {"kind": k}
+                        if k == "archive":
+                            entry["capture_id"] = cap_id
+                        else:
+                            entry.update(research_id=res_id, source_id=src_id)
+                        entry.update(path=p, url=u, title=t, retrieved_at=ret_at)
+                        groups[grp_key]["all_occurrences"].append(entry)
+
+                total = len(groups)
+                paged_keys = list(groups.keys())[offset : offset + limit]
+
+                needed_shas = {v["sha256"] for k in paged_keys for v in groups[k]["versions"]}
+                body_map = {}
+                if needed_shas:
+                    placeholders = ",".join("?" for _ in needed_shas)
+                    bq = (
+                        "SELECT d.sha256, page_text.body FROM page_text "
+                        "JOIN documents d ON d.id = page_text.rowid "
+                        "WHERE d.sha256 IN (" + placeholders + ")"
+                    )
+                    for s_hash, body in connection.execute(bq, list(needed_shas)).fetchall():
+                        body_map[s_hash] = self._snippet(body, terms)
+
+                results = []
+                for key in paged_keys:
+                    grp = groups[key]
+                    versions = grp["versions"]
+                    for v in versions:
+                        v["snippet"] = body_map.get(v["sha256"], "")
+                    versions.sort(key=lambda v: (v["retrieved_at"] is not None, v["retrieved_at"] or ""), reverse=True)
+                    all_occs = grp["all_occurrences"]
+                    all_occs.sort(key=lambda o: (o.get("retrieved_at") is not None, o.get("retrieved_at") or ""), reverse=True)
+                    total_occ_count = len(all_occs)
+                    paged_occs = all_occs[occurrence_offset : occurrence_offset + occurrence_limit]
+                    shown = occurrence_offset + len(paged_occs)
+                    dates = [v["retrieved_at"] for v in versions if v["retrieved_at"]]
+                    earliest = min(dates) if dates else None
+                    latest = max(dates) if dates else None
+                    top_version = versions[0]
+                    results.append({
+                        "url": grp["url"],
+                        "title": top_version["title"],
+                        "sha256": top_version["sha256"],
+                        "characters": top_version["characters"],
+                        "snippet": top_version["snippet"],
+                        "version_count": len(versions),
+                        "time_span": {"earliest": earliest, "latest": latest},
+                        "versions": versions,
+                        "occurrence_count": total_occ_count,
+                        "occurrence_offset": occurrence_offset,
+                        "occurrences_truncated": shown < total_occ_count,
+                        "occurrences_next_offset": shown if shown < total_occ_count else None,
+                        "occurrences": paged_occs,
+                    })
         finally:
             connection.close()
         next_offset = offset + len(results)
         return {"query": query, "total": total, "offset": offset,
                 "next_offset": next_offset if next_offset < total else None,
                 "occurrence_limit": occurrence_limit, "occurrence_offset": occurrence_offset,
+                "expand_versions": expand_versions, "grouped_by": "hash" if expand_versions else "url",
                 "match": "fts_trigram" if fts else "substring", "results": results, "indexed": indexed,
-                "note": "Literal matching over saved page text (knowledge archive and research evidence); "
-                        "not web search and not semantic retrieval. Identical bodies are merged by SHA-256 and "
-                        "each result pages its occurrences with occurrence_offset/occurrence_limit."}
+                "note": ("Literal matching over saved page text (knowledge archive and research evidence); "
+                         "not web search and not semantic retrieval. " +
+                         ("Results are grouped by URL with version counts and time spans. Use expand_versions=true to view distinct content hashes." if not expand_versions else "Identical bodies are merged by SHA-256 and each result pages its occurrences with occurrence_offset/occurrence_limit."))}
 
     def search_terms(self, terms, limit=5):
         """Search several literal terms and merge them into one preflight list.

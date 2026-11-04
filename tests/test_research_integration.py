@@ -29,7 +29,7 @@ class ResearchIntegrationTests(unittest.TestCase):
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.settings = Settings(self.base / "settings.json")
-        self.settings.update({"tool_scope_preset": "all"})
+        self.settings.update({"tool_scope_preset": "all", "wiki": {"after_research": "suggest"}})
         self.db = self.base / "index.sqlite3"
         self.server = StdioMcpServer(self.db, settings=self.settings, stderr=io.StringIO())
         self.addCleanup(self.server.close)

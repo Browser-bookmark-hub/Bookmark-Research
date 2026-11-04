@@ -442,6 +442,149 @@ class IndexBehaviorTests(unittest.TestCase):
             self.index.refresh("demo")
         self.assertEqual(self.index.search("demo")["total"], 5)
 
+    def test_lookup_url_single_cross_source_and_copy_anchors(self):
+        # 1. Single source with multiple instances and copy anchor
+        result = self.index.lookup_url("https://example.test/alpha", source_id="demo")
+        self.assertEqual(result["url"], "https://example.test/alpha")
+        self.assertEqual(result["source_filter"], "demo")
+        self.assertEqual(result["total_instances"], 2)
+        self.assertEqual(result["unique_sources"], 1)
+        self.assertEqual(result["sources"], ["demo"])
+        self.assertEqual(len(result["instances"]), 2)
+
+        # Primary item has copy anchor view B
+        primary = next(i for i in result["instances"] if i["section_label"] == "A")
+        self.assertEqual(primary["item_id"], "bookmark-alpha")
+        self.assertEqual(primary["folder_path"], "公司")
+        self.assertEqual(len(primary["shown_in_anchors"]), 1)
+
+        # Temp item has no copy anchors
+        temp = next(i for i in result["instances"] if i["section_id"] == "temp-section-A-1")
+        self.assertEqual(temp["item_id"], "temp-one")
+        self.assertEqual(temp["folder_path"], "研究")
+        self.assertEqual(temp["shown_in_anchors"], [])
+
+        # 2. Add second source with the same URL
+        pkg2 = self.base / "Package2"
+        make_package(pkg2)
+        self.index.sync(pkg2, "demo2")
+
+        # Cross-source lookup (source_id=None)
+        cross = self.index.lookup_url("https://example.test/alpha")
+        self.assertIsNone(cross["source_filter"])
+        self.assertEqual(cross["total_instances"], 4)
+        self.assertEqual(cross["unique_sources"], 2)
+        self.assertEqual(cross["sources"], ["demo", "demo2"])
+        self.assertEqual(len(cross["instances"]), 4)
+
+        # Pagination
+        p1 = self.index.lookup_url("https://example.test/alpha", limit=2, offset=0)
+        self.assertEqual(len(p1["instances"]), 2)
+        self.assertEqual(p1["next_offset"], 2)
+        p2 = self.index.lookup_url("https://example.test/alpha", limit=2, offset=2)
+        self.assertEqual(len(p2["instances"]), 2)
+        self.assertIsNone(p2["next_offset"])
+        self.assertEqual([i["item_id"] for i in p1["instances"]] + [i["item_id"] for i in p2["instances"]],
+                         [i["item_id"] for i in cross["instances"]])
+
+        # Non-existent URL
+        none = self.index.lookup_url("https://nonexistent.test/xyz")
+        self.assertEqual(none["total_instances"], 0)
+        self.assertEqual(none["instances"], [])
+
+    def test_traverse_graph_multi_hop_consistency_and_direction(self):
+        # 1. Depth 1 from section A matches get_context related_nodes
+        ctx = self.index.context("demo", section="A")
+        ctx_related_ids = {n["node_id"] for n in ctx["related_nodes"]}
+        t1 = self.index.traverse("demo", section="A", max_depth=1)
+        t1_reached_ids = {n["node_id"] for n in t1["nodes"] if n["depth"] == 1}
+        self.assertEqual(t1_reached_ids, ctx_related_ids)
+        self.assertIn("group-one", t1_reached_ids)
+
+        # 2. Depth 2 traverses group membership into temp-section-A-1
+        t2 = self.index.traverse("demo", section="A", max_depth=2)
+        t2_reached_ids = {n["node_id"] for n in t2["nodes"]}
+        self.assertIn("temp-section-A-1", t2_reached_ids)
+        self.assertEqual({s["section_id"] for s in t2["affected_sections"]}, {"temp-section-A-1"})
+
+        # 3. Depth 3 traverses edge-none from temp-section-A-1 to copy-view (B)
+        t3 = self.index.traverse("demo", section="A", max_depth=3)
+        t3_reached_ids = {n["node_id"] for n in t3["nodes"]}
+        self.assertIn("copy-view", t3_reached_ids)
+
+        # 4. Starting from item_id
+        t_item = self.index.traverse("demo", item_id="bookmark-alpha", max_depth=2)
+        self.assertIn("group-one", {n["node_id"] for n in t_item["nodes"]})
+
+        # 5. Starting from group_id
+        t_grp = self.index.traverse("demo", group_id="group-one", max_depth=1)
+        self.assertIn("temp-section-A-1", {n["node_id"] for n in t_grp["nodes"]})
+
+        # 6. Direction filtering
+        t_out = self.index.traverse("demo", section="A", max_depth=1, direction="out")
+        self.assertIn("group-one", {n["node_id"] for n in t_out["nodes"]})
+        t_in = self.index.traverse("demo", section="A", max_depth=1, direction="in")
+        self.assertNotIn("group-one", {n["node_id"] for n in t_in["nodes"]})
+
+        # 7. Pagination
+        paged = self.index.traverse("demo", section="A", max_depth=3, limit=1, offset=0)
+        self.assertEqual(len(paged["nodes"]), 1)
+        self.assertEqual(paged["pagination"]["next_offset"], 1)
+
+    def test_score_item_and_search_scoring_layer(self):
+        # 1. Direct scoring logic tests
+        sample = {
+            "title": "Quantum Research Papers",
+            "note": "A note mentioning physics",
+            "folder_path": "Science/Reports",
+            "url": "https://example.test/home",
+            "tag_text": "physics AI",
+            "added_at_confidence": "high",
+        }
+        # Title prefix: 140 + high time bonus 10 = 150
+        s, hits = BookmarkIndex.score_item(sample, ["Quantum"])
+        self.assertEqual(s, 140 + 10)
+        self.assertIn("title_prefix", hits)
+        self.assertIn("time_high", hits)
+
+        # Title contains (not prefix): 135 + 10 = 145
+        s, hits = BookmarkIndex.score_item(sample, ["Research"])
+        self.assertEqual(s, 135 + 10)
+        self.assertIn("title_contains", hits)
+
+        # Tag hit: 110 + 10 = 120; Note hit: 90
+        # "physics" is in note and tag: 110 (tag) + 90 (note) + 10 (time) = 210
+        s, hits = BookmarkIndex.score_item(sample, ["physics"])
+        self.assertEqual(s, 110 + 90 + 10)
+        self.assertIn("tag", hits)
+        self.assertIn("note", hits)
+
+        # 2. search with score=False produces identical output to default
+        default_res = self.index.search("demo", targets=["示例"])
+        false_res = self.index.search("demo", targets=["示例"], score=False)
+        self.assertEqual(default_res, false_res)
+        self.assertNotIn("score_mode", default_res)
+        self.assertNotIn("score", default_res["results"][0])
+
+        # 3. search with score=True adds score hints and orders by score
+        scored_res = self.index.search("demo", targets=["示例"], score=True)
+        self.assertEqual(scored_res["score_mode"], "hint")
+        self.assertIn("score_note", scored_res)
+        self.assertTrue(len(scored_res["results"]) > 0)
+        for r in scored_res["results"]:
+            self.assertIn("score", r)
+            self.assertTrue(r["score_hint"])
+            self.assertIn("field_hits", r)
+        # Verify descending score order
+        scores = [r["score"] for r in scored_res["results"]]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+        # 4. plan_scope with field_score=True retains output contract
+        plan_normal = self.index.plan_scope("demo", "示例")
+        plan_scored = self.index.plan_scope("demo", "示例", field_score=True)
+        self.assertEqual(set(plan_normal.keys()), set(plan_scored.keys()))
+        self.assertEqual(len(plan_normal["cards"]), len(plan_scored["cards"]))
+
 
 class PortablePackageTests(unittest.TestCase):
     def test_empty_index_and_queries_do_not_change_supplied_package(self):

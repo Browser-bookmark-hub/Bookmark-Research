@@ -159,6 +159,8 @@ def _parser():
     watch.add_argument("--interval", type=float, default=1.0)
     watch.add_argument("--debounce", type=float, default=2.0)
     watch.add_argument("--deletion-grace", type=float, default=5.0)
+    watch.add_argument("--verify-hashes", action="store_true",
+                       help="Always read and verify full byte hashes instead of pre-screening by mtime and size")
     search = commands.add_parser("search", help="Literal structured bookmark search")
     search.add_argument("source")
     search.add_argument("--compact", action="store_true", help="Return shared rows with ordered page references; preserve extra fields")
@@ -171,9 +173,15 @@ def _parser():
     search.add_argument("--item-type", action="append", choices=("bookmark", "folder"), default=[],
                         help="Restrict to bookmark and/or folder rows; default bookmark, use folder to enumerate folders")
     search.add_argument("--count-only", action="store_true", help="Return counts without result rows")
+    search.add_argument("--score", action="store_true", help="Rank results by weighted score hints (title prefix, title contains, tag, note, path, url + temporal bonus)")
     search.add_argument("--limit", type=int, default=20)
     search.add_argument("--offset", type=int, default=0)
     search.add_argument("--no-refresh", action="store_true", help="Read the last synchronized index without refreshing")
+    lookup_url = commands.add_parser("lookup-url", help="Reverse index: find all instances of a bookmark URL across sections and sources")
+    lookup_url.add_argument("url")
+    lookup_url.add_argument("--source-id")
+    lookup_url.add_argument("--limit", type=int, default=100)
+    lookup_url.add_argument("--offset", type=int, default=0)
     context = commands.add_parser("context")
     context.add_argument("source")
     context.add_argument("--section")
@@ -183,6 +191,17 @@ def _parser():
     context.add_argument("--collection", choices=("sections", "items", "nodes", "groups", "edges", "related_nodes", "memberships"))
     context.add_argument("--offset", type=int, default=0)
     context.add_argument("--limit", type=int, default=200, help="Rows per context collection")
+    traverse = commands.add_parser("traverse", help="Multi-hop graph traversal along canvas edges and memberships")
+    traverse.add_argument("source")
+    traverse.add_argument("--section")
+    traverse.add_argument("--group")
+    traverse.add_argument("--item")
+    traverse.add_argument("--node")
+    traverse.add_argument("--depth", type=int, default=2)
+    traverse.add_argument("--direction", choices=("all", "out", "in"), default="all")
+    traverse.add_argument("--limit", type=int, default=100)
+    traverse.add_argument("--offset", type=int, default=0)
+    traverse.add_argument("--no-refresh", action="store_true")
     providers = commands.add_parser("providers")
     providers.add_argument("--probe", action="store_true", help="Connect to selected official MCP endpoints")
     providers.add_argument("--provider", action="append")
@@ -215,6 +234,7 @@ def _parser():
     raw.add_argument("--occurrence-offset", type=int, default=0, help="Continue a body's occurrence list here")
     merge = commands.add_parser("merge-results", help="Fuse normalized batches from existing MCPs")
     merge.add_argument("input", help="JSON input file, or '-' for stdin")
+    merge.add_argument("--archive", action="store_true", help="Save merged extracts to knowledge archive")
     research = commands.add_parser("research", help="Durable host-led deep research, evidence and reports")
     research.add_argument("--directory", help="Research root outside source packages and plugin; default in the data directory")
     research_commands = research.add_subparsers(dest="research_command", required=True)
@@ -343,7 +363,7 @@ def main(argv=None):
         if args.command == "watch":
             from source_watcher import SourceWatcher
             watcher = SourceWatcher(_database(args.db), interval=args.interval, debounce=args.debounce,
-                deletion_grace=args.deletion_grace,
+                deletion_grace=args.deletion_grace, verify_hashes=args.verify_hashes,
                 on_change=lambda value: print(json.dumps(value, ensure_ascii=False), flush=True))
             try:
                 watcher.run()
@@ -540,7 +560,7 @@ def main(argv=None):
             result = RawLibrary(settings=settings).search(args.query, args.limit, args.offset, args.url,
                                                           args.occurrence_limit, args.occurrence_offset)
         elif args.command == "merge-results":
-            result = fuse_results(_read_json(args.input))
+            result = fuse_results(_read_json(args.input), archive=args.archive, settings=settings)
         else:
             from source_manager import SourceManager
             with BookmarkIndex(str(_database(args.db))) as index:
@@ -551,6 +571,9 @@ def main(argv=None):
                     result = sources.status(args.source)
                 elif args.command == "history":
                     result = sources.history(args.source, limit=args.limit, offset=args.offset)
+                elif args.command == "lookup-url":
+                    with index.read_snapshot():
+                        result = index.lookup_url(args.url, source_id=args.source_id, limit=args.limit, offset=args.offset)
                 elif args.command == "source":
                     if args.source_command == "remove":
                         result = sources.remove(args.source_id, confirm=args.confirm)
@@ -566,7 +589,12 @@ def main(argv=None):
                                                   group_id=args.group, folder_id=args.folder, tags=args.tag,
                                                   limit=args.limit, offset=args.offset, tag_colors=args.tag_color,
                                                   item_types=args.item_type or None, count_only=args.count_only,
-                                                  compact=args.compact)
+                                                  compact=args.compact, score=args.score)
+                        elif args.command == "traverse":
+                            result = index.traverse(args.source, section=args.section, group_id=args.group,
+                                                    item_id=args.item, node_id=args.node,
+                                                    max_depth=args.depth, direction=args.direction,
+                                                    limit=args.limit, offset=args.offset)
                         else:
                             from context_output import page_context
                             result = index.context(args.source, section=args.section, group_id=args.group,

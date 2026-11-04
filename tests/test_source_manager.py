@@ -517,6 +517,43 @@ class SourceManagerTests(unittest.TestCase):
         self.assertEqual(result["source"]["mode"], "snapshot")
         self.assertEqual(call("history", "study")["versions"][0]["version_id"], report["version_id"])
 
+    def test_polling_prescreen_avoids_reading_bytes_when_mtime_and_size_unchanged(self):
+        self.sources.sync(self.package, "study", mode="live")
+        with patch("source_manager.read_input") as mock_read:
+            result = self.sources.refresh("study", force=False)
+            self.assertEqual(result["state"], "current")
+            mock_read.assert_not_called()
+
+    def test_prescreen_detects_content_change_even_when_size_is_preserved(self):
+        self.sources.sync(self.package, "study", mode="live")
+        target_file = self.package / TEMP
+        raw = target_file.read_text(encoding="utf-8")
+        self.assertIn("temp-folder", raw)
+        modified = raw.replace("temp-folder", "tmp-xfolder", 1)
+        self.assertEqual(len(raw), len(modified))
+        time.sleep(0.01)
+        target_file.write_text(modified, encoding="utf-8")
+        result = self.sources.refresh("study", force=True)
+        self.assertEqual(result["changed_files"], 1)
+        self.assertGreater(result["items_updated"], 0)
+
+    def test_prescreen_failure_scenario_and_force_hash_verification(self):
+        self.sources.sync(self.package, "study", mode="live")
+        target_file = self.package / TEMP
+        orig_st = target_file.stat()
+        raw = target_file.read_text(encoding="utf-8")
+        self.assertIn("temp-folder", raw)
+        modified = raw.replace("temp-folder", "tmp-yfolder", 1)
+        self.assertEqual(len(raw), len(modified))
+        target_file.write_text(modified, encoding="utf-8")
+        os.utime(target_file, ns=(orig_st.st_atime_ns, orig_st.st_mtime_ns))
+        result_prescreen = self.sources.refresh("study", force=False, verify_hashes=False)
+        self.assertEqual(result_prescreen["state"], "current")
+        result_forced = self.sources.refresh("study", force=True, verify_hashes=True)
+        self.assertEqual(result_forced["changed_files"], 1)
+        self.assertGreater(result_forced["items_updated"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
+

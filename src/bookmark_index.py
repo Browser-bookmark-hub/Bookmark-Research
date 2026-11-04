@@ -65,6 +65,7 @@ def url_kind(url):
 # into bigrams because a phrase the user typed rarely appears verbatim.
 PLAN_RUN = re.compile(r"[0-9A-Za-z][0-9A-Za-z+._-]*|[㐀-䶿一-鿿]+")
 QUESTION_URL = re.compile(r"https?://[^\s<>()\"']+")
+PLAN_CJK_SPLITTERS = re.compile(r"(?:有哪些|有什么|是什么|怎么|如何|为什么|怎样|[有的和在与或等及从到把被让我你他它这那])")
 PLAN_MAX_TERMS = 12
 
 
@@ -222,6 +223,7 @@ CREATE TABLE IF NOT EXISTS items (
 );
 CREATE INDEX IF NOT EXISTS items_parent ON items(source_id,section_id,parent_id);
 CREATE INDEX IF NOT EXISTS items_url ON items(source_id,url);
+CREATE INDEX IF NOT EXISTS items_url_lookup ON items(url);
 CREATE TABLE IF NOT EXISTS item_tags (
  item_pk INTEGER NOT NULL REFERENCES items(pk) ON DELETE CASCADE,
  position INTEGER NOT NULL, color TEXT NOT NULL, text TEXT NOT NULL,
@@ -903,8 +905,10 @@ class BookmarkIndex:
         """Question text into literal search terms; no semantics, no guessing.
 
         ASCII runs of two or more characters are kept whole. A CJK run of four
-        or fewer characters is kept whole as well; a longer run contributes its
-        bigrams instead, so 本地部署 still reaches a card that only says 部署.
+        or fewer characters is kept whole as well, with boundary-aligned bigrams
+        when exactly four characters. A longer run contributes boundary-aligned
+        bigrams without cross-word fragments, so 本地部署 still reaches a card
+        that only says 部署.
         A single ASCII character is dropped, because it would match almost
         everything; a single CJK character is kept, because it is often the
         whole entity. The order is the order of appearance and the list is
@@ -922,14 +926,26 @@ class BookmarkIndex:
             if run[0].isascii():
                 candidates = [run] if len(run) >= 2 else []
             else:
-                candidates = [run] if len(run) <= 4 else []
-                candidates.extend(run[index:index + 2] for index in range(len(run) - 1))
+                candidates = []
+                sub_segments = [s for s in PLAN_CJK_SPLITTERS.split(run) if s]
+                for segment in sub_segments:
+                    if len(segment) <= 4:
+                        candidates.append(segment)
+                        if len(segment) == 4:
+                            candidates.extend([segment[:2], segment[2:]])
+                    else:
+                        if len(segment) % 2 == 0:
+                            candidates.extend(segment[i:i + 2] for i in range(0, len(segment) - 1, 2))
+                        else:
+                            for i in range(0, len(segment) - 1, 2):
+                                candidates.append(segment[i:i + 2])
+                            candidates.append(segment[-2:])
             for candidate in candidates:
                 if candidate not in terms:
                     terms.append(candidate)
         return terms[:PLAN_MAX_TERMS]
 
-    def plan_scope(self, source_id, question, max_cards=3, max_urls=8, homepage_limit=0):
+    def plan_scope(self, source_id, question, max_cards=3, max_urls=8, homepage_limit=0, field_score=False):
         """Rank the cards a question touches and the bookmarks inside them.
 
         Local only: literal matching over indexed metadata, no fetch and no
@@ -960,6 +976,8 @@ class BookmarkIndex:
             raise ValueError("max_urls must be an integer from 1 to 8")
         if type(homepage_limit) is not int or not 0 <= homepage_limit <= 8:
             raise ValueError("homepage_limit must be an integer from 0 to 8")
+        if type(field_score) is not bool:
+            raise ValueError("field_score must be a boolean")
         terms = self.plan_terms(question)
         result = {"source_id": source_id, "terms": terms, "term_cards": {}, "cards": [], "urls": [],
                   "truncated": False, "errors": []}
@@ -1033,8 +1051,20 @@ class BookmarkIndex:
         # ascending tie-breaks, the second orders by score, hits and freshness,
         # and equal rows keep the order the first pass gave them.
         ordered = sorted(hits, key=lambda value: (sections[value]["file_path"], value))
-        ordered.sort(key=lambda value: (scores[value] * density[value], hits[value],
-                                        (newest.get(value) or (None, None))[0] or ""), reverse=True)
+        if field_score:
+            card_field_scores = {}
+            for sid in scores:
+                sec_items = [dict(r) for r in self.connection.execute(
+                    "SELECT * FROM items i WHERE i.source_id=? AND i.section_id=? AND i.item_type='bookmark' AND (" + where + ")",
+                    (source_id, sid, *parameters)).fetchall()]
+                total_f = sum(BookmarkIndex.score_item(r, terms)[0] for r in sec_items)
+                card_field_scores[sid] = total_f / (bookmarks.get(sid) or 1)
+            ordered.sort(key=lambda value: (card_field_scores.get(value, 0.0) * density[value],
+                                            scores[value] * density[value], hits[value],
+                                            (newest.get(value) or (None, None))[0] or ""), reverse=True)
+        else:
+            ordered.sort(key=lambda value: (scores[value] * density[value], hits[value],
+                                            (newest.get(value) or (None, None))[0] or ""), reverse=True)
         trees, ranked = set(), []
         for section_id in ordered:
             row = sections[section_id]
@@ -1183,8 +1213,77 @@ class BookmarkIndex:
         result["section_label"], result["file_path"] = section[0], section[1]
         return result
 
+    @staticmethod
+    def score_item(row, targets=None):
+        """Compute non-binding weighted scoring hints for a candidate item.
+
+        Scoring tiers:
+        - title_prefix: 140
+        - title_contains: 135
+        - tag: 110
+        - note: 90
+        - folder_path: 60
+        - url: 40
+        Time confidence tier bonus:
+        - high: +10
+        - medium: +5
+        - low: +2
+        """
+        targets = targets or []
+        keys = set(row.keys()) if hasattr(row, "keys") else set()
+        title = (row["title"] if "title" in keys and row["title"] else "").casefold()
+        note = (row["note"] if "note" in keys and row["note"] else "").casefold()
+        folder_path = (row["folder_path"] if "folder_path" in keys and row["folder_path"] else "").casefold()
+        url = (row["url"] if "url" in keys and row["url"] else "").casefold()
+        tag_text = (row["tag_text"] if "tag_text" in keys and row["tag_text"] else "").casefold()
+
+        field_hits = []
+        score = 0
+        for target in targets:
+            t = (target or "").casefold().strip()
+            if not t:
+                continue
+            if title.startswith(t):
+                if "title_prefix" not in field_hits:
+                    field_hits.append("title_prefix")
+                    score += 140
+            elif t in title:
+                if "title_contains" not in field_hits:
+                    field_hits.append("title_contains")
+                    score += 135
+            if t in tag_text:
+                if "tag" not in field_hits:
+                    field_hits.append("tag")
+                    score += 110
+            if t in note:
+                if "note" not in field_hits:
+                    field_hits.append("note")
+                    score += 90
+            if t in folder_path:
+                if "folder_path" not in field_hits:
+                    field_hits.append("folder_path")
+                    score += 60
+            if t in url:
+                if "url" not in field_hits:
+                    field_hits.append("url")
+                    score += 40
+
+        conf = row["added_at_confidence"] if "added_at_confidence" in keys else None
+        if conf == "high":
+            score += 10
+            field_hits.append("time_high")
+        elif conf == "medium":
+            score += 5
+            field_hits.append("time_medium")
+        elif conf == "low":
+            score += 2
+            field_hits.append("time_low")
+
+        return score, field_hits
+
     def search(self, source_id, targets=None, section=None, group_id=None, folder_id=None, tags=None,
-               limit=20, offset=0, tag_colors=None, item_types=None, count_only=False, compact=False):
+               limit=20, offset=0, tag_colors=None, item_types=None, count_only=False, compact=False,
+               score=False):
         """Literal structured search. ``limit=0`` or ``count_only`` returns counts only."""
         if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 1000:
             raise ValueError("limit must be an integer from 0 to 1000; 0 returns counts only")
@@ -1192,6 +1291,8 @@ class BookmarkIndex:
             raise ValueError("offset must be a non-negative integer")
         if type(compact) is not bool:
             raise ValueError("compact must be a boolean")
+        if type(score) is not bool:
+            raise ValueError("score must be a boolean")
         if isinstance(targets, str) or isinstance(tags, str) or isinstance(tag_colors, str):
             raise ValueError("targets, tags and tag_colors must be lists of strings")
         targets = list(dict.fromkeys(targets or []))
@@ -1218,7 +1319,36 @@ class BookmarkIndex:
             where = " AND ".join(predicates)
             rows, total = [], None
             if page and page_size:
-                if self._window_functions:
+                if score:
+                    total = self.connection.execute(
+                        "SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
+                    candidate_limit = max(1000, offset + page_size * 5)
+                    if total > candidate_limit:
+                        all_rows = self.connection.execute(
+                            "SELECT i.* FROM items i WHERE " + where +
+                            " ORDER BY (i.added_at IS NULL), i.added_at DESC, i.section_id, i.preorder LIMIT ?",
+                            parameters + [candidate_limit]).fetchall()
+                    else:
+                        all_rows = self.connection.execute(
+                            "SELECT i.* FROM items i WHERE " + where, parameters).fetchall()
+                    scored_rows = []
+                    for r in all_rows:
+                        s_val, s_hits = BookmarkIndex.score_item(r, chosen)
+                        scored_rows.append((r, s_val, s_hits))
+                    scored_rows.sort(key=lambda t: (t[0]["section_id"], t[0]["preorder"], t[0]["item_id"]))
+                    scored_rows.sort(key=lambda t: t[0]["added_at"] or "", reverse=True)
+                    scored_rows.sort(key=lambda t: 0 if t[0]["added_at"] is not None else 1)
+                    scored_rows.sort(key=lambda t: t[1], reverse=True)
+
+                    page_slice = scored_rows[offset : offset + page_size]
+                    rows_result = []
+                    for r, s_val, s_hits in page_slice:
+                        item = self._item_result(r, anchors_by_section, section_cache)
+                        item["score"] = s_val
+                        item["score_hint"] = True
+                        item["field_hits"] = s_hits
+                        rows_result.append(item)
+                elif self._window_functions:
                     # One statement returns the page and its pre-LIMIT count, so a
                     # batch of targets does not pay a second scan per target.
                     rows = self.connection.execute(
@@ -1227,19 +1357,29 @@ class BookmarkIndex:
                         parameters + [page_size, offset]).fetchall()
                     total = rows[0]["computed_total"] if rows else self.connection.execute(
                         "SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
+                    rows_result = [self._item_result(row, anchors_by_section, section_cache) for row in rows]
                 else:
                     total = self.connection.execute("SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
                     rows = self.connection.execute(
                         "SELECT i.* FROM items i WHERE " + where + " ORDER BY i.section_id,i.preorder,i.item_id LIMIT ? OFFSET ?",
                         parameters + [page_size, offset]).fetchall()
+                    rows_result = [self._item_result(row, anchors_by_section, section_cache) for row in rows]
             else:
                 total = self.connection.execute("SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
+                rows_result = []
             unique = self.connection.execute(
                 "SELECT count(DISTINCT i.url) FROM items i WHERE " + where + " AND i.url<>''", parameters).fetchone()[0]
             return {"total": total, "unique_urls": unique, "limit": limit, "offset": offset,
-                    "results": [self._item_result(row, anchors_by_section, section_cache) for row in rows]}
+                    "results": rows_result}
 
         result = query(targets)
+        if score:
+            result["score_mode"] = "hint"
+            result["score_note"] = (
+                "Item scores are non-binding ranking hints based on field weights "
+                "(title_prefix: 140, title_contains: 135, tag: 110, note: 90, folder_path: 60, url: 40) "
+                "plus time confidence bonus (high: +10, medium: +5, low: +2). Filter matching remains literal substring."
+            )
         section_rows = self._sections(source_id, section) if section is not None else []
         anchors = {row["section_id"]: row["canonical_id"] for row in section_rows if row["is_anchor"]}
         result.update(source_id=source_id,
@@ -1410,6 +1550,350 @@ class BookmarkIndex:
         return {"sections": len(section_results), "counted_sections": len(counted),
                 "instances": instances, "unique_urls": len(urls),
                 "note": "Section totals, not item or folder subtree totals. Sum of counted_sections only; copy anchors share another card's tree and are excluded."}
+
+    def lookup_url(self, url, source_id=None, limit=100, offset=0):
+        """Find all instances of a bookmark URL across sections and sources.
+
+        Returns matching item instances with source, section, folder path,
+        chronological added_at, and associated copy anchor cards.
+        """
+        if not isinstance(url, str) or not url.strip():
+            raise ValueError("url must be a non-empty string")
+        url = url.strip()
+        if source_id is not None:
+            _string(source_id, "source_id", True)
+            self._source(source_id)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be an integer between 1 and 1000")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+
+        clauses = ["i.item_type = 'bookmark'", "i.url = ?"]
+        params = [url]
+        if source_id is not None:
+            clauses.append("i.source_id = ?")
+            params.append(source_id)
+        where = " AND ".join(clauses)
+
+        total = self.connection.execute(f"SELECT count(*) FROM items i WHERE {where}", params).fetchone()[0]
+        distinct_sources = [r[0] for r in self.connection.execute(
+            f"SELECT DISTINCT i.source_id FROM items i WHERE {where} ORDER BY i.source_id", params).fetchall()]
+
+        first_seen_row = self.connection.execute(
+            f"SELECT min(i.added_at) FROM items i WHERE {where} AND i.added_at IS NOT NULL", params).fetchone()
+        first_seen = first_seen_row[0] if first_seen_row and first_seen_row[0] else None
+
+        if source_id is not None:
+            anchors_by_section = self._section_anchors(source_id)
+        else:
+            anchors_by_section = {}
+            for row in self.connection.execute(
+                    "SELECT source_id, section_id, canonical_id FROM sections WHERE is_anchor=1 AND canonical_id IS NOT NULL AND canonical_id != section_id"):
+                anchors_by_section.setdefault((row["source_id"], row["canonical_id"]), []).append(row["section_id"])
+
+        order_by = "ORDER BY (i.added_at IS NULL), i.added_at ASC, i.source_id ASC, i.section_id ASC, i.preorder ASC, i.item_id ASC"
+        query_sql = f"""
+            SELECT i.source_id, i.section_id, i.item_id, i.parent_id, i.title, i.url,
+                   i.note, i.folder_path, i.path_json, i.added_at, i.added_at_source,
+                   i.added_at_confidence, s.label AS section_label, s.title AS section_title,
+                   s.file_path, s.is_anchor, s.canonical_id
+            FROM items i
+            LEFT JOIN sections s ON i.source_id = s.source_id AND i.section_id = s.section_id
+            WHERE {where}
+            {order_by}
+            LIMIT ? OFFSET ?
+        """
+        rows = self.connection.execute(query_sql, params + [limit, offset]).fetchall()
+
+        instances = []
+        for row in rows:
+            sid = row["source_id"]
+            sec_id = row["section_id"]
+            if source_id is not None:
+                anchors = anchors_by_section.get(sec_id, [])
+            else:
+                anchors = anchors_by_section.get((sid, sec_id), [])
+            try:
+                path = json.loads(row["path_json"]) if row["path_json"] else []
+            except (ValueError, TypeError):
+                path = []
+            instances.append({
+                "source_id": sid,
+                "section_id": sec_id,
+                "section_label": row["section_label"] or "",
+                "section_title": row["section_title"] or "",
+                "file_path": row["file_path"] or "",
+                "item_id": row["item_id"],
+                "parent_id": row["parent_id"],
+                "title": row["title"],
+                "url": row["url"],
+                "folder_path": row["folder_path"],
+                "path": path,
+                "added_at": row["added_at"],
+                "added_at_source": row["added_at_source"],
+                "added_at_confidence": row["added_at_confidence"],
+                "shown_in_anchors": sorted(anchors),
+            })
+
+        next_offset = (offset + len(instances)) if (offset + len(instances)) < total else None
+        return {
+            "url": url,
+            "source_filter": source_id,
+            "total_instances": total,
+            "unique_sources": len(distinct_sources),
+            "sources": distinct_sources,
+            "first_seen": first_seen,
+            "instances": instances,
+            "limit": limit,
+            "offset": offset,
+            "next_offset": next_offset,
+        }
+
+    def traverse(self, source_id, section=None, group_id=None, item_id=None, node_id=None,
+                 max_depth=2, direction="all", limit=100, offset=0):
+        """Multi-hop graph traversal starting from nodes, sections, groups, or items.
+
+        Traverses along canvas edges and group memberships up to max_depth hops.
+        Returns the impact surface: affected sections, groups, text cards,
+        and traversed paths with deterministic sorting and pagination.
+        """
+        source = self._source(source_id)
+        if isinstance(max_depth, bool) or not isinstance(max_depth, int) or not 1 <= max_depth <= 10:
+            raise ValueError("max_depth must be an integer between 1 and 10")
+        if direction not in ("all", "out", "in"):
+            raise ValueError("direction must be 'all', 'out', or 'in'")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be an integer between 1 and 1000")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+
+        all_nodes = [dict(row) for row in self.connection.execute(
+            "SELECT * FROM nodes WHERE source_id=? ORDER BY canvas_path,position", (source_id,))]
+        all_edges = [dict(row) for row in self.connection.execute(
+            "SELECT * FROM edges WHERE source_id=? ORDER BY canvas_path,edge_id", (source_id,))]
+        all_memberships = [dict(row) for row in self.connection.execute(
+            "SELECT * FROM memberships WHERE source_id=? ORDER BY canvas_path,group_id,node_id", (source_id,))]
+        sections_map = {row["section_id"]: dict(row) for row in self._sections(source_id)}
+
+        for edge in all_edges:
+            edge["direction"] = ("both" if edge["from_end"] == edge["to_end"] == "arrow" else
+                                 "forward" if edge["to_end"] == "arrow" else
+                                 "reverse" if edge["from_end"] == "arrow" else "none")
+            try:
+                edge["raw_json"] = json.loads(edge["raw_json"])
+            except (ValueError, TypeError):
+                edge["raw_json"] = {}
+            edge["added_at"] = _added_at_from_edge_id(edge["edge_id"])
+
+        for node in all_nodes:
+            try:
+                node["raw_json"] = json.loads(node["raw_json"])
+            except (ValueError, TypeError):
+                node["raw_json"] = {}
+
+        node_map = {(n["canvas_path"], n["node_id"]): n for n in all_nodes}
+        start_nodes = []
+        start_scope = {}
+
+        if item_id is not None:
+            start_scope["item_id"] = item_id
+            item_rows = self.connection.execute(
+                "SELECT section_id FROM items WHERE source_id=? AND item_id=?", (source_id, item_id)).fetchall()
+            if not item_rows:
+                raise ValueError("Unknown item in requested scope: " + str(item_id))
+            item_sections = {r[0] for r in item_rows}
+            start_nodes = [n for n in all_nodes if n["section_id"] in item_sections]
+        elif group_id is not None:
+            start_scope["group_id"] = group_id
+            group = self._group(source_id, group_id)
+            start_nodes = [n for n in all_nodes if n["canvas_path"] == group["canvas_path"] and n["node_id"] == group["node_id"]]
+        elif node_id is not None:
+            start_scope["node_id"] = node_id
+            start_nodes = [n for n in all_nodes if n["node_id"] == node_id]
+        elif section is not None:
+            start_scope["section"] = section
+            matched_sections = self._sections(source_id, section)
+            if not matched_sections:
+                raise ValueError("Unknown section: " + str(section))
+            sec_ids = {r["section_id"] for r in matched_sections}
+            start_nodes = [n for n in all_nodes if n["section_id"] in sec_ids]
+            # Match get_context: include enclosing group containers in start nodes (depth 0)
+            group_ids = {m["group_id"] for m in all_memberships if any(
+                n["canvas_path"] == m["canvas_path"] and n["node_id"] == m["node_id"] for n in start_nodes)}
+            for n in all_nodes:
+                if n["node_type"] == "group" and n["node_id"] in group_ids and n not in start_nodes:
+                    start_nodes.append(n)
+        else:
+            raise ValueError("Specify at least one of section, group_id, item_id, or node_id")
+
+        if not start_nodes:
+            raise ValueError("No matching canvas nodes found for the specified start target")
+
+        adj = {}
+        for edge in all_edges:
+            cp = edge["canvas_path"]
+            u = (cp, edge["from_node"])
+            v = (cp, edge["to_node"])
+            edir = edge["direction"]
+            adj.setdefault(u, []).append(("edge", v, edge, "out", edir))
+            adj.setdefault(v, []).append(("edge", u, edge, "in", edir))
+
+        for m in all_memberships:
+            cp = m["canvas_path"]
+            grp = (cp, m["group_id"])
+            mbr = (cp, m["node_id"])
+            adj.setdefault(grp, []).append(("membership", mbr, m, "contains", None))
+            adj.setdefault(mbr, []).append(("membership", grp, m, "member_of", None))
+
+        start_keys = {(n["canvas_path"], n["node_id"]) for n in start_nodes}
+        visited = {key: {"depth": 0, "node": node_map[key], "path": []} for key in start_keys if key in node_map}
+        queue = [(key, 0, []) for key in visited]
+
+        traversed_edges = {}
+        traversed_memberships = set()
+
+        while queue:
+            curr_key, curr_d, curr_path = queue.pop(0)
+            if curr_d >= max_depth:
+                continue
+
+            for hop_type, neighbor_key, obj, rel_or_dir, edge_dir in adj.get(curr_key, []):
+                if neighbor_key not in node_map:
+                    continue
+
+                if hop_type == "edge":
+                    if direction == "out":
+                        if rel_or_dir == "out" and edge_dir not in ("forward", "both", "none"):
+                            continue
+                        if rel_or_dir == "in" and edge_dir not in ("reverse", "both", "none"):
+                            continue
+                    elif direction == "in":
+                        if rel_or_dir == "out" and edge_dir not in ("reverse", "both", "none"):
+                            continue
+                        if rel_or_dir == "in" and edge_dir not in ("forward", "both", "none"):
+                            continue
+
+                    traversed_edges[obj["edge_id"]] = obj
+                    step = {
+                        "hop": curr_d + 1,
+                        "type": "edge",
+                        "edge_id": obj["edge_id"],
+                        "label": obj.get("label", ""),
+                        "direction": obj["direction"],
+                        "from_node": obj["from_node"],
+                        "to_node": obj["to_node"],
+                    }
+                else:
+                    traversed_memberships.add((obj["canvas_path"], obj["group_id"], obj["node_id"]))
+                    step = {
+                        "hop": curr_d + 1,
+                        "type": "membership",
+                        "relation": rel_or_dir,
+                        "group_id": obj["group_id"],
+                        "node_id": obj["node_id"],
+                    }
+
+                if neighbor_key not in visited:
+                    new_path = curr_path + [step]
+                    visited[neighbor_key] = {
+                        "depth": curr_d + 1,
+                        "node": node_map[neighbor_key],
+                        "path": new_path,
+                    }
+                    queue.append((neighbor_key, curr_d + 1, new_path))
+
+        seen_affected_sections = {}
+        affected_groups = []
+        affected_text_cards = []
+        all_visited_nodes = []
+
+        max_depth_reached = max(v["depth"] for v in visited.values()) if visited else 0
+
+        sorted_nodes = sorted(
+            visited.values(),
+            key=lambda item: (item["depth"], item["node"]["canvas_path"], item["node"]["position"], item["node"]["node_id"])
+        )
+
+        for entry in sorted_nodes:
+            d = entry["depth"]
+            n = entry["node"]
+            node_repr = {
+                "depth": d,
+                "canvas_path": n["canvas_path"],
+                "node_id": n["node_id"],
+                "node_type": n["node_type"],
+                "label": n["label"],
+                "text": n["text"],
+                "section_id": n["section_id"],
+                "path": entry["path"],
+            }
+            if n["section_id"] and n["section_id"] in sections_map:
+                s = sections_map[n["section_id"]]
+                target_sec_id = s.get("canonical_id") or s["section_id"]
+                b_count = self.connection.execute(
+                    "SELECT count(*) FROM items WHERE source_id=? AND section_id=? AND item_type='bookmark'",
+                    (source_id, target_sec_id)).fetchone()[0]
+                node_repr["section"] = {
+                    "section_id": s["section_id"],
+                    "label": s["label"],
+                    "title": s["title"],
+                    "file_path": s["file_path"],
+                    "is_anchor": bool(s["is_anchor"]),
+                    "canonical_id": s["canonical_id"],
+                    "bookmark_count": b_count,
+                }
+                if d > 0:
+                    sec_id = s["section_id"]
+                    if sec_id not in seen_affected_sections:
+                        seen_affected_sections[sec_id] = dict(depth=d, **node_repr["section"])
+                    elif d < seen_affected_sections[sec_id]["depth"]:
+                        seen_affected_sections[sec_id]["depth"] = d
+
+            if d > 0:
+                if n["node_type"] == "group":
+                    affected_groups.append({"depth": d, "canvas_path": n["canvas_path"], "node_id": n["node_id"], "label": n["label"]})
+                elif n["node_type"] == "text":
+                    affected_text_cards.append({"depth": d, "canvas_path": n["canvas_path"], "node_id": n["node_id"], "text": n["text"]})
+
+            all_visited_nodes.append(node_repr)
+
+        affected_sections = list(seen_affected_sections.values())
+
+        reached_only = [n for n in all_visited_nodes if n["depth"] > 0]
+        total_reached = len(reached_only)
+        paged_nodes = reached_only[offset : offset + limit]
+        next_offset = (offset + len(paged_nodes)) if (offset + len(paged_nodes)) < total_reached else None
+
+        return {
+            "source_id": source_id,
+            "start_scope": start_scope,
+            "start_nodes": [{"node_id": n["node_id"], "canvas_path": n["canvas_path"], "node_type": n["node_type"], "label": n["label"], "section_id": n["section_id"]} for n in start_nodes],
+            "max_depth": max_depth,
+            "direction": direction,
+            "depth_reached": max_depth_reached,
+            "counts": {
+                "start_nodes": len(start_nodes),
+                "total_visited": len(visited),
+                "reached_nodes": total_reached,
+                "affected_sections": len(affected_sections),
+                "affected_groups": len(affected_groups),
+                "affected_text_cards": len(affected_text_cards),
+                "traversed_edges": len(traversed_edges),
+                "traversed_memberships": len(traversed_memberships),
+            },
+            "affected_sections": affected_sections,
+            "affected_groups": affected_groups,
+            "affected_text_cards": affected_text_cards,
+            "traversed_edges": sorted(traversed_edges.values(), key=lambda e: (e["canvas_path"], e["edge_id"])),
+            "traversed_memberships": [{"canvas_path": cp, "group_id": gid, "node_id": nid} for cp, gid, nid in sorted(traversed_memberships)],
+            "nodes": paged_nodes,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "total": total_reached,
+                "next_offset": next_offset,
+            }
+        }
 
     def inventory(self, source_ids):
         """Freeze the complete indexed input, independently of query previews.

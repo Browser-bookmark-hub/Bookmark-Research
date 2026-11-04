@@ -175,6 +175,36 @@ def _zip(path, section_paths):
         raise ValueError("Cannot read ZIP export: " + str(exc)) from exc
 
 
+def scan_stats(path):
+    path = Path(path).expanduser().resolve()
+    if path.is_file():
+        if path.suffix.lower() in (".zip", ".json"):
+            st = path.stat()
+            return {path.name: [st.st_mtime_ns, st.st_size]}
+        raise ValueError("Input file must be ZIP or section JSON: " + str(path))
+    if not path.is_dir():
+        raise ValueError("Input directory does not exist: " + str(path))
+
+    stats = {}
+    for canvas in path.glob("*.canvas"):
+        if not canvas.is_symlink() and canvas.is_file():
+            st = canvas.stat()
+            stats[canvas.relative_to(path).as_posix()] = [st.st_mtime_ns, st.st_size]
+    for loose in path.glob("*.json"):
+        if not loose.is_symlink() and loose.is_file():
+            st = loose.stat()
+            stats[loose.relative_to(path).as_posix()] = [st.st_mtime_ns, st.st_size]
+    for directory in PROTOCOL_DIRS:
+        branch = path / directory
+        if branch.is_symlink() or not branch.is_dir():
+            continue
+        for entry in branch.rglob("*"):
+            if not entry.is_symlink() and entry.is_file() and entry.suffix == ".json":
+                st = entry.stat()
+                stats[entry.relative_to(path).as_posix()] = [st.st_mtime_ns, st.st_size]
+    return stats
+
+
 def read_input(path, section_paths=None):
     path = Path(path).expanduser().resolve()
     section_paths = section_paths or {}
@@ -195,8 +225,31 @@ def read_input(path, section_paths=None):
     if sum(name.endswith(".canvas") for name in files) > 1:
         raise ValueError("An export must have at most one .canvas entry")
     file_hashes = hashes(files)
+    file_stats = {}
+    if kind == "directory":
+        for name in files:
+            file_entry = path / name
+            try:
+                st = file_entry.stat()
+                file_stats[name] = [st.st_mtime_ns, st.st_size]
+            except OSError:
+                pass
+        for loose in path.glob("*.json"):
+            if not loose.is_symlink() and loose.is_file():
+                try:
+                    st = loose.stat()
+                    file_stats[loose.relative_to(path).as_posix()] = [st.st_mtime_ns, st.st_size]
+                except OSError:
+                    pass
+    elif kind in ("zip", "section"):
+        try:
+            st = path.stat()
+            file_stats[path.name] = [st.st_mtime_ns, st.st_size]
+        except OSError:
+            pass
     return {"path": str(path), "kind": kind, "single_section": single_section,
-            "files": files, "hashes": file_hashes, "fingerprint": fingerprint(file_hashes)}
+            "files": files, "hashes": file_hashes, "stats": file_stats,
+            "fingerprint": fingerprint(file_hashes)}
 
 
 def git_directory(path):

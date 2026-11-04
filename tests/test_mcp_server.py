@@ -76,9 +76,9 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(response["result"]["capabilities"], {"tools": {}})
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
         self.assertEqual({tool["name"] for tool in listing}, {
-            "sync_package", "source_history", "search_bookmarks", "get_context", "plan_research", "discovery_bundle", "index_status",
+            "sync_package", "source_history", "search_bookmarks", "lookup_url", "traverse_graph", "get_context", "plan_research", "discovery_bundle", "index_status",
             "source_remove", "source_merge",
-            "search_web", "agentic_search", "fetch_web", "search_providers", "search_archive", "get_settings", "update_settings", "research_readiness",
+            "search_web", "agentic_search", "fetch_web", "search_providers", "search_archive", "merge_search_results", "get_settings", "update_settings", "research_readiness",
             "research_start", "research_status", "research_search", "research_fetch",
             "research_source", "research_record", "research_finish", "research_inventory",
             "research_coverage", "research_import_evidence", "research_route", "research_services",
@@ -633,6 +633,30 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(decode_tool(self.call("search_bookmarks", {"source_id": "fixture"}))["total"], 1)
         sources = decode_tool(self.call("index_status"))["sources"]
         self.assertEqual({source["source_id"] for source in sources}, {"fixture", "another-source"})
+
+    def test_lookup_url_and_traverse_graph_and_search_score(self):
+        from test_bookmark_index import make_package
+
+        self.ready()
+        pkg = self.base / "Pkg"
+        make_package(pkg)
+        self.call("sync_package", {"package_path": str(pkg), "source_id": "src1"})
+
+        # 1. lookup_url tool call
+        lookup = decode_tool(self.call("lookup_url", {"url": "https://example.test/alpha"}))
+        self.assertEqual(lookup["total_instances"], 2)
+        self.assertEqual(lookup["unique_sources"], 1)
+
+        # 2. traverse_graph tool call
+        traverse = decode_tool(self.call("traverse_graph", {"source_id": "src1", "section": "A", "max_depth": 2}))
+        self.assertIn("group-one", {n["node_id"] for n in traverse["nodes"]})
+        self.assertIn("temp-section-A-1", {n["node_id"] for n in traverse["nodes"]})
+
+        # 3. search_bookmarks with score=true
+        scored = decode_tool(self.call("search_bookmarks", {"source_id": "src1", "targets": ["示例"], "score": True}))
+        self.assertEqual(scored["score_mode"], "hint")
+        self.assertTrue(len(scored["results"]) > 0)
+        self.assertIn("score", scored["results"][0])
 
 
 if __name__ == "__main__":

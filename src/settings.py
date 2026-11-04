@@ -17,13 +17,13 @@ class Settings:
     """Load on each operation so MCP clients can change preferences without restart."""
 
     PROVIDERS = ("exa", "parallel", "tavily", "jina", "deepseek", "perplexity")
-    FETCH_PROVIDERS = ("exa", "parallel", "tavily", "jina", "deepseek")
+    FETCH_PROVIDERS = ("exa", "parallel", "tavily", "jina", "deepseek", "browser")
     TOOL_SCOPE_PRESETS = ("all", "quick", "deep")
     # Daily context, retrieval, knowledge storage and provider-managed research.
     # Persistent inventories and diagnostics remain in the explicit full catalog.
     QUICK_TOOLS = (
-        "sync_package", "index_status", "search_bookmarks", "get_context", "plan_research",
-        "search_web", "agentic_search", "fetch_web", "search_archive", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
+        "sync_package", "index_status", "search_bookmarks", "lookup_url", "get_context", "traverse_graph", "plan_research",
+        "search_web", "merge_search_results", "agentic_search", "fetch_web", "search_archive", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
         "research_services", "research_service_prepare", "research_service_start", "research_service_status",
         "research_service_result", "research_service_cancel", "research_service_attach",
         "get_settings", "update_settings")
@@ -86,8 +86,10 @@ class Settings:
                     "parallel": {"processor": "pro"}},
                 "custom_agentic": {"enabled": False, "base_url": "", "model": "",
                                    "api_mode": "chat_completions", "search_mode": "prompt"},
-                "wiki": {"directory": str(cls.data_directory() / "wiki"), "after_research": "suggest",
-                         "max_source_age_days": 30},
+                "browser": {"enabled": False, "driver": "auto", "cdp_url": "http://127.0.0.1:9222",
+                            "headless": True, "timeout_seconds": 20, "max_concurrency": 2},
+                "wiki": {"directory": str(cls.data_directory() / "wiki"), "after_research": "auto",
+                         "max_source_age_days": 30, "aliases": []},
                 "wiki_preflight": True,
                 "freshness_days": 30,
                 "plan": {"max_characters": 8000, "min_relevance": 0.05, "homepage_limit": 2},
@@ -115,7 +117,7 @@ class Settings:
         defaults = cls.defaults()
         if set(value) - set(defaults):
             raise ValueError("Unknown settings fields; credentials belong in the environment or private credential file")
-        for section in ("search", "fetch", "server", "archive", "research", "readiness", "professional_research", "custom_agentic", "wiki", "plan", "output"):
+        for section in ("search", "fetch", "server", "archive", "research", "readiness", "professional_research", "custom_agentic", "browser", "wiki", "plan", "output"):
             if not isinstance(value.get(section), dict) or set(value[section]) != set(defaults[section]):
                 raise ValueError("Invalid settings fields in " + section)
         for label, number, minimum, maximum in (
@@ -166,11 +168,12 @@ class Settings:
             raise ValueError("search.strategy must be hedged, staggered, sequential or wait_all")
         if value["fetch"]["strategy"] not in ("sequential", "staggered", "hedged"):
             raise ValueError("fetch.strategy must be sequential, staggered or hedged")
-        for section, field, minimum in (("search", "providers", 1), ("fetch", "providers", 1),
-                                        ("search", "fallback_providers", 0)):
+        for section, field, allowed, minimum in (("search", "providers", cls.PROVIDERS, 1),
+                                                ("fetch", "providers", cls.FETCH_PROVIDERS, 1),
+                                                ("search", "fallback_providers", cls.PROVIDERS, 0)):
             providers = value[section][field]
-            if (not isinstance(providers, list) or not minimum <= len(providers) <= len(cls.PROVIDERS)
-                    or any(p not in cls.PROVIDERS for p in providers) or len(set(providers)) != len(providers)):
+            if (not isinstance(providers, list) or not minimum <= len(providers) <= len(allowed)
+                    or any(p not in allowed for p in providers) or len(set(providers)) != len(providers)):
                 raise ValueError(section + "." + field + " must select supported providers without duplicates")
         if value["fetch"]["provider"] not in cls.FETCH_PROVIDERS:
             raise ValueError("fetch.provider must select a supported provider")
@@ -239,12 +242,32 @@ class Settings:
             normalize_compatible_base_url(custom["base_url"])
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,191}", custom["model"]):
                 raise ValueError("custom_agentic.model must be a valid model identifier")
+        browser = value["browser"]
+        if type(browser["enabled"]) is not bool:
+            raise ValueError("browser.enabled must be a boolean")
+        if browser["driver"] not in ("auto", "playwright", "cdp", "mock"):
+            raise ValueError("browser.driver must be auto, playwright, cdp or mock")
+        if not isinstance(browser["cdp_url"], str) or len(browser["cdp_url"]) > 1024:
+            raise ValueError("browser.cdp_url must be a string up to 1024 characters")
+        if type(browser["headless"]) is not bool:
+            raise ValueError("browser.headless must be a boolean")
+        for label, number, minimum, maximum in (
+                ("browser.timeout_seconds", browser["timeout_seconds"], 1, 60),
+                ("browser.max_concurrency", browser["max_concurrency"], 1, 8)):
+            if type(number) is not int or not minimum <= number <= maximum:
+                raise ValueError("%s must be an integer between %s and %s" % (label, minimum, maximum))
         wiki_directory = value["wiki"]["directory"]
         if not isinstance(wiki_directory, str) or not wiki_directory.strip() or "\x00" in wiki_directory:
             raise ValueError("wiki.directory must be a nonempty path")
         value["wiki"]["directory"] = str(cls.external_path(wiki_directory, "Wiki directory"))
         if value["wiki"]["after_research"] not in ("suggest", "auto", "off"):
             raise ValueError("wiki.after_research must be suggest, auto or off")
+        aliases = value["wiki"].get("aliases", [])
+        if not isinstance(aliases, list):
+            raise ValueError("wiki.aliases must be a list of alias groups")
+        for group in aliases:
+            if not isinstance(group, (list, tuple)) or not all(isinstance(t, str) for t in group):
+                raise ValueError("each alias group in wiki.aliases must be a list of strings")
         output = value["output"]
         if output["mode"] not in ("central", "beside_input"):
             raise ValueError("output.mode must be central or beside_input")
@@ -259,9 +282,9 @@ class Settings:
 
     @staticmethod
     def fetch_call_count(provider, urls):
-        # Reader has one HTTP request per URL; the other providers batch URLs
+        # Reader and Browser have one request/render per URL; the other providers batch URLs
         # in one MCP tool call. Reserve this before any network work begins.
-        return len(urls) if provider == "jina" else 1
+        return len(urls) if provider in ("jina", "browser") else 1
 
     @staticmethod
     def _unique_object(pairs):

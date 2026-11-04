@@ -118,6 +118,18 @@
       "required_env": {"search": "PERPLEXITY_API_KEY"},
       "authentication": "Bearer PERPLEXITY_API_KEY. Structured Search API results; does not generate an answer or fetch arbitrary URLs.",
       "docs": "https://docs.perplexity.ai/api-reference/search-post"
+    },
+    "browser": {
+      "label": "Local Browser Renderer",
+      "url": "http://127.0.0.1:9222",
+      "transport": "http",
+      "client": "browser",
+      "search_tools": [],
+      "fetch_tools": ["browser_render"],
+      "direct_client": true,
+      "optional_bearer_env": null,
+      "authentication": "Optional local browser execution via CDP or Playwright. Disabled by default; explicit setting required. No cloud credentials needed.",
+      "docs": "https://chromedevtools.github.io/devtools-protocol/"
     }
   },
   "default_providers": [

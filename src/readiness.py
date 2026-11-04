@@ -64,8 +64,10 @@ class Readiness:
     def _signature(self, row, salt):
         # Only a salted signature is persisted; no keys, headers, or signatures
         # are included in CLI/MCP results. Rotation invalidates cached checks.
+        cred_env = row.get("credential_env")
+        cred_val = self.credentials.get(cred_env) if cred_env and cred_env in self.credentials.NAMES else None
         content = {"row": row, "settings": self.settings.load(),
-                   "credential": self.credentials.get(row["credential_env"]),
+                   "credential": cred_val,
                    "registry": self.web.registry, "version": self.VERSION}
         return hmac.new(salt.encode(), json.dumps(content, sort_keys=True).encode(), hashlib.sha256).hexdigest()
 
@@ -84,12 +86,19 @@ class Readiness:
             preferences["search"]["providers"] + preferences["search"]["fallback_providers"] +
             Settings.fetch_providers(preferences)))
         described = self.web.describe(names)["providers"]
+
+        def get_cred_env(p):
+            key = p.upper() + "_API_KEY"
+            return key if key in self.credentials.NAMES else None
+
         return [{"id": "retrieval:" + row["provider"], "kind": "retrieval", "provider": row["provider"],
-                 "credential_env": row["provider"].upper() + "_API_KEY",
+                 "credential_env": get_cred_env(row["provider"]),
                  "credential_configured": row["authentication_state"]["credential_configured"],
                  "authentication_mode": row["authentication_state"]["mode"],
                  "authentication_verified": False, "execution_verified": False,
-                 "status": "unchecked", "docs": row["docs"], "operations": row["operations"],
+                 "status": ("disabled" if row["provider"] == "browser" and not preferences.get("browser", {}).get("enabled")
+                            else "unchecked"),
+                 "docs": row["docs"], "operations": row["operations"],
                  "installation": "included_adapter", "network_checked": False,
                  "next_step": "Run readiness --refresh for connection checks; --test-retrieval also uses retrieval quota."}
                 for row in described]
@@ -101,12 +110,25 @@ class Readiness:
             key = ResearchHttp.PROVIDERS[name]["key_env"]
             enabled = config["enabled"] and (config["provider"] in (None, name) or service == name)
             configured = bool(self.credentials.get(key))
+            if not enabled and not configured:
+                diagnosis = "disabled_and_unconfigured"
+                next_step = "Run setup to enable professional_research and configure " + key + "."
+            elif not enabled and configured:
+                diagnosis = "disabled_with_credential_present"
+                next_step = "Credential " + key + " is present. Enable via settings.professional_research.enabled=true."
+            elif enabled and not configured:
+                diagnosis = "enabled_missing_credential"
+                next_step = "Service is enabled in settings, but missing API key. Configure " + key + " in environment or private credential file."
+            else:
+                diagnosis = "ready_for_check"
+                next_step = "Ready for deep research. Run readiness --refresh to verify connectivity."
             rows.append({"id": "service:" + name, "kind": "professional_research", "provider": name,
                          "credential_env": key, "credential_configured": configured,
                          "authentication_verified": False, "execution_verified": False,
                          "network_checked": False, "enabled": enabled,
                          "status": "unchecked" if configured and enabled else "disabled" if not enabled else "missing_credentials",
-                         "next_step": "Run setup to enable this optional service and configure " + key + ".",
+                         "diagnosis": diagnosis,
+                         "next_step": next_step,
                          "docs": "https://developers.openai.com/api/docs/guides/deep-research" if name == "openai"
                          else "https://docs.parallel.ai/task-api/guides/execute-task-run"})
         return rows

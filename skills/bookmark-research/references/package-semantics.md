@@ -2,7 +2,7 @@
 
 **English** · [中文](zh/package-semantics.md)
 
-These bundled analysis rules cover JSON files, fields and relationships. The runtime importer does not read `AGENTS.md`; known formats can be indexed and queried without it. Consult the original guide and data when a package adds conventions, meanings conflict, or the user requests a check. This reference does not replace applicable directory instructions already loaded by the host. The package's exported guide also governs writes to the package; this reference and the plugin only read the package.
+These bundled analysis rules cover JSON files, fields and relationships. The runtime importer does not read `AGENTS.md`; known formats can be indexed and queried without it. Consult the original guide and data when a package adds conventions, meanings conflict, or the user requests a check. This reference does not replace applicable directory instructions already loaded by the host. The package guide governs source structure, write authorization and edit procedure. Plugin queries are read-only; they provide item locations, ancestry and scoped context for research, analysis and authorized edits, while the host performs the actual edit under that guide.
 
 ## Files and fields
 
@@ -120,7 +120,12 @@ The selected item result includes its `ancestors`; use this for the exact folder
 }
 ```
 
-Derived FTS5 tables exist, but the public query does not use BM25 ranking, embeddings, webpage-body search or arbitrary SQL. Retaining an unknown field does not provide a filter or an interpretation rule for it.
+Derived FTS5 tables exist across storage layers, with distinct ranking behaviors:
+- **Bookmark items (`search_bookmarks`)**: Strict literal substring matching (FTS5 trigram for 3+ characters or `LIKE` fallback); no BM25 ranking, no embeddings, and no arbitrary SQL.
+- **Archive page text (`search_archive`)**: Full-text search over saved webpage bodies ranked by SQLite FTS5 `bm25(page_text)` (with `d.id DESC` tie-break).
+- **Wiki knowledge (`wiki_search`)**: Indexed character grams with alias expansion, scored by `Σ ((min(term_count, 20) + (15 if title_hit else 0) + (8 if heading_hit else 0)) * len(term) / max(1, doc_freq[term]))` (with `updated_at DESC, page_id` tie-break).
+
+Retaining an unknown field does not provide a filter or an interpretation rule for it.
 
 ## Temporal context
 

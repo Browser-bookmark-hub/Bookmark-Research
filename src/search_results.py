@@ -7,6 +7,7 @@ Only snippets are retained; full source text belongs in a later fetch step.
 
 from collections import OrderedDict
 from urllib.parse import urlsplit, urlunsplit
+import hashlib
 import ipaddress
 import re
 
@@ -71,13 +72,27 @@ def _mode(providers, query_count):
     return "single_provider_multi_query" if query_count > 1 else "single_provider_single_query"
 
 
-def fuse_results(payload):
+def fuse_results(payload, archive=False, archive_dir=None, settings=None):
     """Return independently ranked targets, provenance, failures and coverage.
 
     Malformed top-level configuration raises ValueError. Invalid batches/results
     are reported and do not discard valid siblings. Provider counts include
     failed providers; successful-provider coverage is reported separately.
+    Deduplicates URLs and content SHA-256 hashes, with optional archive persistence.
     """
+    if isinstance(payload, dict) and "batches" not in payload and isinstance(payload.get("streams"), list):
+        default_target = payload.get("target") or payload.get("query") or "default"
+        payload = dict(payload)
+        payload["batches"] = []
+        for s in payload["streams"]:
+            if isinstance(s, dict):
+                payload["batches"].append({
+                    "target": s.get("target", default_target),
+                    "provider": s.get("provider", "host"),
+                    "query": s.get("query", payload.get("query", default_target)),
+                    "status": s.get("status", "ok"),
+                    "results": s.get("results") if "results" in s else s.get("items", [])
+                })
     if not isinstance(payload, dict) or not isinstance(payload.get("batches"), list):
         raise ValueError("payload must be an object with a batches array")
     limit = payload.get("limit_per_target", 10)
@@ -88,6 +103,7 @@ def fuse_results(payload):
         raise ValueError("targets must be an array of nonempty strings")
     buckets = OrderedDict((target.strip(), _bucket()) for target in requested)
     errors, invalid_results = [], []
+    total_submitted_results = 0
 
     def error(batch_index, message, target=None, provider=None, query=None, kind="invalid_batch"):
         errors.append({"batch_index": batch_index, "target": target,
@@ -130,6 +146,7 @@ def fuse_results(payload):
             continue
         stream["ok"] = True
         for position, item in enumerate(results, 1):
+            total_submitted_results += 1
             try:
                 if not isinstance(item, dict):
                     raise ValueError("result must be an object")
@@ -146,6 +163,9 @@ def fuse_results(payload):
                     snippet = item.get("text", "")
                 if not isinstance(snippet, str):
                     raise ValueError("text or snippet must be a string")
+                content = item.get("content")
+                if content is not None and not isinstance(content, str):
+                    raise ValueError("content must be a string")
             except ValueError as exc:
                 invalid_results.append({"batch_index": batch_index, "result_position": position,
                                         "target": target, "provider": provider, "query": query,
@@ -153,25 +173,36 @@ def fuse_results(payload):
                                         "reason": str(exc)})
                 bucket["invalid_count"] += 1
                 continue
+
+            text_body = content if content is not None else snippet
+            digest = hashlib.sha256(text_body.encode("utf-8")).hexdigest() if text_body else None
+
             snippet, truncated = snippet[:MAX_SNIPPET_CHARS], len(snippet) > MAX_SNIPPET_CHARS
             existing = stream["urls"].get(canonical)
             if existing is None:
                 stream["urls"][canonical] = {
                     "rank": rank, "raw_urls": {raw_url}, "title": title,
                     "snippet": snippet, "snippet_truncated": truncated,
+                    "content": content, "sha256": digest,
                 }
             else:
                 existing["rank"] = min(existing["rank"], rank)
                 existing["raw_urls"].add(raw_url)
                 if title:
                     existing["title"] = min(t for t in (existing["title"], title) if t)
+                if content and (not existing.get("content") or len(content) > len(existing["content"])):
+                    existing["content"] = content
+                    existing["sha256"] = digest
                 old = (len(existing["snippet"]), existing["snippet"], existing["snippet_truncated"])
                 new = (len(snippet), snippet, truncated)
                 if new > old:
                     existing["snippet"], existing["snippet_truncated"] = snippet, truncated
+                    if not existing.get("content"):
+                        existing["sha256"] = digest
 
     targets, all_providers, all_successful_providers = [], set(), set()
     query_count = 0
+    all_ranked_by_target = {}
     for target, bucket in buckets.items():
         streams = bucket["streams"]
         by_url, by_provider = {}, {}
@@ -188,17 +219,21 @@ def fuse_results(payload):
                     "provider": provider, "query": query, "rank": hit["rank"],
                     "url": raw_urls[0], "raw_urls": raw_urls, "title": hit["title"],
                     "snippet": hit["snippet"], "snippet_truncated": hit["snippet_truncated"],
+                    "content": hit.get("content"), "sha256": hit.get("sha256"),
                 })
         ranked = []
         for canonical, sources in by_url.items():
             sources.sort(key=lambda source: (source["rank"], source["provider"], source["query"]))
             provider_count = len({source["provider"] for source in sources})
+            preferred_sha = next((s["sha256"] for s in sources if s.get("sha256")), None)
             ranked.append({
                 "url": sources[0]["url"], "canonical_url": canonical,
                 "raw_urls": sorted({url for source in sources for url in source["raw_urls"]}),
                 "title": next((source["title"] for source in sources if source["title"]), ""),
+                "sha256": preferred_sha,
                 "rrf_score": sum(1.0 / (RRF_K + source["rank"]) for source in sources),
                 "provider_count": provider_count,
+                "providers": sorted({source["provider"] for source in sources}),
                 "corroborated": provider_count > 1,
                 "evidence_count": len(sources), "sources": sources,
             })
@@ -217,6 +252,7 @@ def fuse_results(payload):
         successful_providers = sorted(p for p, coverage in by_provider.items() if coverage["successful_queries"])
         for coverage in by_provider.values():
             coverage["unique_urls"] = len(coverage["unique_urls"])
+        all_ranked_by_target[target] = ranked
         targets.append({
             "target": target, "status": status, "providers": sorted(by_provider),
             "provider_count": len(by_provider), "query_count": len(streams),
@@ -232,6 +268,44 @@ def fuse_results(payload):
         all_providers.update(by_provider)
         all_successful_providers.update(successful_providers)
         query_count += len(streams)
+
+    all_canonical_urls = set()
+    sha_to_urls = {}
+    for target_items in all_ranked_by_target.values():
+        for item in target_items:
+            all_canonical_urls.add(item["canonical_url"])
+            h = item.get("sha256")
+            if h:
+                sha_to_urls.setdefault(h, set()).add(item["canonical_url"])
+
+    content_duplicates = [
+        {"sha256": h, "canonical_urls": sorted(urls)}
+        for h, urls in sha_to_urls.items() if len(urls) > 1
+    ]
+    total_ranked = sum(len(items) for items in all_ranked_by_target.values())
+    deduplication = {
+        "submitted_results": total_submitted_results,
+        "unique_canonical_urls": len(all_canonical_urls),
+        "unique_content_hashes": len(sha_to_urls),
+        "duplicate_urls_merged": max(0, total_submitted_results - total_ranked),
+        "cross_target_shared_urls": max(0, total_ranked - len(all_canonical_urls)),
+        "content_duplicates": content_duplicates,
+    }
+
+    archive_report = None
+    if archive or payload.get("archive") is True:
+        from archive import SourceArchive
+        from settings import Settings
+        target_dir = archive_dir
+        if not target_dir:
+            if settings:
+                target_dir = settings.load()["archive"]["directory"]
+            else:
+                target_dir = str(Settings.defaults()["archive"]["directory"])
+        store = SourceArchive(target_dir)
+        all_ranked_hits = [hit for target_items in all_ranked_by_target.values() for hit in target_items]
+        archive_report = store.save_search_batch(payload, all_ranked_hits)
+
     return {
         "provider_count": len(all_providers), "providers": sorted(all_providers),
         "successful_provider_count": len(all_successful_providers),
@@ -243,5 +317,9 @@ def fuse_results(payload):
                     "independent_fact_confirmation": False},
         "missing_targets": [item["target"] for item in targets if item["status"] == "missing"],
         "uncovered_targets": [item["target"] for item in targets if not item["results"]],
-        "targets": targets, "errors": errors, "invalid_results": invalid_results,
+        "targets": targets,
+        "errors": errors, "invalid_results": invalid_results,
+        "deduplication": deduplication,
+        "archive": archive_report if archive_report is not None else {"status": "disabled"},
+        "backflow_contract": "normalized_host_search_v1",
     }

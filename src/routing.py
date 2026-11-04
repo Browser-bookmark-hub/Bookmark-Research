@@ -201,10 +201,12 @@ class ResearchRouting:
                                        if host_search else "always"),
                      "deadline_seconds": settings["search"]["deadline_seconds"],
                      "first_usable_result_wins": True,
+                     "backflow_tool": "merge_search_results",
                      "note": ("Host-native search is the default discovery channel. Use search_web when it is "
                               "unavailable, returns nothing or insufficient results, or the user asks for provider "
                               "diversity. For latency-sensitive work, issue both together and take the first "
-                              "usable result; do not wait for a slow channel."
+                              "usable result; do not wait for a slow channel. Host search results can be merged and "
+                              "archived via merge_search_results."
                               if host_search else
                               "The host has no observed native search; search_web runs its configured providers "
                               "in parallel with fallbacks for unresolved queries.")}
@@ -213,7 +215,8 @@ class ResearchRouting:
         return {"depth": selected_depth, "host": host, "task_shape": task_shape, "selected": selected,
                 "candidates": candidates, "missing_or_unconfirmed": missing,
                 "host_search": {"available": host_search is not None, "tool": host_search,
-                                "role": "discovery_only; fetch_web remains the evidence read"},
+                                "role": "discovery_only; fetch_web remains the evidence read",
+                                "backflow_tool": "merge_search_results"},
                 "discovery": discovery,
                 "next_action": next_action, "workflow": workflow, "research_process": process,
                 "fallback": {"execution_owner": "host", "failed_routes": failed,

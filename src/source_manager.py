@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from bookmark_index import _dump, _inside, _string
-from source_inputs import fingerprint, git_busy, git_directory, hashes, read_input
+from source_inputs import fingerprint, git_busy, git_directory, hashes, read_input, scan_stats
 
 
 SCHEMA = (
@@ -307,7 +307,7 @@ class SourceManager:
             self.connection.execute("INSERT OR IGNORE INTO source_aliases VALUES(?,?)", (source_id, prepared["path"]))
             record = {"mode": mode, "completeness": completeness, "input_path": prepared["path"],
                 "input_kind": prepared["kind"], "version_id": version_id, "snapshot_path": str(snapshot_path),
-                "observed_hashes": prepared["hashes"], "checked_at": self._now(),
+                "observed_hashes": prepared["hashes"], "observed_stats": prepared.get("stats"), "checked_at": self._now(),
                 "state": "snapshot" if mode == "snapshot" else "current", "error": None,
                 "pending_files": [], "pending_fingerprint": None, "pending_since": None,
                 "retained_missing_files": summary["retained_missing_files"], "legacy": False}
@@ -458,7 +458,7 @@ class SourceManager:
                 "pending_files": record.get("pending_files", []), "error": record.get("error"),
                 "version_id": record.get("version_id"), "checked_at": record["checked_at"]}
 
-    def refresh(self, source_id, force=True):
+    def refresh(self, source_id, force=True, verify_hashes=False):
         record = self._record(source_id)
         if record["mode"] == "snapshot":
             return {"source_id": source_id, "mode": "snapshot", "state": "snapshot", "performed": False,
@@ -467,17 +467,33 @@ class SourceManager:
             with self.index.transaction():
                 record = self._record(source_id)
                 if record["mode"] == "snapshot":
-                    return self.refresh(source_id, force)
+                    return self.refresh(source_id, force, verify_hashes=verify_hashes)
                 if git_busy(record["input_path"]):
                     return self._observation(source_id, record, "pending", error="Git is updating the source",
                         pending_fingerprint=None, pending_since=None)
+
+                # Pre-screen via mtime and size if not forcing full verification and not awaiting debounce
+                if not verify_hashes and not record.get("pending_files") and record.get("observed_stats") and record.get("observed_hashes"):
+                    try:
+                        current_stats = scan_stats(record["input_path"])
+                        if current_stats == record["observed_stats"]:
+                            return self._observation(source_id, record, "current",
+                                observed_hashes=record["observed_hashes"],
+                                observed_stats=record["observed_stats"],
+                                pending_files=[],
+                                pending_fingerprint=None, pending_since=None, error=None)
+                    except (OSError, ValueError):
+                        pass
+
                 prepared = read_input(record["input_path"])
                 before = record["observed_hashes"] or {row[0]: row[1] for row in self.connection.execute(
                     "SELECT file_path,sha256 FROM files WHERE source_id=?", (source_id,))}
                 after = prepared["hashes"]
                 pending = sorted(name for name in before.keys() | after.keys() if before.get(name) != after.get(name))
                 if not pending:
-                    return self._observation(source_id, record, "current", observed_hashes=after, pending_files=[],
+                    return self._observation(source_id, record, "current", observed_hashes=after,
+                        observed_stats=prepared.get("stats"),
+                        pending_files=[],
                         pending_fingerprint=None, pending_since=None, error=None)
                 deletion = bool(before.keys() - after.keys()) and record["completeness"] == "complete"
                 delay = self.deletion_grace if deletion else self.debounce
@@ -507,7 +523,7 @@ class SourceManager:
     def source_status(self, source_id):
         """Read lifecycle state without recounting items or loading section bodies."""
         record = self._record(source_id)
-        visible = {key: value for key, value in record.items() if key not in ("observed_hashes", "pending_fingerprint", "pending_since")}
+        visible = {key: value for key, value in record.items() if key not in ("observed_hashes", "observed_stats", "pending_fingerprint", "pending_since")}
         checked = record.get("checked_at")
         if record["mode"] == "live" and record["state"] == "current" and (not checked or
                 self.clock() - datetime.fromisoformat(checked).timestamp() > 10):
