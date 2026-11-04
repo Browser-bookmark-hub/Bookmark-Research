@@ -188,6 +188,22 @@ class HardeningBatch5Tests(unittest.TestCase):
         self.assertEqual(citation["bookmark_refs"][0]["section_id"], section_id)
         self.assertIn("inv-item-1", citation["inventory_ids"])
 
+        inferred_page = {
+            "title": "Inferred Ref Page",
+            "kind": "topic",
+            "sections": [{"heading": "Intro", "text": "Article content for testing citations.",
+                          "citations": [{"source_id": "s-inferred", "quote": "Article content"}]}],
+            "links": [],
+            "review": {"method": "model", "reviewer": "tester", "note": "verifying"}
+        }
+        inferred_sources = [{"id": "s-inferred", "url": url, "text": "Article content for testing citations."}]
+        receipt = self.wiki.write("inferred-ref-page", inferred_page, "Infer bookmark refs",
+                                  sources=inferred_sources)
+        self.assertEqual(receipt["status"], "written")
+        inferred = self.wiki.get("inferred-ref-page")["evidence"][0]["citations"][0]
+        self.assertEqual(inferred["bookmark_refs"], [{"source_id": source_id,
+            "section_id": section_id, "item_id": item_id}])
+
     def test_p3_4_wiki_search_ranking_and_aliases(self):
         """P3-4: WikiSearchIndex ranking weights title (+15) and headings (+8), normalizes by doc_freq, and respects aliases."""
         # Create page 1 with keyword in Title

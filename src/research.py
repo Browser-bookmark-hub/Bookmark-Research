@@ -716,11 +716,22 @@ class ResearchSessions:
                 with BookmarkIndex(self.db_path) as index:
                     manager = SourceManager(index)
                     with index.read_snapshot():
+                        resolved_ids = {sid: index.resolve_source_id(sid) for sid in ids}
+                        resolved_refs = ([{**ref, "source_id": index.resolve_source_id(ref["source_id"])}
+                                          for ref in bookmark_refs] if bookmark_refs else None)
                         snapshot = {"version": index.input_version(ids),
-                                    "states": {sid: manager.source_status(sid)["state"] for sid in ids}}
+                                    "states": {sid: manager.source_status(resolved_ids[sid])["state"] for sid in ids},
+                                    "resolved_ids": resolved_ids}
                         if bookmark_refs:
                             snapshot["inventory"] = index.inventory(ids) if snapshot["version"] != frozen else None
                 cache[key] = snapshot
+            else:
+                with BookmarkIndex(self.db_path) as index:
+                    resolved_refs = ([{**ref, "source_id": index.resolve_source_id(ref["source_id"])}
+                                      for ref in bookmark_refs] if bookmark_refs else None)
+            redirected = {old: new for old, new in snapshot.get("resolved_ids", {}).items() if old != new}
+            if redirected:
+                result["resolved_via_redirect"] = redirected
             current, states = snapshot["version"], snapshot["states"]
             changed = current != frozen
             result.update(current_input_version=current, state="changed" if changed else "unchanged",
@@ -735,8 +746,18 @@ class ResearchSessions:
                     if hashlib.sha256(raw).hexdigest() != state.get("inventory_manifest_sha256"):
                         raise ValueError("Frozen input inventory hash changed")
                     cache[frozen_key] = json.loads(raw)
-                relevant = scoped_input(cache[frozen_key], bookmark_refs) != scoped_input(
-                    snapshot["inventory"], bookmark_refs)
+                frozen_inventory = cache[frozen_key]
+                if redirected:
+                    def remap(value):
+                        if isinstance(value, dict):
+                            return {key: (redirected.get(child, child) if key == "source_id" else remap(child))
+                                    for key, child in value.items()}
+                        if isinstance(value, list):
+                            return [remap(child) for child in value]
+                        return value
+                    frozen_inventory = remap(frozen_inventory)
+                relevant = scoped_input(frozen_inventory, resolved_refs) != scoped_input(
+                    snapshot["inventory"], resolved_refs)
                 result.update(state="changed" if relevant else "unchanged", requires_review=relevant,
                               package_changed=True, comparison_scope="cited_bookmarks_and_context")
         except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:

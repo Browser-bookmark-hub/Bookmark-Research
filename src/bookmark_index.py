@@ -193,6 +193,10 @@ CREATE TABLE IF NOT EXISTS sources (
  source_id TEXT PRIMARY KEY, package_path TEXT NOT NULL,
  created_at TEXT NOT NULL, last_sync TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS source_redirects (
+ old_source_id TEXT PRIMARY KEY, new_source_id TEXT NOT NULL,
+ created_at TEXT NOT NULL, reason TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS files (
  source_id TEXT NOT NULL, file_path TEXT NOT NULL, kind TEXT NOT NULL,
  sha256 TEXT NOT NULL, raw_json TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
@@ -376,8 +380,21 @@ class BookmarkIndex:
     def __exit__(self, *_):
         self.close()
 
+    def resolve_source_id(self, source_id):
+        """Resolve retired source IDs to their surviving merge target."""
+        current, seen = source_id, set()
+        while current not in seen:
+            seen.add(current)
+            row = self.connection.execute(
+                "SELECT new_source_id FROM source_redirects WHERE old_source_id=?", (current,)).fetchone()
+            if row is None:
+                return current
+            current = row[0]
+        raise ValueError("Source redirect cycle: " + str(source_id))
+
     def _source(self, source_id):
-        row = self.connection.execute("SELECT * FROM sources WHERE source_id=?", (source_id,)).fetchone()
+        resolved = self.resolve_source_id(source_id)
+        row = self.connection.execute("SELECT * FROM sources WHERE source_id=?", (resolved,)).fetchone()
         if row is None:
             raise ValueError("Unknown source_id: " + str(source_id))
         return dict(row)
@@ -857,6 +874,7 @@ class BookmarkIndex:
 
     def _scope(self, source_id, section=None, group_id=None, folder_id=None, tags=None, tag_colors=None,
                item_types=None):
+        source_id = self.resolve_source_id(source_id)
         self._source(source_id)
         selected_types = list(item_types) if item_types else ["bookmark"]
         clauses = ["i.source_id=?", "i.item_type IN (%s)" % ",".join("?" for _ in selected_types)]
@@ -962,6 +980,7 @@ class BookmarkIndex:
         cards, deduplicated by URL, with the terms each URL's own rows matched
         and the source-wide instance count, which is not the selected scope.
         """
+        source_id = self.resolve_source_id(source_id)
         source = self._source(source_id)
         package = self._input_path(source_id, source["package_path"])
         # Partial imports keep cards whose file disappeared. They stay indexed,
@@ -1285,6 +1304,7 @@ class BookmarkIndex:
                limit=20, offset=0, tag_colors=None, item_types=None, count_only=False, compact=False,
                score=False):
         """Literal structured search. ``limit=0`` or ``count_only`` returns counts only."""
+        source_id = self.resolve_source_id(source_id)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 1000:
             raise ValueError("limit must be an integer from 0 to 1000; 0 returns counts only")
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
@@ -1458,6 +1478,7 @@ class BookmarkIndex:
         return matches
 
     def context(self, source_id, section=None, group_id=None, item_id=None):
+        source_id = self.resolve_source_id(source_id)
         source = self._source(source_id)
         sections = self._sections(source_id, section)
         nodes = [dict(row) for row in self.connection.execute("SELECT * FROM nodes WHERE source_id=? ORDER BY canvas_path,position", (source_id,))]
@@ -1568,6 +1589,7 @@ class BookmarkIndex:
         url = url.strip()
         if source_id is not None:
             _string(source_id, "source_id", True)
+            source_id = self.resolve_source_id(source_id)
             self._source(source_id)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
             raise ValueError("limit must be an integer between 1 and 1000")
@@ -1663,6 +1685,7 @@ class BookmarkIndex:
         Returns the impact surface: affected sections, groups, text cards,
         and traversed paths with deterministic sorting and pagination.
         """
+        source_id = self.resolve_source_id(source_id)
         source = self._source(source_id)
         if isinstance(max_depth, bool) or not isinstance(max_depth, int) or not 1 <= max_depth <= 10:
             raise ValueError("max_depth must be an integer between 1 and 10")
@@ -1911,7 +1934,7 @@ class BookmarkIndex:
         """
         if not isinstance(source_ids, list) or not source_ids:
             raise ValueError("source_ids must contain indexed package IDs")
-        identifiers = sorted(set(_string(value, "source_id", True) for value in source_ids))
+        identifiers = sorted(set(self.resolve_source_id(_string(value, "source_id", True)) for value in source_ids))
         from archive import SourceArchive
         result = {"schema_version": 1, "index_state": "last_synchronized",
                   "source_ids": identifiers, "sources": [], "files": [],
@@ -1994,6 +2017,7 @@ class BookmarkIndex:
         self.connection.execute("SAVEPOINT input_version_snapshot")
         try:
             for source_id in sorted(set(source_ids)):
+                source_id = self.resolve_source_id(source_id)
                 self._source(source_id)
                 records.extend(dict(row) for row in self.connection.execute(
                     "SELECT source_id,file_path,kind,sha256 FROM files WHERE source_id=? ORDER BY file_path", (source_id,)))
@@ -2006,6 +2030,8 @@ class BookmarkIndex:
             ids = [row[0] for row in self.connection.execute("SELECT source_id FROM sources ORDER BY source_id")]
             return {"database": str(self.db_path) if self.db_path else ":memory:", "schema_version": 1,
                 "sources": [self.status(identifier) for identifier in ids]}
+        requested_source_id = source_id
+        source_id = self.resolve_source_id(source_id)
         result = self._source(source_id)
         counts = dict(self.connection.execute("""SELECT count(*) AS items,
             coalesce(sum(item_type='bookmark'),0) AS bookmarks,
@@ -2020,6 +2046,9 @@ class BookmarkIndex:
             counts[table] = self.connection.execute("SELECT count(*) FROM " + table + " WHERE source_id=?", (source_id,)).fetchone()[0]
         result["counts"] = counts
         result.update(bookmarks=counts["bookmarks"], unique_urls=counts["unique_urls"])
+        if requested_source_id != source_id:
+            result["resolved_via_redirect"] = True
+            result["requested_source_id"] = requested_source_id
         package = Path(result["package_path"])
         result["package_exists"] = package.is_dir()
         result["retained_missing_files"] = [row[0] for row in self.connection.execute("SELECT file_path FROM files WHERE source_id=? ORDER BY file_path", (source_id,)) if not (package / row[0]).is_file()]

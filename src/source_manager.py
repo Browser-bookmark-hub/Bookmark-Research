@@ -344,6 +344,39 @@ class SourceManager:
             "SELECT COUNT(*) FROM %s WHERE source_id=?" % table, (source_id,)).fetchone()[0]
             for table in ("files", "sections", "items", "nodes", "edges", "memberships")}
 
+    def _reference_impact(self, source_id):
+        """Find durable research scopes and Wiki revisions that name a source."""
+        from settings import Settings
+        settings = Settings().load()
+        research_root = Path(settings["output"]["directory"])
+        wiki_root = Path(settings["wiki"]["directory"])
+        research_ids, pages = set(), set()
+        if research_root.is_dir() and not research_root.is_symlink():
+            for state_path in research_root.glob("*/state.json"):
+                if state_path.is_symlink():
+                    continue
+                try:
+                    state = json.loads(state_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if source_id in state.get("source_scope", {}).get("source_ids", []):
+                    research_ids.add(state.get("research_id") or state_path.parent.name)
+        revisions = wiki_root / "revisions"
+        if revisions.is_dir() and not revisions.is_symlink():
+            for revision_path in revisions.glob("*/*.json"):
+                if revision_path.is_symlink():
+                    continue
+                try:
+                    record = json.loads(revision_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if any(ref.get("source_id") == source_id
+                       for evidence in record.get("evidence", [])
+                       for citation in evidence.get("citations", [])
+                       for ref in citation.get("bookmark_refs", []) if isinstance(ref, dict)):
+                    pages.add(record.get("page_id") or revision_path.parent.name)
+        return {"affected_pages": sorted(pages), "affected_research_ids": sorted(research_ids)}
+
     def _snapshot_directory(self, source_id):
         if self.storage is None:
             return None
@@ -400,9 +433,11 @@ class SourceManager:
             snapshot = self._snapshot_directory(source_id)
             aliases = [row[0] for row in self.connection.execute(
                 "SELECT input_path FROM source_aliases WHERE source_id=? ORDER BY input_path", (source_id,))]
+            impact = self._reference_impact(source_id)
             if not confirm:
                 return {"source_id": source_id, "status": "confirmation_required", "would_remove": counts,
                         "aliases": aliases, "snapshot_directory": str(snapshot) if snapshot else None,
+                        **impact,
                         "impact": "Research tasks that froze this source keep their saved inventory but stop resolving "
                                   "its items; Wiki pages citing those claims require review. Re-run with confirm=true "
                                   "(CLI: --confirm) to delete."}
@@ -411,7 +446,7 @@ class SourceManager:
                 self.connection.execute("DELETE FROM %s WHERE source_id=?" % table, (source_id,))
             self.connection.execute("DELETE FROM sources WHERE source_id=?", (source_id,))
         return {"source_id": source_id, "status": "removed", "removed": counts,
-                "aliases": aliases, **cleanup}
+                "aliases": aliases, **impact, **cleanup}
 
     def merge(self, source_id, into_source_id, confirm=False):
         """Drop a duplicate source whose content version equals the target's.
@@ -432,9 +467,11 @@ class SourceManager:
                                  "instead of merging")
             aliases = [row[0] for row in self.connection.execute(
                 "SELECT input_path FROM source_aliases WHERE source_id=? ORDER BY input_path", (source_id,))]
+            impact = self._reference_impact(source_id)
             if not confirm:
                 return {"source_id": source_id, "into_source_id": into_source_id, "status": "confirmation_required",
                         "version_id": record["version_id"], "moved_aliases": aliases,
+                        **impact,
                         "impact": "The duplicate is deleted and its paths re-point at into_source_id; saved research "
                                   "inventories that froze the duplicate stop resolving. Re-run with confirm=true "
                                   "(CLI: --confirm) to merge."}
@@ -442,13 +479,18 @@ class SourceManager:
                 self.connection.execute("INSERT OR IGNORE INTO source_aliases VALUES(?,?)", (into_source_id, alias))
             self.connection.execute("INSERT OR IGNORE INTO source_aliases VALUES(?,?)",
                                     (into_source_id, target.get("input_path")))
+            self.connection.execute(
+                "INSERT INTO source_redirects(old_source_id,new_source_id,created_at,reason) VALUES(?,?,?,?) "
+                "ON CONFLICT(old_source_id) DO UPDATE SET new_source_id=excluded.new_source_id, "
+                "created_at=excluded.created_at, reason=excluded.reason",
+                (source_id, into_source_id, self._now(), "merged_duplicate"))
             for table in ("items", "sections", "files", "nodes", "edges", "memberships",
                           "source_snapshots", "source_aliases", "source_records"):
                 self.connection.execute("DELETE FROM %s WHERE source_id=?" % table, (source_id,))
             self.connection.execute("DELETE FROM sources WHERE source_id=?", (source_id,))
         return {"source_id": source_id, "into_source_id": into_source_id, "status": "merged",
                 "version_id": record.get("version_id"), "moved_aliases": aliases,
-                **cleanup}
+                **impact, **cleanup}
 
     def _observation(self, source_id, record, state, **fields):
         record.update(state=state, checked_at=self._now(), **fields)

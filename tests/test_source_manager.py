@@ -21,6 +21,7 @@ from bookmark_index import BookmarkIndex
 from source_inputs import read_input
 from source_manager import SourceManager
 from source_watcher import SourceWatcher
+from settings import Settings
 from test_bookmark_index import COPY, PRIMARY, TEMP, make_package, read_json, write_json
 
 
@@ -146,6 +147,45 @@ class SourceManagerTests(unittest.TestCase):
         self.sources.sync(copied, original["source_id"])
         with self.assertRaisesRegex(ValueError, "Multiple sources"):
             self.sources.sync(copied)
+
+    def test_merge_redirect_keeps_retired_source_id_resolvable(self):
+        self.sources.sync(self.package, "retired")
+        self.sources.sync(self.package, "survivor")
+        receipt = self.sources.merge("retired", "survivor", confirm=True)
+        self.assertEqual(receipt["status"], "merged")
+
+        result = self.index.search("retired", limit=0)
+        self.assertEqual(result["total"], 5)
+        status = self.index.status("retired")
+        self.assertEqual(status["source_id"], "survivor")
+        self.assertTrue(status["resolved_via_redirect"])
+        self.assertEqual(status["requested_source_id"], "retired")
+
+    def test_remove_dry_run_lists_referencing_pages_and_research(self):
+        self.sources.sync(self.package, "impact-source")
+        research_root, wiki_root = self.root / "research", self.root / "wiki"
+        research_task = research_root / "impact-study"
+        research_task.mkdir(parents=True)
+        (research_task / "state.json").write_text(json.dumps({
+            "research_id": "impact-study",
+            "source_scope": {"source_ids": ["impact-source"]},
+        }), encoding="utf-8")
+        revision = wiki_root / "revisions" / "impact-page" / "1-test.json"
+        revision.parent.mkdir(parents=True)
+        revision.write_text(json.dumps({
+            "page_id": "impact-page",
+            "evidence": [{"citations": [{"bookmark_refs": [{"source_id": "impact-source"}]}]}],
+        }), encoding="utf-8")
+        settings_path = self.root / "settings.json"
+        Settings(settings_path).update({
+            "output": {"directory": str(research_root)},
+            "wiki": {"directory": str(wiki_root)},
+        })
+        with patch.dict(os.environ, {"BOOKMARK_RESEARCH_CONFIG": str(settings_path)}):
+            result = self.sources.remove("impact-source")
+        self.assertEqual(result["status"], "confirmation_required")
+        self.assertEqual(result["affected_pages"], ["impact-page"])
+        self.assertEqual(result["affected_research_ids"], ["impact-study"])
 
     def test_single_temporary_card_updates_known_path_without_losing_other_cards(self):
         first = self.sources.sync(self.package, "study")

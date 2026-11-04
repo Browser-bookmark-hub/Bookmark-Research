@@ -441,6 +441,45 @@ class WikiStore:
                 SourceArchive._key(url)
             bookmark_refs = source.get("bookmark_refs")
             inventory_ids = source.get("inventory_ids")
+            if bookmark_refs is None and (inventory_ids is not None or url):
+                db_exists = (str(self.research.db_path) == ":memory:") or (
+                    self.research.db_path and Path(self.research.db_path).is_file()
+                )
+                if db_exists:
+                    from archive import SourceArchive
+                    if str(self.research.db_path) == ":memory:":
+                        from bookmark_index import BookmarkIndex
+                        index_context = BookmarkIndex(self.research.db_path)
+                        connection = index_context.connection
+                    else:
+                        index_context = None
+                        connection = sqlite3.connect(self.research.db_path.as_uri() + "?mode=ro", uri=True)
+                        connection.row_factory = sqlite3.Row
+                    try:
+                        rows = connection.execute(
+                            "SELECT source_id,section_id,item_id,url FROM items "
+                            "WHERE item_type='bookmark' AND url<>'' ORDER BY source_id,section_id,preorder"
+                        ).fetchall()
+                        wanted = set(inventory_ids or [])
+                        matches = []
+                        for row in rows:
+                            try:
+                                matches_url = SourceArchive._key(row["url"]) == SourceArchive._key(url)
+                            except (TypeError, ValueError):
+                                matches_url = row["url"] == url
+                            inventory_id = "u-" + hashlib.sha256(row["url"].encode("utf-8")).hexdigest()[:32]
+                            if matches_url and (not wanted or inventory_id in wanted):
+                                matches.append({"source_id": row["source_id"], "section_id": row["section_id"],
+                                                "item_id": row["item_id"]})
+                        if matches:
+                            bookmark_refs = matches
+                    except sqlite3.Error:
+                        pass
+                    finally:
+                        if index_context is None:
+                            connection.close()
+                        else:
+                            index_context.close()
             if bookmark_refs is not None:
                 if not isinstance(bookmark_refs, list):
                     raise ValueError("bookmark_refs must be a list")
