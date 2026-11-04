@@ -1,5 +1,6 @@
 """Bounded network work; local SQLite handles stay on the transport thread."""
 import threading
+import time
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 
 
@@ -33,15 +34,30 @@ class StdioRequestQueue:
             except (BrokenPipeError, OSError):
                 self.output_closed = True
 
-    def _handle(self, request):
+    def _handle(self, request, submitted_ns=None):
+        started_ns = time.monotonic_ns()
         try:
-            return self.server.handle(request)
+            response = self.server.handle(request)
         except Exception as error:
             self.server._log("Request handler failed (%s)" % type(error).__name__)
-            return self._error(request.get("id") if isinstance(request, dict) else None,
-                               -32603, "Internal server error")
+            response = self._error(request.get("id") if isinstance(request, dict) else None,
+                                   -32603, "Internal server error")
+        if isinstance(request, dict) and request.get("method") == "tools/call":
+            params = request.get("params")
+            name = params.get("name") if isinstance(params, dict) else None
+            if not isinstance(name, str) or not name.isascii() or not name.replace("_", "").isalnum():
+                name = "invalid"
+            queue_ms = max(0, (started_ns - submitted_ns) // 1_000_000) if submitted_ns is not None else 0
+            handler_ms = max(0, (time.monotonic_ns() - started_ns) // 1_000_000)
+            result = response.get("result") if isinstance(response, dict) else None
+            outcome = "error" if isinstance(response, dict) and ("error" in response or
+                      (isinstance(result, dict) and result.get("isError"))) else "ok"
+            self.server._log("tool_timing name=%s queue_ms=%d handler_ms=%d outcome=%s" %
+                             (name[:64], queue_ms, handler_ms, outcome))
+        return response
 
     def submit(self, request):
+        submitted_ns = time.monotonic_ns()
         key, future, error = self._key(request), None, None
         with self.lock:
             if key is not None and key in self.pending:
@@ -50,14 +66,14 @@ class StdioRequestQueue:
                 if len(self.pending) >= self.max_pending:
                     error = self._error(key[1], -32000, "Network request queue is full; retry after an earlier response")
                 else:
-                    future = self.pool.submit(self._handle, request)
+                    future = self.pool.submit(self._handle, request, submitted_ns)
                     self.pending[key] = future
         if error is not None:
             self.emit(error)
         elif future is not None:
             future.add_done_callback(lambda completed: self._done(key, completed))
         else:
-            self.emit(self._handle(request))
+            self.emit(self._handle(request, submitted_ns))
 
     def _done(self, key, future):
         try:

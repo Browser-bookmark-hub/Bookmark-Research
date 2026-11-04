@@ -587,6 +587,26 @@ class IndexBehaviorTests(unittest.TestCase):
         self.assertEqual(set(plan_normal.keys()), set(plan_scored.keys()))
         self.assertEqual(len(plan_normal["cards"]), len(plan_scored["cards"]))
 
+    def test_search_filters_metadata_presence_and_sorts_by_indexed_date(self):
+        only_note = self.index.search("demo", has_note=True)
+        self.assertEqual({row["item_id"] for row in only_note["results"]}, {"bookmark-alpha", "temp-one"})
+
+        either_metadata = self.index.search("demo", has_note=True, has_tags=True, metadata_match="any")
+        self.assertEqual({row["item_id"] for row in either_metadata["results"]},
+                         {"bookmark-alpha", "temp-one"})
+
+        both_metadata = self.index.search("demo", has_note=True, has_tags=True, metadata_match="all")
+        self.assertEqual({row["item_id"] for row in both_metadata["results"]}, {"bookmark-alpha", "temp-one"})
+
+        no_metadata = self.index.search("demo", has_note=False, has_tags=False)
+        self.assertNotIn("temp-one", {row["item_id"] for row in no_metadata["results"]})
+        self.assertTrue(all(not row["note"] and not row["tags"] for row in no_metadata["results"]))
+
+        newest = self.index.search("demo", sort_by="added_at_desc")["results"]
+        dated = [row["added_at"] for row in newest if row["added_at"]]
+        self.assertEqual(dated, sorted(dated, reverse=True))
+        self.assertTrue(all(row["added_at"] is None for row in newest[len(dated):]))
+
 
 class PortablePackageTests(unittest.TestCase):
     def test_empty_index_and_queries_do_not_change_supplied_package(self):

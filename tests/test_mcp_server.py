@@ -219,6 +219,27 @@ class McpServerTests(unittest.TestCase):
             "source_id": "fixture", "item_id": "temp-one", "refresh": False}))
         self.assertIn("raw_json", context["items"][0])
 
+    def test_search_bookmarks_combines_metadata_filters_and_date_sort(self):
+        self.ready()
+        self.document["items"].extend([
+            {"id": "tagged", "sectionId": "temp-section-A-1", "type": "bookmark",
+             "title": "Tagged entry", "url": "https://example.test/tagged", "tags": [{"color": "green", "text": "keep"}]},
+            {"id": "plain", "sectionId": "temp-section-A-1", "type": "bookmark",
+             "title": "Plain entry", "url": "https://example.test/plain"},
+        ])
+        self.write_document()
+        self.sync()
+
+        response = self.call("search_bookmarks", {"source_id": "fixture", "has_note": True,
+            "has_tags": True, "metadata_match": "any", "sort_by": "added_at_desc",
+            "compact": True, "refresh": False})
+        self.assertFalse(response["result"]["isError"], response)
+        result = decode_tool(response)
+        rows = [result["rows"][key] for key in result["result_refs"]]
+        self.assertEqual({row["item_id"] for row in rows}, {"temp-one", "tagged"})
+        self.assertEqual(result["query_scope"]["metadata_match"], "any")
+        self.assertEqual(result["query_scope"]["sort_by"], "added_at_desc")
+
     def test_local_queries_return_source_state_without_full_index_statistics(self):
         self.ready()
         self.sync()

@@ -873,7 +873,7 @@ class BookmarkIndex:
         return rows[0]
 
     def _scope(self, source_id, section=None, group_id=None, folder_id=None, tags=None, tag_colors=None,
-               item_types=None):
+               item_types=None, has_note=None, has_tags=None, metadata_match="all"):
         source_id = self.resolve_source_id(source_id)
         self._source(source_id)
         selected_types = list(item_types) if item_types else ["bookmark"]
@@ -916,6 +916,15 @@ class BookmarkIndex:
             _string(color, "tag color", True)
             clauses.append("EXISTS (SELECT 1 FROM item_tags t WHERE t.item_pk=i.pk AND t.color=?)")
             args.append(color)
+        metadata_clauses = []
+        if has_note is not None:
+            metadata_clauses.append("trim(i.note)<>''" if has_note else "trim(i.note)=''")
+        if has_tags is not None:
+            metadata_clauses.append("EXISTS (SELECT 1 FROM item_tags t WHERE t.item_pk=i.pk)"
+                                    if has_tags else
+                                    "NOT EXISTS (SELECT 1 FROM item_tags t WHERE t.item_pk=i.pk)")
+        if metadata_clauses:
+            clauses.append("(" + (" OR " if metadata_match == "any" else " AND ").join(metadata_clauses) + ")")
         return clauses, args
 
     @staticmethod
@@ -1302,7 +1311,7 @@ class BookmarkIndex:
 
     def search(self, source_id, targets=None, section=None, group_id=None, folder_id=None, tags=None,
                limit=20, offset=0, tag_colors=None, item_types=None, count_only=False, compact=False,
-               score=False):
+               score=False, has_note=None, has_tags=None, metadata_match="all", sort_by="default"):
         """Literal structured search. ``limit=0`` or ``count_only`` returns counts only."""
         source_id = self.resolve_source_id(source_id)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 1000:
@@ -1313,6 +1322,14 @@ class BookmarkIndex:
             raise ValueError("compact must be a boolean")
         if type(score) is not bool:
             raise ValueError("score must be a boolean")
+        if has_note is not None and type(has_note) is not bool:
+            raise ValueError("has_note must be a boolean or null")
+        if has_tags is not None and type(has_tags) is not bool:
+            raise ValueError("has_tags must be a boolean or null")
+        if metadata_match not in ("all", "any"):
+            raise ValueError("metadata_match must be all or any")
+        if sort_by not in ("default", "added_at_desc", "added_at_asc"):
+            raise ValueError("sort_by must be default, added_at_desc or added_at_asc")
         if isinstance(targets, str) or isinstance(tags, str) or isinstance(tag_colors, str):
             raise ValueError("targets, tags and tag_colors must be lists of strings")
         targets = list(dict.fromkeys(targets or []))
@@ -1325,7 +1342,8 @@ class BookmarkIndex:
                     or any(value not in ("bookmark", "folder") for value in item_types)
                     or len(set(item_types)) != len(item_types)):
                 raise ValueError("item_types must select bookmark and/or folder without duplicates")
-        clauses, args = self._scope(source_id, section, group_id, folder_id, tags, tag_colors, item_types)
+        clauses, args = self._scope(source_id, section, group_id, folder_id, tags, tag_colors, item_types,
+                                    has_note, has_tags, metadata_match)
         page_size = 0 if count_only else limit
         anchors_by_section = self._section_anchors(source_id)
         section_cache = {}
@@ -1356,9 +1374,15 @@ class BookmarkIndex:
                         s_val, s_hits = BookmarkIndex.score_item(r, chosen)
                         scored_rows.append((r, s_val, s_hits))
                     scored_rows.sort(key=lambda t: (t[0]["section_id"], t[0]["preorder"], t[0]["item_id"]))
-                    scored_rows.sort(key=lambda t: t[0]["added_at"] or "", reverse=True)
-                    scored_rows.sort(key=lambda t: 0 if t[0]["added_at"] is not None else 1)
-                    scored_rows.sort(key=lambda t: t[1], reverse=True)
+                    if sort_by == "default":
+                        scored_rows.sort(key=lambda t: t[0]["added_at"] or "", reverse=True)
+                        scored_rows.sort(key=lambda t: 0 if t[0]["added_at"] is not None else 1)
+                        scored_rows.sort(key=lambda t: t[1], reverse=True)
+                    else:
+                        scored_rows.sort(key=lambda t: t[1], reverse=True)
+                        scored_rows.sort(key=lambda t: t[0]["added_at"] or "",
+                                         reverse=sort_by == "added_at_desc")
+                        scored_rows.sort(key=lambda t: 0 if t[0]["added_at"] is not None else 1)
 
                     page_slice = scored_rows[offset : offset + page_size]
                     rows_result = []
@@ -1371,17 +1395,23 @@ class BookmarkIndex:
                 elif self._window_functions:
                     # One statement returns the page and its pre-LIMIT count, so a
                     # batch of targets does not pay a second scan per target.
+                    order = ("(i.added_at IS NULL),i.added_at " + ("DESC" if sort_by == "added_at_desc" else "ASC")
+                             if sort_by != "default" else "i.section_id,i.preorder,i.item_id")
                     rows = self.connection.execute(
                         "SELECT i.*, count(*) OVER () AS computed_total FROM items i WHERE " + where +
-                        " ORDER BY i.section_id,i.preorder,i.item_id LIMIT ? OFFSET ?",
+                        " ORDER BY " + order + (",i.section_id,i.preorder,i.item_id" if sort_by != "default" else "") +
+                        " LIMIT ? OFFSET ?",
                         parameters + [page_size, offset]).fetchall()
                     total = rows[0]["computed_total"] if rows else self.connection.execute(
                         "SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
                     rows_result = [self._item_result(row, anchors_by_section, section_cache) for row in rows]
                 else:
                     total = self.connection.execute("SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
+                    order = ("(i.added_at IS NULL),i.added_at " + ("DESC" if sort_by == "added_at_desc" else "ASC")
+                             if sort_by != "default" else "i.section_id,i.preorder,i.item_id")
                     rows = self.connection.execute(
-                        "SELECT i.* FROM items i WHERE " + where + " ORDER BY i.section_id,i.preorder,i.item_id LIMIT ? OFFSET ?",
+                        "SELECT i.* FROM items i WHERE " + where + " ORDER BY " + order +
+                        (",i.section_id,i.preorder,i.item_id" if sort_by != "default" else "") + " LIMIT ? OFFSET ?",
                         parameters + [page_size, offset]).fetchall()
                     rows_result = [self._item_result(row, anchors_by_section, section_cache) for row in rows]
             else:
@@ -1411,7 +1441,9 @@ class BookmarkIndex:
         result.update(source_id=source_id,
             query_scope={"section": section, "group_id": group_id, "folder_id": folder_id,
                          "tags": list(tags or []), "tag_colors": list(tag_colors or []),
-                         "item_types": list(item_types) if item_types else ["bookmark"]},
+                         "item_types": list(item_types) if item_types else ["bookmark"],
+                         "has_note": has_note, "has_tags": has_tags,
+                         "metadata_match": metadata_match, "sort_by": sort_by},
             match_mode="literal_substring", match_index="fts_trigram+like" if self._fts_mode == "trigram" else "like",
             searched_fields=["title", "url", "note", "tags.text", "folder_path"])
         result["counts"] = {"instances": result["total"], "unique_urls": result["unique_urls"],

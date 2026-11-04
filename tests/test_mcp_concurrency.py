@@ -94,6 +94,9 @@ class McpConcurrencyTests(unittest.TestCase):
         self.assertEqual([], local["result"]["structuredContent"]["sources"])
         self.assertEqual(-32700, next(message for message in messages if message["id"] is None)["error"]["code"])
         self.assertFalse(next(message for message in messages if message["id"] == "slow")["result"]["isError"])
+        self.assertIn("tool_timing name=fetch_web queue_ms=", self.stderr.getvalue())
+        self.assertIn("tool_timing name=index_status queue_ms=", self.stderr.getvalue())
+        self.assertNotIn("https://example.test/slow", self.stderr.getvalue())
 
     def test_queue_limit_duplicate_ids_and_pending_only_cancellation(self):
         messages = self.serve([
