@@ -455,8 +455,8 @@ class MultiHostInstallerTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertEqual(errors, "")
             self.assertEqual(output.count("injected failure"), 1)
-            self.assertIn("失败：claude" if language == "zh" else "Failed: claude", output)
-            self.assertIn("安装完成 · dsh" if language == "zh" else "Installed · dsh", output)
+            self.assertIn("安装失败" if language == "zh" else "Installation failed", output)
+            self.assertIn("DeepSeek Harness (dsh) —", output)
 
     def test_multi_host_dry_run_plans_each_host(self):
         code, output, errors, setup = self.main("--host", "claude,dsh", "--profile", "web", "--dry-run")

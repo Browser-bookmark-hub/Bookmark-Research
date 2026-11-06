@@ -110,18 +110,18 @@ class InstallerOutputTests(unittest.TestCase):
                         self.assertIn(expected, output)
                     for hidden in ("README usage example", "https://example.test", "host_integrations", "mcp_tools", '"commands"'):
                         self.assertNotIn(hidden, output)
-                    self.assertLessEqual(len(output.splitlines()), 12)
+                    self.assertLessEqual(len(output.splitlines()), 24)
                     self.assertEqual("已沿用" in output if language == "zh" else "retained" in output, retained)
 
     def test_update_is_concise_and_does_not_repeat_onboarding(self):
         for language in ("en", "zh"):
             code, output, errors = self.run_main("update", language)
             self.assertEqual(code, 0, errors)
-            self.assertIn("更新完成" if language == "zh" else "Updated", output)
+            self.assertIn("升级完成" if language == "zh" else "Updated", output)
             self.assertIn("0.5.0-beta.20", output)
             self.assertNotIn("API keys configured", output)
             self.assertNotIn("README usage example", output)
-            self.assertLessEqual(len(output.splitlines()), 8)
+            self.assertLessEqual(len(output.splitlines()), 22)
 
     def test_explicit_json_is_complete_without_a_prose_summary(self):
         for action in ("install", "update", "verify"):
@@ -152,10 +152,31 @@ class InstallerOutputTests(unittest.TestCase):
                 {"host": "claude", "error": "native registration failed"},
                 {"host": "dsh", "verified": True, "version": "0.5.0-beta.20", "installed_path": "/plugins/dsh"}],
                 None, "en")
-        self.assertIn("Failed: claude", output.getvalue())
-        self.assertIn("native registration failed", output.getvalue())
-        self.assertIn("Installed · dsh", output.getvalue())
-        self.assertIn("Restart dsh", output.getvalue())
+        self.assertIn("Claude Code CLI / Desktop", output.getvalue())
+        self.assertIn("Installation failed", output.getvalue())
+        normalized = " ".join(line.strip(" │") for line in output.getvalue().splitlines())
+        self.assertIn("native registration failed", normalized)
+        self.assertIn("DeepSeek Harness (dsh) — Installed", output.getvalue())
+        self.assertIn("Profile: unknown", output.getvalue())
+
+    def test_three_host_result_is_segmented_and_names_runtime_targets(self):
+        output = io.StringIO()
+        results = [
+            {"host": "codex", "verified": True, "version": "0.6.2", "installed_path": "/plugins/codex"},
+            {"host": "claude", "verified": True, "version": "0.6.2", "installed_path": "/plugins/claude"},
+            {"host": "dsh", "target": {"profile": "web"}, "verified": True,
+             "version": "0.6.2", "installed_path": "/plugins/dsh"},
+        ]
+        with mock.patch.object(sys, "stdout", output):
+            install._print_install_summary("install", results, None, "en")
+        rendered = output.getvalue()
+        self.assertEqual(rendered.count("┌"), 1)
+        self.assertEqual(rendered.count("└"), 1)
+        self.assertEqual(rendered.count("\n├"), 3)
+        self.assertIn("Codex CLI / ChatGPT Desktop", rendered)
+        self.assertIn("Claude Code CLI / Desktop", rendered)
+        self.assertIn("Profile: web", rendered)
+        self.assertIn("DSH web runtime", rendered)
 
     def test_update_reports_unreadable_settings_in_both_languages(self):
         for language in ("en", "zh"):
@@ -165,7 +186,8 @@ class InstallerOutputTests(unittest.TestCase):
                 "settings_command": ["python3", "/plugins/bookmark-research/src/cli.py", "config", "show"]})
             self.assertEqual(code, 0, errors)
             self.assertIn(warning, output)
-            self.assertIn("config show", output)
+            self.assertIn("config", output)
+            self.assertIn("show", " ".join(output.split()))
 
     def test_service_failure_reasons_and_partially_verified_operations_are_visible(self):
         for language in ("en", "zh"):

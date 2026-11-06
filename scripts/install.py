@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -301,43 +302,117 @@ def _print_getting_started(guide):
         print(message("Inspect settings: ", "检查配置：") + shlex.join(guide["settings_command"]))
 
 
+def _display_width(value):
+    return sum(2 if unicodedata.east_asian_width(char) in ("W", "F") else 1 for char in value)
+
+
+def _wrap_display(value, width):
+    lines, line = [], ""
+    for word in value.split(" "):
+        if _display_width(word) > width:
+            if line:
+                lines.append(line)
+                line = ""
+            chunk = ""
+            for char in word:
+                if chunk and _display_width(chunk + char) > width:
+                    lines.append(chunk)
+                    chunk = char
+                else:
+                    chunk += char
+            word = chunk
+        candidate = (line + " " + word).strip()
+        if line and _display_width(candidate) > width:
+            lines.append(line)
+            line = word
+        else:
+            line = candidate
+    lines.append(line)
+    return lines
+
+
+def _terminal_panel(title, rows):
+    columns = max(20, shutil.get_terminal_size((80, 24)).columns - 1)
+    visible = [row for row in rows if row is not None]
+    width = min(columns, max(32, min(88, max([_display_width(title)] + [_display_width(row) for row in visible]) + 4)))
+    inner = width - 4
+    content = []
+    for row in [title, *rows]:
+        content.append(None) if row is None else content.extend(_wrap_display(row, inner))
+    return "\n".join(["┌" + "─" * (width - 2) + "┐",
+        *[("├" + "─" * (width - 2) + "┤") if row is None else
+          ("│ " + row + " " * (inner - _display_width(row)) + " │") for row in content],
+        "└" + "─" * (width - 2) + "┘"])
+
+
 def _print_install_summary(action, results, setup, language):
-    """A short terminal receipt; --json retains the full diagnostic result."""
+    """Print one segmented receipt for the complete operation; --json stays structured."""
     message = lambda english, chinese: _message(language, english, chinese)
-    for row in results:
+    rows = []
+    for index, row in enumerate(results):
+        if index:
+            rows.append(None)
         host = row.get("host") or row.get("getting_started", {}).get("host", "codex")
+        target = row.get("target") or {}
+        label = {"codex": "Codex CLI / ChatGPT Desktop", "claude": "Claude Code CLI / Desktop",
+                 "dsh": "DeepSeek Harness (dsh)"}.get(host, host)
         if row.get("error"):
-            print(message("Failed: ", "失败：") + host + " — " + row["error"])
+            rows.append(message("✗ " + label + " — Installation failed: " + row["error"],
+                                "✗ " + label + " — 安装失败：" + row["error"]))
             continue
-        label = message("Updated", "更新完成") if action == "update" else message("Installed", "安装完成")
-        print("Bookmark Research " + label + " · " + host)
-        print(message("Version: ", "版本：") + row.get("version", "unknown"))
+        state = message("Updated", "升级完成") if action == "update" else message("Installed", "安装成功")
+        rows.append("✓ " + label + " — " + state)
+        if host == "dsh":
+            profile = target.get("profile") or row.get("profile") or "unknown"
+            rows.append(message("  Profile: " + profile, "  Profile：" + profile))
+            if profile == "desktop":
+                rows.append(message("  Target: DeepSeek Harness Desktop runtime", "  目标：DeepSeek Harness Desktop runtime"))
+            elif profile != "unknown":
+                rows.append(message("  Target: DSH %s runtime", "  目标：DSH %s runtime") % profile)
+            if row.get("client_cli"):
+                rows.append(message("  CLI: " + row["client_cli"], "  CLI：" + row["client_cli"]))
+        rows.append(message("  Version: " + row.get("version", "unknown"), "  版本：" + row.get("version", "unknown")))
         if row.get("installed_path"):
-            print(message("Plugin directory: ", "安装目录：") + row["installed_path"])
+            rows.append(message("  Plugin directory: " + row["installed_path"], "  安装目录：" + row["installed_path"]))
         if row.get("verified"):
-            print(message("Local runtime checks: passed", "本地运行检查：通过"))
-        guide = row.get("getting_started")
-        if guide:
-            _print_getting_started(guide)
-        else:
-            doctor = row.get("runtime", {}).get("doctor", {})
-            if doctor.get("config_path"):
-                print(message("Config file: ", "配置文件：") + doctor["config_path"])
+            rows.append(message("  Local runtime checks: passed", "  本地运行检查：通过"))
         if host == "codex":
-            print(message("Start a new Codex thread to load this build.", "在 Codex 新建对话以加载此构建。"))
-        else:
-            print(message("Restart %s to load this build.", "重启 %s 以加载此构建。") % host)
+            rows.append(message("  Load: new Codex CLI thread; quit and reopen ChatGPT Desktop.",
+                                "  生效：Codex CLI 新建对话；ChatGPT 桌面版完全退出后重开。"))
+        elif host == "claude":
+            rows.append(message("  Load: start a new Claude Code session; no full app restart needed.",
+                                "  生效：Claude Code 新建 session；无需完全退出并重启应用。"))
+        elif host == "dsh" and (target.get("profile") or row.get("profile")) == "desktop":
+            rows.append(message("  Load: reopen DeepSeek Harness Desktop.", "  生效：重新打开 DeepSeek Harness Desktop。"))
+        elif host == "dsh":
+            rows.append(message("  Load: restart the DSH runtime for profile %s.", "  生效：重启 DSH 的 %s profile runtime。") % (target.get("profile") or row.get("profile", "unknown")))
+        guide = row.get("getting_started")
+        configuration = (guide or {}).get("configuration") or {}
+        if configuration.get("config_path"):
+            rows.append(message("  Config: " + configuration["config_path"],
+                                "  配置：" + configuration["config_path"]))
+        if configuration.get("settings", {}).get("archive", {}).get("directory"):
+            archive = configuration["settings"]["archive"]["directory"]
+            rows.append(message("  Archive: " + archive, "  归档目录：" + archive))
+        if guide and guide.get("configuration_error"):
+            rows.append(guide["configuration_error"])
+            if guide.get("settings_command"):
+                rows.append(message("  Inspect settings: ", "  检查配置：") + shlex.join(guide["settings_command"]))
+        elif row.get("runtime", {}).get("doctor", {}).get("config_path"):
+            path = row["runtime"]["doctor"]["config_path"]
+            rows.append(message("  Config: " + path, "  配置：" + path))
     if setup is not None:
+        setup_start = len(rows)
         if setup.get("configuration_retained"):
-            print(message("Existing settings and credentials retained.", "已沿用原有配置与密钥。"))
+            rows.append(message("  Existing settings and credentials retained.", "  已沿用原有配置与密钥。"))
         credentials = setup.get("credentials", {}).get("credentials")
         if isinstance(credentials, list):
             configured = [row["name"] for row in credentials if row.get("configured")]
-            print(message("API keys configured: ", "已配置的 API Key：") + (", ".join(configured) if configured else
+            rows.append(message("  API keys configured: ", "  已配置的 API Key：") + (", ".join(configured) if configured else
                 message("none (optional)", "无（可选）")))
         readiness = setup.get("readiness")
         if isinstance(readiness, dict):
-            print(message("Network checks: performed", "网络检查：已执行") if readiness.get("network_checked") else
+            rows.append(message("  Network checks: performed", "  网络检查：已执行") if readiness.get("network_checked") else
                   message("Network checks: not performed this time", "网络检查：本次未执行"))
         checks = {row["id"]: row for row in (readiness or {}).get("checks", [])}
         for name in setup.get("needs_attention", []):
@@ -346,7 +421,7 @@ def _print_install_summary(action, results, setup, language):
             detail = message("missing credentials", "缺少密钥") if status == "missing_credentials" else message("check failed", "检查失败")
             if check.get("error_kind"):
                 detail += " (" + check["error_kind"] + ")"
-            print(message("Needs attention: ", "需处理：") + name + " — " + detail)
+            rows.append(message("  Needs attention: ", "  需处理：") + name + " — " + detail)
         # A provider can verify fetching while its search operation fails.
         # Keep that partial failure visible even when the overall check passes.
         for name, check in checks.items():
@@ -354,19 +429,28 @@ def _print_install_summary(action, results, setup, language):
                 if outcome.get("status") == "failed":
                     label = message(operation, {"search": "搜索", "fetch": "正文读取"}.get(operation, operation))
                     detail = outcome.get("error_kind") or message("check failed", "检查失败")
-                    print(message("Needs attention: ", "需处理：") + name + " / " + label + " — " + detail)
+                    rows.append(message("  Needs attention: ", "  需处理：") + name + " / " + label + " — " + detail)
         if setup.get("completed") is not True:
             detail = setup.get("error") or setup.get("message")
             if setup.get("status") == "unsupported" and setup.get("completed") is None:
-                print(detail)
+                rows.append(detail)
             else:
-                print(message("Setup incomplete", "配置未完成") + (": " + detail if detail else ""))
+                rows.append(message("Setup incomplete", "配置未完成") + (": " + detail if detail else ""))
+        if len(rows) > setup_start:
+            rows.insert(setup_start, None)
+            rows.insert(setup_start + 1, message("Shared configuration", "共享配置"))
     first = next((row for row in results if row.get("verified") and not row.get("error")), None)
     if first and (setup or {}).get("status") != "unsupported":
         host = first.get("host") or first.get("getting_started", {}).get("host", "codex")
         command = [sys.executable, "-B", str(Path(first["installed_path"]) / "src/cli.py"),
                    "setup", "--host", _setup_host(host), "--lang", language]
-        print(message("Configure preferences / API keys: ", "修改配置／API Key：") + shlex.join(command))
+        rows.append(None)
+        rows.append(message("Configure later", "之后修改配置"))
+        rows.append("  " + shlex.join(command))
+    title = message("Bookmark Research · Installation results", "Bookmark Research · 安装结果")
+    if action == "update":
+        title = message("Bookmark Research · Update results", "Bookmark Research · 升级结果")
+    print(_terminal_panel(title, rows))
 
 
 def _pin_interpreter():
