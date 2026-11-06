@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlsplit
 
+import storage
 from package_paths import (
     PROTOCOL_DIRS,
     dir_matches_section_type,
@@ -274,38 +275,68 @@ PRAGMA user_version=2;
 
 
 class BookmarkIndex:
-    def __init__(self, db_path):
+    def __init__(self, db_path, readonly=False):
         self.db_path = None if str(db_path) == ":memory:" else Path(db_path).expanduser().resolve()
+        self.connection = None
+        self.readonly = False
         if self.db_path is not None:
             # Refuse before connecting, so even an accidentally chosen package
             # path does not acquire an empty database, journal or WAL file.
             for parent in self.db_path.parents:
                 if is_package_dir(parent):
                     raise ValueError("Database must be outside imported package directories")
+        modes = [bool(readonly), not bool(readonly)] if self.db_path is not None else [False]
+        first_error = None
+        for mode in modes:
+            try:
+                self._initialize(mode)
+                break
+            except (OSError, sqlite3.DatabaseError) as error:
+                self.close()
+                if first_error is None:
+                    first_error = error
+                if not mode and not self._read_only_open_failure(error):
+                    raise
+            except Exception:
+                self.close()
+                raise
+        else:
+            raise first_error
+
+    @staticmethod
+    def _read_only_open_failure(error):
+        return storage.is_readonly_failure(error)
+
+    def _initialize(self, readonly):
+        if self.db_path is None:
+            connection = sqlite3.connect(":memory:")
+        elif readonly:
+            connection = storage.connect(self.db_path, readonly=True)
+        else:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(str(self.db_path) if self.db_path else ":memory:")
+            connection = sqlite3.connect(str(self.db_path))
+        self.connection = connection
+        self.readonly = readonly
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.connection.execute("PRAGMA busy_timeout=5000")
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, 1, 2):
-            self.close()
             raise ValueError("Unsupported bookmark index schema version: %s" % version)
-        if version == 1:
-            # Add the added-at columns and fill them from stored raw_json before
-            # the schema script runs: CREATE TABLE IF NOT EXISTS cannot add a
-            # column, and the script would advance the version past this repair.
-            try:
+        if readonly:
+            if version != 2:
+                raise sqlite3.OperationalError("Read-only bookmark index requires schema version 2")
+            row = self.connection.execute(
+                "SELECT sql FROM sqlite_master WHERE name='items_fts'").fetchone()
+            self._fts_mode = "trigram" if row is not None and "trigram" in (row["sql"] or "") else "plain"
+        else:
+            if version == 1:
+                # Add the added-at columns and fill them from stored raw_json before
+                # the schema script runs: CREATE TABLE IF NOT EXISTS cannot add a
+                # column, and the script would advance the version past this repair.
                 self._upgrade_items_added_at()
-            except Exception:
-                self.close()
-                raise
-        try:
             self.connection.executescript(SCHEMA)
-        except Exception:
-            self.close()
-            raise
-        self._fts_mode = self._prepare_search_index()
+            self._fts_mode = self._prepare_search_index()
         self._window_functions = self._supports_window_functions()
 
     def _upgrade_items_added_at(self):
@@ -372,7 +403,9 @@ class BookmarkIndex:
         return True
 
     def close(self):
-        self.connection.close()
+        if self.connection is not None:
+            self.connection.close()
+            self.connection = None
 
     def __enter__(self):
         return self
@@ -620,6 +653,8 @@ class BookmarkIndex:
     @contextmanager
     def transaction(self):
         """Serialize writers; allow an importer to publish metadata atomically."""
+        if self.readonly:
+            raise sqlite3.OperationalError("attempt to write a readonly bookmark index")
         nested = self.connection.in_transaction
         if nested:
             self.connection.execute("SAVEPOINT bookmark_sync")
@@ -926,6 +961,45 @@ class BookmarkIndex:
         if metadata_clauses:
             clauses.append("(" + (" OR " if metadata_match == "any" else " AND ").join(metadata_clauses) + ")")
         return clauses, args
+
+    def folder_children(self, source_id, folder_id, section=None, tags=None, tag_colors=None,
+                        has_note=None, has_tags=None, metadata_match="all", limit=8, offset=0):
+        """List one folder's direct bookmark/folder children with stable pagination."""
+        source_id = self.resolve_source_id(source_id)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be an integer from 1 to 1000")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+        self._source(source_id)
+        rows = self.connection.execute(
+            "SELECT * FROM items WHERE source_id=? AND item_type='folder' AND item_id=?",
+            (source_id, folder_id)).fetchall()
+        if section is not None:
+            selected_sections = {row["canonical_id"] or row["section_id"]
+                                 for row in self._sections(source_id, section)}
+            rows = [row for row in rows if row["section_id"] in selected_sections]
+        unique = {(row["section_id"], row["item_id"]): row for row in rows}
+        if not unique:
+            raise ValueError("Unknown folder ID: " + str(folder_id))
+        if len(unique) > 1:
+            raise ValueError("Ambiguous folder ID; pass section to select one: " + str(folder_id))
+        folder = next(iter(unique.values()))
+        clauses, parameters = self._scope(
+            source_id, section=folder["section_id"], tags=tags, tag_colors=tag_colors,
+            item_types=["bookmark", "folder"], has_note=has_note, has_tags=has_tags,
+            metadata_match=metadata_match)
+        clauses.append("i.parent_id=?")
+        parameters.append(folder_id)
+        where = " AND ".join(clauses)
+        total = self.connection.execute("SELECT count(*) FROM items i WHERE " + where, parameters).fetchone()[0]
+        children = self.connection.execute(
+            "SELECT i.* FROM items i WHERE " + where +
+            " ORDER BY i.position,i.preorder,i.item_id LIMIT ? OFFSET ?",
+            parameters + [limit, offset]).fetchall()
+        anchors = self._section_anchors(source_id)
+        return {"source_id": source_id, "folder": self._item_result(folder, anchors),
+                "total": total, "limit": limit, "offset": offset,
+                "results": [self._item_result(row, anchors) for row in children]}
 
     @staticmethod
     def plan_terms(question):
@@ -1248,10 +1322,10 @@ class BookmarkIndex:
         Scoring tiers:
         - title_prefix: 140
         - title_contains: 135
+        - url: 120
         - tag: 110
         - note: 90
-        - folder_path: 60
-        - url: 40
+        - folder_path: inherited evidence only; it is not an item score
         Time confidence tier bonus:
         - high: +10
         - medium: +5
@@ -1287,14 +1361,12 @@ class BookmarkIndex:
                 if "note" not in field_hits:
                     field_hits.append("note")
                     score += 90
-            if t in folder_path:
-                if "folder_path" not in field_hits:
-                    field_hits.append("folder_path")
-                    score += 60
+            if t in folder_path and "folder_path" not in field_hits:
+                field_hits.append("folder_path")
             if t in url:
                 if "url" not in field_hits:
                     field_hits.append("url")
-                    score += 40
+                    score += 120
 
         conf = row["added_at_confidence"] if "added_at_confidence" in keys else None
         if conf == "high":
@@ -1432,8 +1504,9 @@ class BookmarkIndex:
             }
             result["score_note"] = (
                 "Item scores are non-binding ranking hints based on field weights "
-                "(title_prefix: 140, title_contains: 135, tag: 110, note: 90, folder_path: 60, url: 40) "
-                "plus time confidence bonus (high: +10, medium: +5, low: +2). Filter matching remains literal substring. "
+                "(title_prefix: 140, title_contains: 135, url: 120, tag: 110, note: 90) "
+                "plus time confidence bonus (high: +10, medium: +5, low: +2). folder_path is inherited evidence "
+                "for folder aggregation and does not increase an item's score. Filter matching remains literal substring. "
                 "When score_candidate_pool.truncated is true, only the newest-added candidates were ranked."
             )
         section_rows = self._sections(source_id, section) if section is not None else []

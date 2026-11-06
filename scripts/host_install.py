@@ -127,7 +127,10 @@ def runtime_check(root, timeout):
             raise RuntimeError("Exported MCP runtime failed to start")
         responses = {row.get("id"): row for row in map(json.loads, mcp.stdout.splitlines())}
         names = sorted(row["name"] for row in responses.get(2, {}).get("result", {}).get("tools", []))
-        if "result" not in responses.get(1, {}) or not {"search_bookmarks", "search_web", "fetch_web"} <= set(names):
+        available = set(names)
+        has_runtime_surface = ({"locate", "search", "fetch"} <= available or
+                               {"search_bookmarks", "search_web", "fetch_web"} <= available)
+        if "result" not in responses.get(1, {}) or not has_runtime_surface:
             raise RuntimeError("Exported MCP runtime did not expose the expected tools")
         if (data / "data/index.sqlite3").exists():
             raise RuntimeError("Runtime discovery unexpectedly created a database")

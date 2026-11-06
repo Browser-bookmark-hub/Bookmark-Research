@@ -3,6 +3,7 @@
 import hashlib
 import concurrent.futures
 import json
+import sqlite3
 import shutil
 import sys
 import tempfile
@@ -430,6 +431,46 @@ class IndexBehaviorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsafe vault reference"):
             self.index.refresh("demo")
 
+    def test_readonly_index_skips_schema_writes_and_supports_search(self):
+        self.index.close()
+        try:
+            with patch.object(BookmarkIndex, "_prepare_search_index",
+                              side_effect=AssertionError("read-only open must skip index DDL")):
+                with BookmarkIndex(self.db_path, readonly=True) as readonly:
+                    self.assertTrue(readonly.readonly)
+                    self.assertEqual(3, readonly.search("demo", targets=["公司"], section="A")["total"])
+                    with self.assertRaisesRegex(sqlite3.OperationalError, "readonly"):
+                        readonly.connection.execute("CREATE TABLE readonly_probe(value TEXT)")
+        finally:
+            self.index = BookmarkIndex(self.db_path)
+
+    def test_writable_open_failure_falls_back_to_existing_readonly_index(self):
+        self.index.close()
+        connect = sqlite3.connect
+
+        def read_only_only(database, *args, **kwargs):
+            if not kwargs.get("uri"):
+                raise sqlite3.OperationalError("attempt to write a readonly database")
+            return connect(database, *args, **kwargs)
+
+        try:
+            with patch("bookmark_index.sqlite3.connect", side_effect=read_only_only):
+                with BookmarkIndex(self.db_path) as recovered:
+                    self.assertTrue(recovered.readonly)
+                    self.assertEqual(3, recovered.search("demo", targets=["公司"], section="A")["total"])
+        finally:
+            self.index = BookmarkIndex(self.db_path)
+
+    def test_folder_children_lists_only_direct_children_and_paginates(self):
+        first = self.index.folder_children("demo", "companies", limit=2)
+        second = self.index.folder_children("demo", "companies", limit=2, offset=2)
+        self.assertEqual(3, first["total"])
+        self.assertEqual(["bookmark-alpha", "bookmark-beta"],
+                         [row["item_id"] for row in first["results"]])
+        self.assertEqual(["bookmark-literal"], [row["item_id"] for row in second["results"]])
+        noted = self.index.folder_children("demo", "temp-folder", has_note=True)
+        self.assertEqual(["temp-one"], [row["item_id"] for row in noted["results"]])
+
     def test_external_symlink_is_not_read_and_missing_path_is_error(self):
         original = self.package / TEMP
         outside = self.base / "outside.json"
@@ -552,12 +593,21 @@ class IndexBehaviorTests(unittest.TestCase):
         self.assertEqual(s, 135 + 10)
         self.assertIn("title_contains", hits)
 
-        # Tag hit: 110 + 10 = 120; Note hit: 90
         # "physics" is in note and tag: 110 (tag) + 90 (note) + 10 (time) = 210
         s, hits = BookmarkIndex.score_item(sample, ["physics"])
         self.assertEqual(s, 110 + 90 + 10)
         self.assertIn("tag", hits)
         self.assertIn("note", hits)
+
+        s, hits = BookmarkIndex.score_item(sample, ["example.test"])
+        self.assertEqual(120 + 10, s)
+        self.assertIn("url", hits)
+
+        # A folder-path match stays visible as inherited evidence but adds no
+        # score to each bookmark below that folder.
+        s, hits = BookmarkIndex.score_item(sample, ["Science"])
+        self.assertEqual(10, s)
+        self.assertIn("folder_path", hits)
 
         # 2. search with score=False produces identical output to default
         default_res = self.index.search("demo", targets=["示例"])

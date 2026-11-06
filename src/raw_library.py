@@ -22,9 +22,12 @@ import re
 import sqlite3
 from pathlib import Path
 
+import storage
 from settings import Settings
 
 SCHEMA_VERSION = 1
+_EMPTY_REPORT = {"missing_tasks": 0, "scanned_units": 0, "removed_units": 0,
+                 "new_documents": 0, "errors": []}
 MAX_BODY_BYTES = 50 * 1024 * 1024
 MAX_TERMS = 16
 TRIGRAM_MINIMUM = 3
@@ -80,7 +83,19 @@ class RawLibrary:
 
     # Storage -----------------------------------------------------------------
 
-    def _connect(self):
+    def _connect(self, readonly=False):
+        if readonly:
+            if not self.db_path.is_file():
+                raise sqlite3.OperationalError("Raw library index is not built yet: %s" % self.db_path)
+            connection = storage.connect(self.db_path, readonly=True, timeout=30)
+            connection.row_factory = sqlite3.Row
+            try:
+                stored = dict(connection.execute("SELECT key, value FROM meta").fetchall())
+            except sqlite3.DatabaseError:
+                stored = {}
+            if stored.get("mode") in ("trigram", "substring"):
+                self.mode = stored["mode"]
+            return storage.mark_query_only(connection)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         for attempt in (0, 1):
             connection = sqlite3.connect(str(self.db_path), timeout=30, isolation_level=None)
@@ -88,15 +103,25 @@ class RawLibrary:
                 connection.execute("PRAGMA journal_mode=WAL")
                 self._schema(connection)
                 return connection
-            except sqlite3.DatabaseError:
+            except sqlite3.DatabaseError as error:
                 connection.close()
-                if attempt:
+                if attempt or storage.is_readonly_failure(error):
                     raise
                 # A derived cache: a damaged file is discarded and rebuilt.
                 for suffix in ("", "-wal", "-shm"):
                     candidate = Path(str(self.db_path) + suffix)
                     if candidate.exists():
                         candidate.unlink()
+
+    def _open_for_search(self):
+        """Prefer the writable index (it self-heals); a read-only one stays searchable."""
+        try:
+            connection = self._connect()
+        except (sqlite3.DatabaseError, OSError) as error:
+            if not storage.is_readonly_failure(error) or not self.db_path.is_file():
+                raise
+            return self._connect(readonly=True), False
+        return connection, True
 
     def _schema(self, connection):
         connection.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
@@ -361,9 +386,20 @@ class RawLibrary:
                 raise ValueError("%s must be between %s and %s" % (label, minimum, maximum))
         if url is not None and (not isinstance(url, str) or not url or len(url) > 2048 or "\x00" in url):
             raise ValueError("url filter must be 1 to 2048 characters")
-        connection = self._connect()
+        connection, writable = self._open_for_search()
         try:
-            report = self._refresh(connection)
+            if writable:
+                try:
+                    report = self._refresh(connection)
+                except sqlite3.DatabaseError as error:
+                    if not storage.is_readonly_failure(error):
+                        raise
+                    # Querying a shared index on a read-only mount: nothing was written.
+                    connection.close()
+                    connection, writable = self._connect(readonly=True), False
+                    report = _EMPTY_REPORT
+            else:
+                report = _EMPTY_REPORT
             indexed = self._statistics(connection, report)
             fts = self.mode == "trigram" and all(len(term) >= TRIGRAM_MINIMUM for term in terms)
             clauses, parameters = [], []
@@ -517,6 +553,7 @@ class RawLibrary:
                 "occurrence_limit": occurrence_limit, "occurrence_offset": occurrence_offset,
                 "expand_versions": expand_versions, "grouped_by": "hash" if expand_versions else "url",
                 "match": "fts_trigram" if fts else "substring", "results": results, "indexed": indexed,
+                "index_refresh": "performed" if writable else "skipped_read_only",
                 "note": ("Literal matching over saved page text (knowledge archive and research evidence); "
                          "not web search and not semantic retrieval. " +
                          ("Results are grouped by URL with version counts and time spans. Use expand_versions=true to view distinct content hashes." if not expand_versions else "Identical bodies are merged by SHA-256 and each result pages its occurrences with occurrence_offset/occurrence_limit."))}

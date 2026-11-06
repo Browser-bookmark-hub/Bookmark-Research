@@ -4,6 +4,8 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
+import storage
+
 
 class WikiSearchIndex:
     # Explicit query aliases, not an assertion of semantic equivalence of pages.
@@ -35,34 +37,54 @@ class WikiSearchIndex:
         value = cls.normalize(text)
         return {"1" + char for char in value} | {"2" + value[i:i + 2] for i in range(len(value) - 1)}
 
+    def _prepare(self, connection):
+        connection.execute("PRAGMA foreign_keys=ON")
+        connection.execute("CREATE TABLE IF NOT EXISTS documents (page_id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, "
+                           "title TEXT NOT NULL, body TEXT NOT NULL, aliases TEXT NOT NULL, headings TEXT NOT NULL DEFAULT '')")
+        cols = {col[1] for col in connection.execute("PRAGMA table_info(documents)").fetchall()}
+        if "headings" not in cols:
+            connection.execute("ALTER TABLE documents ADD COLUMN headings TEXT NOT NULL DEFAULT ''")
+        connection.execute("CREATE TABLE IF NOT EXISTS postings (gram TEXT NOT NULL, page_id TEXT NOT NULL "
+                           "REFERENCES documents(page_id) ON DELETE CASCADE, PRIMARY KEY(gram,page_id)) WITHOUT ROWID")
+        connection.execute("CREATE INDEX IF NOT EXISTS postings_page ON postings(page_id)")
+        connection.execute("CREATE TABLE IF NOT EXISTS dependencies (url TEXT NOT NULL, page_id TEXT NOT NULL "
+                           "REFERENCES documents(page_id) ON DELETE CASCADE, PRIMARY KEY(url,page_id)) WITHOUT ROWID")
+        connection.execute("CREATE TABLE IF NOT EXISTS links (target TEXT NOT NULL, page_id TEXT NOT NULL "
+                           "REFERENCES documents(page_id) ON DELETE CASCADE, PRIMARY KEY(target,page_id)) WITHOUT ROWID")
+        connection.execute("CREATE INDEX IF NOT EXISTS dependencies_page ON dependencies(page_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS links_page ON links(page_id)")
+
     @contextmanager
-    def connection(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    def connection(self, readonly=False):
+        """Writable connections self-heal; a read-only wiki index stays queryable."""
         if self.path.is_symlink():
             raise ValueError("Wiki search index must not be a symlink")
-        connection = sqlite3.connect(str(self.path), timeout=10)
+        connection = None
+        if not readonly:
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                connection = sqlite3.connect(str(self.path), timeout=10)
+                connection.row_factory = sqlite3.Row
+                self._prepare(connection)
+                with connection:
+                    if connection.execute("PRAGMA user_version").fetchone()[0] == 0:
+                        connection.execute("DELETE FROM documents")
+                        connection.execute("PRAGMA user_version=1")
+                    yield connection
+                return
+            except sqlite3.DatabaseError as error:
+                if connection is not None:
+                    connection.close()
+                    connection = None
+                if not storage.is_readonly_failure(error) or not self.path.is_file():
+                    raise
+        if not self.path.is_file():
+            raise sqlite3.OperationalError("Wiki search index is not built yet: %s" % self.path)
+        connection = storage.connect(self.path, readonly=True)
         connection.row_factory = sqlite3.Row
         try:
             connection.execute("PRAGMA foreign_keys=ON")
-            connection.execute("CREATE TABLE IF NOT EXISTS documents (page_id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, "
-                               "title TEXT NOT NULL, body TEXT NOT NULL, aliases TEXT NOT NULL, headings TEXT NOT NULL DEFAULT '')")
-            cols = {col[1] for col in connection.execute("PRAGMA table_info(documents)").fetchall()}
-            if "headings" not in cols:
-                connection.execute("ALTER TABLE documents ADD COLUMN headings TEXT NOT NULL DEFAULT ''")
-            connection.execute("CREATE TABLE IF NOT EXISTS postings (gram TEXT NOT NULL, page_id TEXT NOT NULL "
-                               "REFERENCES documents(page_id) ON DELETE CASCADE, PRIMARY KEY(gram,page_id)) WITHOUT ROWID")
-            connection.execute("CREATE INDEX IF NOT EXISTS postings_page ON postings(page_id)")
-            connection.execute("CREATE TABLE IF NOT EXISTS dependencies (url TEXT NOT NULL, page_id TEXT NOT NULL "
-                               "REFERENCES documents(page_id) ON DELETE CASCADE, PRIMARY KEY(url,page_id)) WITHOUT ROWID")
-            connection.execute("CREATE TABLE IF NOT EXISTS links (target TEXT NOT NULL, page_id TEXT NOT NULL "
-                               "REFERENCES documents(page_id) ON DELETE CASCADE, PRIMARY KEY(target,page_id)) WITHOUT ROWID")
-            connection.execute("CREATE INDEX IF NOT EXISTS dependencies_page ON dependencies(page_id)")
-            connection.execute("CREATE INDEX IF NOT EXISTS links_page ON links(page_id)")
-            with connection:
-                if connection.execute("PRAGMA user_version").fetchone()[0] == 0:
-                    connection.execute("DELETE FROM documents")
-                    connection.execute("PRAGMA user_version=1")
-                yield connection
+            yield storage.mark_query_only(connection)
         finally:
             connection.close()
 
@@ -95,6 +117,18 @@ class WikiSearchIndex:
             self._put(connection, page_id, pointer, record)
 
     def _sync(self, connection, index, load_revision):
+        if storage.is_query_only(connection):
+            # A read-only wiki index cannot be rebuilt; answer from what is stored.
+            return []
+        try:
+            return self._sync_writes(connection, index, load_revision)
+        except sqlite3.DatabaseError as error:
+            if not storage.is_readonly_failure(error):
+                raise
+            storage.mark_query_only(connection)
+            return []
+
+    def _sync_writes(self, connection, index, load_revision):
         invalid = []
         existing = dict(connection.execute("SELECT page_id,sha256 FROM documents"))
         for page_id in existing.keys() - index["pages"].keys():

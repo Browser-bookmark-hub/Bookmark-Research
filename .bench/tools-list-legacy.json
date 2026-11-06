@@ -1,0 +1,2006 @@
+{
+  "preset": "legacy",
+  "excluded": [],
+  "tool_count": 25,
+  "tool_names": [
+    "get_settings",
+    "update_settings",
+    "sync_package",
+    "search_bookmarks",
+    "lookup_url",
+    "get_context",
+    "traverse_graph",
+    "plan_research",
+    "index_status",
+    "search_web",
+    "merge_search_results",
+    "agentic_search",
+    "fetch_web",
+    "search_archive",
+    "research_services",
+    "research_service_prepare",
+    "research_service_start",
+    "research_service_status",
+    "research_service_result",
+    "research_service_cancel",
+    "research_service_attach",
+    "wiki_write",
+    "wiki_get",
+    "wiki_list",
+    "wiki_search"
+  ],
+  "response_characters": 32132,
+  "response_sha256": "ebbdbd9fa5efdf3853718c2b0db31b84df0809ea48b892eb0dbdfd3a56675bfa",
+  "serializer": "json.dumps(ensure_ascii=False, allow_nan=False, separators=(',', ':')) + '\\n'",
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "result": {
+      "tools": [
+        {
+          "name": "get_settings",
+          "description": "Read saved preferences and config path without network access or file creation. Per-call options override preferences. tool_scope is the server-side MCP catalog allowlist; empty means every tool.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "update_settings",
+          "description": "Save requested retrieval, output, research or Wiki preferences outside source packages. Applies to later calls; output changes affect new tasks. Does not store credentials or change host integrations.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "changes": {
+                "type": "object",
+                "properties": {
+                  "timeout_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 60
+                  },
+                  "search": {
+                    "type": "object",
+                    "properties": {
+                      "providers": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "exa",
+                            "parallel",
+                            "tavily",
+                            "jina",
+                            "deepseek",
+                            "perplexity"
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "uniqueItems": true
+                      },
+                      "fallback_providers": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "exa",
+                            "parallel",
+                            "tavily",
+                            "jina",
+                            "deepseek",
+                            "perplexity"
+                          ]
+                        },
+                        "minItems": 0,
+                        "maxItems": 6,
+                        "uniqueItems": true
+                      },
+                      "limit_per_target": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20
+                      },
+                      "strategy": {
+                        "type": "string",
+                        "enum": [
+                          "hedged",
+                          "staggered",
+                          "sequential",
+                          "wait_all"
+                        ]
+                      },
+                      "grace_seconds": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 60
+                      },
+                      "deadline_seconds": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 60
+                      },
+                      "cache_seconds": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 3600,
+                        "description": "Search result cache TTL in seconds. 0 disables cache (always fresh network requests). Maximum 3600s (1 hour)."
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "fetch": {
+                    "type": "object",
+                    "properties": {
+                      "provider": {
+                        "type": "string",
+                        "enum": [
+                          "exa",
+                          "parallel",
+                          "tavily",
+                          "jina",
+                          "deepseek",
+                          "browser"
+                        ]
+                      },
+                      "providers": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "exa",
+                            "parallel",
+                            "tavily",
+                            "jina",
+                            "deepseek",
+                            "browser"
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "uniqueItems": true
+                      },
+                      "max_characters": {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 100000
+                      },
+                      "max_total_characters": {
+                        "type": "integer",
+                        "minimum": 100,
+                        "maximum": 800000
+                      },
+                      "fair_share_min": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100000
+                      },
+                      "strategy": {
+                        "type": "string",
+                        "enum": [
+                          "sequential",
+                          "staggered",
+                          "hedged"
+                        ]
+                      },
+                      "grace_seconds": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 60
+                      },
+                      "deadline_seconds": {
+                        "type": [
+                          "number",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "maximum": 60
+                      },
+                      "reuse_seconds": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 86400,
+                        "description": "Fetch page body reuse window in seconds. 0 disables reuse (always re-fetch). Default 0; up to 86400s (24 hours)."
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "server": {
+                    "type": "object",
+                    "properties": {
+                      "network_workers": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 16
+                      },
+                      "max_pending_calls": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 64
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "archive": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "directory": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "research": {
+                    "type": "object",
+                    "properties": {
+                      "depth": {
+                        "type": "string",
+                        "enum": [
+                          "auto",
+                          "quick",
+                          "agentic",
+                          "deep"
+                        ]
+                      },
+                      "prefer_host_workflows": {
+                        "type": "boolean"
+                      },
+                      "response_language": {
+                        "type": "string",
+                        "enum": [
+                          "auto",
+                          "en",
+                          "zh"
+                        ]
+                      },
+                      "methods": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "comparative_analysis",
+                            "fact_check",
+                            "benchmark_review",
+                            "wiki_synthesis"
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 4,
+                        "uniqueItems": true
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "professional_research": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "provider": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "openai",
+                          "parallel",
+                          null
+                        ]
+                      },
+                      "openai": {
+                        "type": "object",
+                        "properties": {
+                          "model": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9._-]{1,80}$"
+                          },
+                          "max_tool_calls": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 1000
+                          },
+                          "allow_untested_model": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [],
+                        "additionalProperties": false
+                      },
+                      "parallel": {
+                        "type": "object",
+                        "properties": {
+                          "processor": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64
+                          }
+                        },
+                        "required": [],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "custom_agentic": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "base_url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      },
+                      "model": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 192
+                      },
+                      "api_mode": {
+                        "type": "string",
+                        "enum": [
+                          "chat_completions",
+                          "responses"
+                        ]
+                      },
+                      "search_mode": {
+                        "type": "string",
+                        "enum": [
+                          "prompt",
+                          "native"
+                        ]
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "browser": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "driver": {
+                        "type": "string",
+                        "enum": [
+                          "auto",
+                          "playwright",
+                          "cdp",
+                          "mock"
+                        ]
+                      },
+                      "cdp_url": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024
+                      },
+                      "headless": {
+                        "type": "boolean"
+                      },
+                      "timeout_seconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 60
+                      },
+                      "max_concurrency": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "wiki": {
+                    "type": "object",
+                    "properties": {
+                      "directory": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      },
+                      "max_source_age_days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 3650
+                      },
+                      "after_research": {
+                        "type": "string",
+                        "enum": [
+                          "suggest",
+                          "auto",
+                          "off"
+                        ]
+                      },
+                      "aliases": {
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "minItems": 1,
+                          "maxItems": 50
+                        },
+                        "minItems": 0,
+                        "maxItems": 50
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "wiki_preflight": {
+                    "type": "boolean"
+                  },
+                  "freshness_days": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3650
+                  },
+                  "plan": {
+                    "type": "object",
+                    "properties": {
+                      "max_characters": {
+                        "type": "integer",
+                        "minimum": 1000,
+                        "maximum": 50000
+                      },
+                      "min_relevance": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "homepage_limit": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 8
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "tool_scope": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "minItems": 0,
+                    "maxItems": 100
+                  },
+                  "tool_scope_preset": {
+                    "type": "string",
+                    "enum": [
+                      "all",
+                      "quick",
+                      "deep"
+                    ]
+                  },
+                  "output": {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "central",
+                          "beside_input"
+                        ]
+                      },
+                      "directory": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4096
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  },
+                  "readiness": {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "cached",
+                          "always",
+                          "manual"
+                        ]
+                      },
+                      "ttl_seconds": {
+                        "type": "integer",
+                        "minimum": 60,
+                        "maximum": 86400
+                      },
+                      "timeout_seconds": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 30
+                      }
+                    },
+                    "required": [],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "changes"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "sync_package",
+          "description": "Import a directory, ZIP or section JSON into an external managed snapshot; originals stay unchanged. Reuse source_id for moved/partial exports. partial preserves absent cards; complete reconciles a full mirror. Single cards must be partial. Defaults: snapshots for exports, live for Git directories; existing modes persist.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "package_path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "snapshot",
+                  "live"
+                ]
+              },
+              "completeness": {
+                "type": "string",
+                "enum": [
+                  "partial",
+                  "complete"
+                ]
+              }
+            },
+            "required": [
+              "package_path"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "search_bookmarks",
+          "description": "[deprecated→locate] Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. score=true returns non-binding ranking score and field_hits hints while preserving literal match set. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "minItems": 0,
+                "maxItems": 100
+              },
+              "section": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "group_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "folder_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "minItems": 0,
+                "maxItems": 100
+              },
+              "tag_colors": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                "minItems": 0,
+                "maxItems": 20
+              },
+              "has_note": {
+                "type": "boolean",
+                "description": "Filter for bookmarks with (true) or without (false) a non-empty note."
+              },
+              "has_tags": {
+                "type": "boolean",
+                "description": "Filter for bookmarks with (true) or without (false) one or more tags."
+              },
+              "metadata_match": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "any"
+                ],
+                "default": "all",
+                "description": "Combine has_note and has_tags with AND (all) or OR (any)."
+              },
+              "sort_by": {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "added_at_desc",
+                  "added_at_asc"
+                ],
+                "default": "default",
+                "description": "Sort by canvas order or indexed added_at date. Unknown dates remain last."
+              },
+              "item_types": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "bookmark",
+                    "folder"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 2,
+                "uniqueItems": true,
+                "description": "Defaults to bookmark; pass [\"folder\"] to enumerate folders."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000,
+                "default": 20
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000,
+                "default": 0
+              },
+              "count_only": {
+                "type": "boolean",
+                "default": false
+              },
+              "compact": {
+                "type": "boolean",
+                "default": false
+              },
+              "score": {
+                "type": "boolean",
+                "default": false,
+                "description": "Return non-binding ranking score and field_hits hints; literal match set is preserved."
+              },
+              "refresh": {
+                "type": "boolean",
+                "default": true
+              }
+            },
+            "required": [
+              "source_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "lookup_url",
+          "description": "[deprecated→locate] Reverse index: find all bookmark item instances for an exact URL across sections and sources, with chronological added_at, parent folders and copy anchor cards. source_id is optional.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 100
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000,
+                "default": 0
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "get_context",
+          "description": "[deprecated→read] Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default. compact=true drops raw_json, description_md and revision; pair it with a collection to reach the smallest budget.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "section": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "group_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "item_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "refresh": {
+                "type": "boolean",
+                "default": true
+              },
+              "collection": {
+                "type": "string",
+                "enum": [
+                  "sections",
+                  "items",
+                  "nodes",
+                  "groups",
+                  "edges",
+                  "related_nodes",
+                  "memberships"
+                ]
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000,
+                "default": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 200
+              },
+              "compact": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "source_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "traverse_graph",
+          "description": "[deprecated→walk] Multi-hop graph traversal along canvas edges and group memberships starting from a node, section, group or bookmark item. Returns the impact surface: reached sections, groups, text annotations and edge paths up to max_depth hops with deterministic sorting and pagination.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "section": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "group_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "item_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "node_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "max_depth": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10,
+                "default": 2
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "all",
+                  "out",
+                  "in"
+                ],
+                "default": "all"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 100
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000,
+                "default": 0
+              },
+              "refresh": {
+                "type": "boolean",
+                "default": true
+              }
+            },
+            "required": [
+              "source_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "plan_research",
+          "description": "Read local candidates for a question: matching bookmarks and canvas text/group/edge labels, independently searched Wiki pages and archived sources, and source dates. source_id is optional. max_cards accepts 1–3 (default 3); max_urls accepts 1–8 (default 8). Larger values are rejected. Scores rank candidates without rejecting them; the host decides relevance, depth and whether to search. question_urls lists known URLs to read directly. No network or research task is started.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "question": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000
+              },
+              "max_cards": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3,
+                "default": 3
+              },
+              "max_urls": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8,
+                "default": 8
+              },
+              "include_wiki": {
+                "type": "boolean",
+                "default": true
+              },
+              "include_archive": {
+                "type": "boolean",
+                "default": true
+              },
+              "max_wiki": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "default": 3
+              },
+              "max_archive": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8,
+                "default": 5
+              },
+              "refresh": {
+                "type": "boolean",
+                "default": true
+              }
+            },
+            "required": [
+              "question"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "index_status",
+          "description": "Read source modes, snapshots, counts, input availability, pending changes and monitor errors. No refresh or web fetch; unchecked means a live directory needs a recent check.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "source_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "search_web",
+          "description": "[deprecated→search] Discover sources for public queries with saved primary providers, then fallbacks for unresolved queries. search.strategy selects hedged (default), staggered, sequential or wait_all. Hedged/staggered primary search has a 10-second default search.deadline_seconds; routing lists providers abandoned at the deadline. Raise this setting or set it to null with update_settings when slower providers need more time. Provider failures remain visible in batches; quota_exhausted providers enter cooldown (using provider retry_after when supplied), while other configured fallbacks are still attempted. Explicit providers restrict the call. Targets accept target/query objects or plain query strings. Results are discovery snippets; pages are not fetched. Each result carries provider_count and corroborated: two or more providers returning one URL means link overlap, never confirmation of its content.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "object"
+                  ],
+                  "minLength": 1,
+                  "maxLength": 2000,
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "query": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "query"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 12
+              },
+              "providers": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "exa",
+                    "parallel",
+                    "tavily",
+                    "jina",
+                    "deepseek",
+                    "perplexity"
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 6,
+                "uniqueItems": true
+              },
+              "limit_per_target": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              }
+            },
+            "required": [
+              "targets"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "merge_search_results",
+          "description": "[deprecated→ingest] Fuse and deduplicate search results from host-native tools or other MCPs. Deduplicates by URL and text SHA-256, computes RRF scores, preserves provider provenance, and optionally archives extracts into knowledge storage.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "batches": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "target": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "provider": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "query": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "error"
+                      ]
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2048
+                          },
+                          "title": {
+                            "type": "string",
+                            "maxLength": 500
+                          },
+                          "snippet": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "content": {
+                            "type": "string",
+                            "maxLength": 100000
+                          },
+                          "rank": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100000
+                          }
+                        },
+                        "required": [
+                          "url"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 0,
+                      "maxItems": 500
+                    },
+                    "error": {
+                      "type": "string",
+                      "maxLength": 2000
+                    }
+                  },
+                  "required": [
+                    "target",
+                    "provider",
+                    "query",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 50
+              },
+              "targets": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2000
+                },
+                "minItems": 0,
+                "maxItems": 50
+              },
+              "limit_per_target": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50
+              },
+              "archive": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "required": [
+              "batches"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "agentic_search",
+          "description": "Optional model answer/search channel, separate from search_web URL fusion. provider=grok (default) uses xAI Responses and XAI_API_KEY; include_x enables X Search. provider=custom uses the configured custom_agentic OpenAI-compatible endpoint and CUSTOM_AGENTIC_API_KEY; native web search is only requested for Responses mode when explicitly configured. Prompt mode cannot guarantee the upstream actually searches. Citations are not independently verified. Use only when selected by the user or workflow.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "grok",
+                  "custom"
+                ],
+                "default": "grok"
+              },
+              "include_x": {
+                "type": "boolean",
+                "default": false,
+                "description": "Also search public X posts. This may incur additional provider charges."
+              },
+              "rewrite_query": {
+                "type": "boolean",
+                "default": false,
+                "description": "Decompose and reformulate search queries before searching."
+              },
+              "max_iterations": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 5,
+                "default": 1,
+                "description": "Budget bound for multi-step agentic refinement iterations (1-5)."
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "fetch_web",
+          "description": "[deprecated→fetch] Read known URLs directly (up to 16 per call) with per-page and total text budgets. Continue saved text using capture_id and offset without refetching. Omit provider for the saved fallback order (fetch.strategy overlaps a stalled provider); specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing. Every page carries content_state, the page's own shape: usable, content_insufficient (under 400 characters or an empty-page marker), js_shell_suspected (a title and navigation but no prose), challenge_blocked, login_required (an SSO or sign-in wall), soft_404 or paywall_suspected; only usable pages are worth citing, and unavailable means no body was obtained. published_at is a day-precision date with published_at_source (provider_metadata, structured_metadata or body_date) and published_at_confidence; a bare date in the text is low confidence and never later than the fetch day. A URL with no body carries liveness: dead only for 404/410, otherwise unknown, and dead_urls lists them.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "urls": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 8192
+                },
+                "minItems": 1,
+                "maxItems": 16
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "exa",
+                  "parallel",
+                  "tavily",
+                  "jina",
+                  "deepseek",
+                  "browser"
+                ]
+              },
+              "archive": {
+                "type": "boolean"
+              },
+              "max_characters": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 100000
+              },
+              "max_total_characters": {
+                "type": "integer",
+                "minimum": 100,
+                "maximum": 800000,
+                "description": "Total text budget across selected pages; defaults to 100000."
+              },
+              "capture_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100000000,
+                "description": "Continue an archived page using its capture_id; no new network request."
+              },
+              "raw": {
+                "type": "boolean",
+                "default": false,
+                "description": "Return full provider envelopes instead of one selected text per URL. Archives always retain actual responses when enabled."
+              }
+            },
+            "required": [
+              "urls"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "search_archive",
+          "description": "[deprecated→locate] Search saved page text across local archives and research tasks using literal terms. No network. By default, results are grouped by URL, reporting version counts, time span, and distinct versions. Set expand_versions=true to view separate captures merged by body hash. Occurrences have their own pagination. Hash-mismatched bodies are skipped and counted; the index refreshes incrementally.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Literal text; every whitespace-separated term must occur. Wrap in double quotes for one exact phrase."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50,
+                "default": 10
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000000,
+                "default": 0
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "description": "Only bodies saved for a URL containing this substring (case-insensitive)."
+              },
+              "occurrence_limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000,
+                "default": 50,
+                "description": "Occurrences listed per merged body. Each result reports occurrence_count, occurrences_truncated and occurrences_next_offset."
+              },
+              "occurrence_offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000000,
+                "default": 0,
+                "description": "Continue a body's occurrence list from this offset."
+              },
+              "expand_versions": {
+                "type": "boolean",
+                "default": false,
+                "description": "When true, expand all version captures by SHA-256 instead of grouping by URL."
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "research_services",
+          "description": "Describe optional OpenAI Deep Research and Parallel Task API configuration offline. Configured keys do not prove auth; anonymous Search MCP access is separate.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "openai",
+                  "parallel"
+                ]
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "research_service_prepare",
+          "description": "Preview a Deep Research API request without network. Pass input and optional provider/options. research_id is optional and adds an existing frozen scope; ordinary API research needs no local session.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "research_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "input": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 50000
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "openai",
+                  "parallel"
+                ]
+              },
+              "question_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "inventory_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "minItems": 0,
+                "maxItems": 10000,
+                "uniqueItems": true
+              },
+              "options": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 81
+                  },
+                  "allow_untested_model": {
+                    "type": "boolean"
+                  },
+                  "max_tool_calls": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  },
+                  "store": {
+                    "type": "boolean"
+                  },
+                  "vector_store_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "minItems": 1,
+                    "maxItems": 2
+                  },
+                  "processor": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "output_schema": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 12000
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "input"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "research_service_start",
+          "description": "[deprecated→spawn] Submit a provider-managed research task once using input and a stable operation_id; research_id is optional. Requires the configured service and credentials. Reusing the same operation returns its receipt; unknown outcomes are observed or attached, never automatically resubmitted.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "research_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "input": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 50000
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "openai",
+                  "parallel"
+                ]
+              },
+              "question_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "inventory_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "minItems": 0,
+                "maxItems": 10000,
+                "uniqueItems": true
+              },
+              "options": {
+                "type": "object",
+                "properties": {
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 81
+                  },
+                  "allow_untested_model": {
+                    "type": "boolean"
+                  },
+                  "max_tool_calls": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  },
+                  "store": {
+                    "type": "boolean"
+                  },
+                  "vector_store_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "minItems": 1,
+                    "maxItems": 2
+                  },
+                  "processor": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "output_schema": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 12000
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              },
+              "operation_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              }
+            },
+            "required": [
+              "operation_id",
+              "input"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "research_service_status",
+          "description": "[deprecated→job] Read saved provider-run state; refresh=true observes that same run once. Timeouts preserve last known state and never create a new run.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "external_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "refresh": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "external_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "research_service_result",
+          "description": "[deprecated→job] Read a saved provider report with pagination, provenance and unverified citations. refresh requests its result once; Parallel waits at most one server-side second. Original-source reviews are unchanged.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "external_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "refresh": {
+                "type": "boolean"
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000000
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 50000
+              }
+            },
+            "required": [
+              "external_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "research_service_cancel",
+          "description": "[deprecated→job] Request provider cancellation. Supported for OpenAI; not established for Parallel Task. An observation failure does not mean the job was cancelled.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "external_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              }
+            },
+            "required": [
+              "external_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "research_service_attach",
+          "description": "Attach a known provider run ID without submitting work, including recovery after a lost create response. Status stays unverified until observed.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "research_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "operation_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "openai",
+                  "parallel"
+                ]
+              },
+              "run_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "question_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              }
+            },
+            "required": [
+              "operation_id",
+              "provider",
+              "run_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "wiki_write",
+          "description": "[deprecated→save] Save an authored, reviewed Wiki page with versioned citations. For ordinary sources, pass sources:[{id,url,text or capture_id,title?,retrieved_at?,kind?}] and section citations:[{source_id,quote}]; exact quotes are checked and retained internally in one call. Existing research claims are also supported. Read the current expected_revision before updates; review must name the actual reviewer.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "page_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "page": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "topic",
+                      "entity"
+                    ]
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    },
+                    "minItems": 0,
+                    "maxItems": 30
+                  },
+                  "sections": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "heading": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 300
+                        },
+                        "text": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 12000
+                        },
+                        "claims": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "research_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "claim_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            "required": [
+                              "research_id",
+                              "claim_id"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "minItems": 1,
+                          "maxItems": 12
+                        },
+                        "citations": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "source_id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "quote": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 4000
+                              }
+                            },
+                            "required": [
+                              "source_id",
+                              "quote"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "minItems": 1,
+                          "maxItems": 12
+                        }
+                      },
+                      "required": [
+                        "heading",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 16
+                  },
+                  "links": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "page_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "relation": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 500
+                        }
+                      },
+                      "required": [
+                        "page_id",
+                        "relation"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 0,
+                    "maxItems": 32
+                  },
+                  "review": {
+                    "type": "object",
+                    "properties": {
+                      "method": {
+                        "type": "string",
+                        "enum": [
+                          "human",
+                          "model"
+                        ]
+                      },
+                      "reviewer": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                      },
+                      "note": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 4000
+                      }
+                    },
+                    "required": [
+                      "method",
+                      "reviewer",
+                      "note"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "title",
+                  "kind",
+                  "sections",
+                  "links",
+                  "review"
+                ],
+                "additionalProperties": false
+              },
+              "change_note": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "url": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 8192
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000000
+                    },
+                    "capture_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2000
+                    },
+                    "retrieved_at": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "page",
+                        "local_document",
+                        "external_report"
+                      ]
+                    },
+                    "bookmark_refs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "source_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512
+                          },
+                          "section_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512
+                          },
+                          "item_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 512
+                          }
+                        },
+                        "required": [
+                          "source_id",
+                          "section_id",
+                          "item_id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "minItems": 0,
+                      "maxItems": 100
+                    },
+                    "inventory_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
+                      },
+                      "minItems": 0,
+                      "maxItems": 10000,
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "url"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 16
+              },
+              "expected_revision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "ignore_duplicate_warning": {
+                "type": "boolean",
+                "description": "When true, suppresses duplicate concept warnings if URLs or titles overlap with existing pages."
+              },
+              "reviewed_input_version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "The already-synchronized input version this page was checked against; closes source_input_changed for cited tasks at that version."
+              }
+            },
+            "required": [
+              "page_id",
+              "page",
+              "change_note"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "wiki_get",
+          "description": "[deprecated→read] Read Wiki text with evidence links and separate integrity/freshness checks. Newer snapshots, expired/failed captures and relevant bookmark or linked-page changes need review. Current does not guarantee the live origin is unchanged; no fetch occurs.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "page_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              }
+            },
+            "required": [
+              "page_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "wiki_list",
+          "description": "[deprecated→locate] List paginated Wiki pages offline. source_url filters direct citations and linked dependents for reviewing a changed webpage.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000000
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "source_url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        {
+          "name": "wiki_search",
+          "description": "[deprecated→locate] Find authored Wiki text using an incremental character index, literal/spacing matching and explicit aliases. Validates matching candidates; invalid/retracted evidence is excluded. Freshness warnings remain visible. No embeddings or network calls.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10000000
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "query"
+            ],
+            "additionalProperties": false
+          }
+        }
+      ]
+    }
+  }
+}

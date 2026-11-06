@@ -182,6 +182,32 @@ def _parser():
     lookup_url.add_argument("--source-id")
     lookup_url.add_argument("--limit", type=int, default=100)
     lookup_url.add_argument("--offset", type=int, default=0)
+    locate = commands.add_parser("locate", help="Locate Canvas bookmarks by text/URL or list a folder's direct children")
+    locate.add_argument("--text")
+    locate.add_argument("--url")
+    locate.add_argument("--in", dest="in_sources", action="append", choices=("canvas", "wiki", "archive"),
+                        help="Search one saved scope: Canvas bookmarks, Wiki revisions, or archive captures")
+    locate.add_argument("--source-id")
+    locate.add_argument("--section")
+    locate.add_argument("--folder-id", help="Search within a folder, or with no text/URL list its direct children")
+    locate.add_argument("--tag", dest="tags", action="append")
+    locate.add_argument("--tag-color", dest="tag_colors", action="append")
+    note_filter = locate.add_mutually_exclusive_group()
+    note_filter.add_argument("--has-note", dest="has_note", action="store_true")
+    note_filter.add_argument("--without-note", dest="has_note", action="store_false")
+    locate.set_defaults(has_note=None)
+    tags_filter = locate.add_mutually_exclusive_group()
+    tags_filter.add_argument("--has-tags", dest="has_tags", action="store_true")
+    tags_filter.add_argument("--without-tags", dest="has_tags", action="store_false")
+    locate.set_defaults(has_tags=None)
+    locate.add_argument("--metadata-match", choices=("all", "any"), default="all")
+    locate.add_argument("--limit", type=int, default=8)
+    locate.add_argument("--offset", type=int, default=0)
+    locate.add_argument("--handle", help="Continue a previous locate response")
+    refresh = locate.add_mutually_exclusive_group()
+    refresh.add_argument("--refresh", dest="refresh", action="store_true")
+    refresh.add_argument("--no-refresh", dest="refresh", action="store_false")
+    locate.set_defaults(refresh=False)
     context = commands.add_parser("context")
     context.add_argument("source")
     context.add_argument("--section")
@@ -235,6 +261,10 @@ def _parser():
     merge = commands.add_parser("merge-results", help="Fuse normalized batches from existing MCPs")
     merge.add_argument("input", help="JSON input file, or '-' for stdin")
     merge.add_argument("--archive", action="store_true", help="Save merged extracts to knowledge archive")
+    ingest = commands.add_parser("ingest", help="Fuse a search payload from a JSON file (no inline MCP size limit)")
+    ingest.add_argument("input_path", nargs="?", help="JSON input file, or '-' for stdin")
+    ingest.add_argument("--input", dest="input_option", help="JSON input file, or '-' for stdin")
+    ingest.add_argument("--archive", action="store_true", help="Save merged extracts to knowledge archive")
     research = commands.add_parser("research", help="Durable host-led deep research, evidence and reports")
     research.add_argument("--directory", help="Research root outside source packages and plugin; default in the data directory")
     research_commands = research.add_subparsers(dest="research_command", required=True)
@@ -338,7 +368,61 @@ def _parser():
         view.add_argument("--offset", type=int, default=0)
         view.add_argument("--limit", type=int, default=20)
     commands.add_parser("serve", help="Run the stdio MCP tool server")
+    bench = commands.add_parser("bench", help="Prepare reproducible host comparison artifacts")
+    bench_commands = bench.add_subparsers(dest="bench_command", required=True)
+    ladder = bench_commands.add_parser(
+        "ladder", help="Create a 15-question host capture template; host traces are recorded separately")
+    ladder.add_argument("--preset", choices=("legacy", "quick"), default="quick",
+                        help="Record which advertised tool surface the host run must use")
+    ladder.add_argument("--file", default=".bench/ladder.json", help="Template output path")
+    ladder.add_argument("--force", action="store_true", help="Replace an existing ladder file")
+    def add_output_options(command_parser):
+        command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON (the default format)")
+        command_parser.add_argument("--fields", help="Project comma-separated dotted fields from object results")
+        command_parser.add_argument("--out", help="Write the complete result to this file")
+        command_parser.add_argument("--quiet", action="store_true", help="With --out, print only a compact write receipt")
+        for action in command_parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                for child in action.choices.values():
+                    add_output_options(child)
+    for command_parser in commands.choices.values():
+        add_output_options(command_parser)
     return parser
+
+
+def _project_fields(value, fields):
+    if not fields:
+        return value
+    selected = {}
+    for path in (part.strip() for part in fields.split(",")):
+        if not path:
+            continue
+        current = value
+        found = True
+        for segment in path.split("."):
+            if isinstance(current, dict) and segment in current:
+                current = current[segment]
+            else:
+                found = False
+                break
+        if found:
+            selected[path] = current
+    return selected
+
+
+def _emit_result(result, args):
+    projected = _project_fields(result, args.fields)
+    rendered = json.dumps(projected, ensure_ascii=False, indent=None if args.json else 2,
+                          separators=(",", ":") if args.json else None) + "\n"
+    if args.out:
+        destination = Path(args.out).expanduser()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(rendered, encoding="utf-8")
+        if args.quiet:
+            print(json.dumps({"written": str(destination), "characters": len(rendered.rstrip("\n"))},
+                             ensure_ascii=False, separators=(",", ":") if args.json else None))
+            return
+    print(rendered, end="")
 
 
 def main(argv=None):
@@ -347,7 +431,30 @@ def main(argv=None):
     args = _parser().parse_args(argv)
     try:
         settings = Settings(args.config)
-        if args.command == "serve":
+        if args.command == "bench":
+            destination = Path(args.file).expanduser()
+            if destination.exists() and not args.force:
+                raise ValueError("Ladder file already exists; choose --file or pass --force: " + str(destination))
+            scripts_directory = Path(__file__).resolve().parent.parent / "scripts"
+            sys.path.insert(0, str(scripts_directory))
+            from evaluate_ladder import template as ladder_template
+            from bench_tools_list import LEGACY_TOOLS
+            from mcp_server import _legacy_compatibility_expired, release_version
+            if args.preset == "legacy" and _legacy_compatibility_expired(release_version()):
+                raise ValueError("The legacy ladder preset ended at 0.7.0")
+            surface = "legacy-25" if args.preset == "legacy" else "quick-10"
+            artifact = ladder_template()
+            artifact["baseline_id"] = "2026-11-" + args.preset
+            artifact["tool_surface"] = surface
+            artifact["required_tool_scope"] = (list(LEGACY_TOOLS) if args.preset == "legacy"
+                                                else list(Settings.QUICK_TOOLS))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            result = {"template": str(destination), "questions": 15, "tool_surface": surface,
+                      "runs_required": 3, "host_traces_recorded": False}
+            _emit_result(result, args)
+            return 0
+        elif args.command == "serve":
             from mcp_server import serve
             # Concurrency is read once at startup; an unreadable settings file
             # falls back to the conservative defaults instead of failing to serve.
@@ -561,9 +668,25 @@ def main(argv=None):
                                                           args.occurrence_limit, args.occurrence_offset)
         elif args.command == "merge-results":
             result = fuse_results(_read_json(args.input), archive=args.archive, settings=settings)
+        elif args.command == "ingest":
+            # The MCP primitive deliberately caps inline payloads.  A file
+            # keeps larger host search batches out of the model context while
+            # preserving the same deterministic fusion implementation.
+            if bool(args.input_path) == bool(args.input_option):
+                raise ValueError("provide exactly one ingest input path, positionally or with --input")
+            result = fuse_results(_read_json(args.input_option or args.input_path),
+                                  archive=args.archive, settings=settings)
         else:
             from source_manager import SourceManager
-            with BookmarkIndex(str(_database(args.db))) as index:
+            locate_readonly = not args.refresh if args.command == "locate" else True
+            if args.command == "locate" and args.handle:
+                from locate import continuation_refresh_requested
+                locate_readonly = not continuation_refresh_requested(args.handle, _database(args.db))
+            readonly = (args.command in ("status", "history", "lookup-url")
+                        or (args.command == "locate" and locate_readonly)
+                        or (args.command == "search" and args.no_refresh)
+                        or (args.command in ("traverse", "context") and args.no_refresh))
+            with BookmarkIndex(str(_database(args.db)), readonly=readonly) as index:
                 sources = SourceManager(index)
                 if args.command == "sync":
                     result = sources.sync(args.package, args.source_id, mode=args.mode, completeness=args.completeness)
@@ -574,13 +697,58 @@ def main(argv=None):
                 elif args.command == "lookup-url":
                     with index.read_snapshot():
                         result = index.lookup_url(args.url, source_id=args.source_id, limit=args.limit, offset=args.offset)
+                elif args.command == "locate":
+                    from locate import locate as locate_core
+                    from locate import continuation_scope
+                    locate_scope = args.in_sources or ["canvas"]
+                    if args.handle:
+                        locate_scope = continuation_scope(args.handle, _database(args.db))
+                    wiki = None
+                    raw = None
+                    if locate_scope == ["wiki"]:
+                        from research import ResearchSessions
+                        from wiki import WikiStore
+                        sessions = ResearchSessions(settings=settings, db_path=_database(args.db))
+                        wiki = WikiStore(directory=WikiStore.selected_directory(settings), settings=settings,
+                                         research_sessions=sessions)
+                    elif locate_scope == ["archive"]:
+                        from raw_library import RawLibrary
+                        raw = RawLibrary(settings=settings)
+                    elif args.handle:
+                        # The continuation handle is opaque; provide both
+                        # adapters so the core can restore its original scope.
+                        from research import ResearchSessions
+                        from raw_library import RawLibrary
+                        from wiki import WikiStore
+                        sessions = ResearchSessions(settings=settings, db_path=_database(args.db))
+                        wiki = WikiStore(directory=WikiStore.selected_directory(settings), settings=settings,
+                                         research_sessions=sessions)
+                        raw = RawLibrary(settings=settings)
+                    result = locate_core(index, sources, {
+                        "text": args.text, "url": args.url,
+                        "in": locate_scope,
+                        "source_id": args.source_id, "section": args.section,
+                        "folder_id": args.folder_id, "tags": args.tags,
+                        "tag_colors": args.tag_colors, "has_note": args.has_note,
+                        "has_tags": args.has_tags, "metadata_match": args.metadata_match,
+                        "limit": args.limit, "offset": args.offset,
+                        "handle": args.handle, "refresh": args.refresh,
+                    }, wiki=wiki, raw=raw)
                 elif args.command == "source":
                     if args.source_command == "remove":
                         result = sources.remove(args.source_id, confirm=args.confirm)
                     else:
                         result = sources.merge(args.source_id, args.into_source_id, confirm=args.confirm)
                 else:
-                    refresh = None if args.no_refresh else sources.refresh(args.source)
+                    if args.no_refresh:
+                        refresh = None
+                    elif index.readonly:
+                        # The index degraded to read-only (shared file, read-only
+                        # mount, sandboxed host): answer from the saved snapshot
+                        # instead of failing on the refresh write.
+                        refresh = {"state": "skipped", "reason": "read-only index"}
+                    else:
+                        refresh = sources.refresh(args.source)
                     if refresh and refresh["state"] in ("error", "unavailable"):
                         raise ValueError(refresh["error"] + "; use --no-refresh to read the saved index")
                     with index.read_snapshot():
@@ -603,7 +771,7 @@ def main(argv=None):
                         result["source"] = sources.source_status(args.source)
                     result["refresh"] = refresh
                     result["stored_snapshot_only"] = args.no_refresh
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+        _emit_result(result, args)
         if args.command == "providers" and args.probe and result["successful_provider_count"] == 0:
             return 1
         if args.command == "search-web" and result.get("successful_provider_count") == 0:
@@ -614,6 +782,8 @@ def main(argv=None):
             return 1
         if args.command == "wiki" and args.wiki_command == "refresh" and result.get("status") == "error":
             return 1
+        if isinstance(result, dict) and result.get("status") == "partial":
+            return 3
         return 0
     except KeyboardInterrupt:
         print(json.dumps({"cancelled": True, "error": "Setup cancelled; previously saved preferences and keys are retained."}))
@@ -626,7 +796,7 @@ def main(argv=None):
             message = ("Cannot write the data directory: %s. Set BOOKMARK_RESEARCH_DATA_DIR to a writable directory "
                        "(and BOOKMARK_RESEARCH_CONFIG for settings), or fix that directory's permissions. "
                        "Run doctor for a storage check." % message)
-        print(json.dumps({"error": message, "type": type(error).__name__}, ensure_ascii=False))
+        print(json.dumps({"error": message, "type": type(error).__name__}, ensure_ascii=False), file=sys.stderr)
         return 1
 
 

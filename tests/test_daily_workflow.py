@@ -39,6 +39,11 @@ class DailyWorkflowTests(unittest.TestCase):
         self.server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
     def call(self, name, arguments):
+        # The product default is now the ten primitive quick surface.  These
+        # workflow cases intentionally exercise legacy compatibility paths, so
+        # opt this fixture into the complete catalog only for those calls.
+        if name not in Settings.QUICK_TOOLS:
+            self.settings.update({"tool_scope_preset": "all"})
         response = self.server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                                       "params": {"name": name, "arguments": arguments}})
         self.assertNotIn("error", response, response)
@@ -68,6 +73,8 @@ class DailyWorkflowTests(unittest.TestCase):
             "sources": [{"id": "docs", "url": "https://example.test/docs",
                          "text": "Reusable sessions are supported."}]})
         self.assertEqual(1, result["revision"])
+        primitive_read = self.call("read", {"page_id": "aurora", "revision": 1})
+        self.assertEqual(1, primitive_read["revision"])
         read = self.call("wiki_get", {"page_id": "aurora"})
         self.assertEqual("valid", read["validation"]["integrity"])
         self.assertEqual("Reusable sessions are supported.", read["evidence"][0]["citations"][0]["quote"])

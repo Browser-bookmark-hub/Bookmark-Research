@@ -243,6 +243,7 @@ class ResearchPlanTests(unittest.TestCase):
 
     def test_the_tool_is_reachable_over_mcp(self):
         index, source_id = self.indexed()
+        self.settings.update({"tool_scope_preset": "all"})
         server = StdioMcpServer(self.db, settings=self.settings)
         self.addCleanup(server.close)
         server.handle({"jsonrpc": "2.0", "id": 0, "method": "initialize",

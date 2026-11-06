@@ -12,8 +12,10 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import export_bundle
 import install
+from settings import Settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -335,7 +337,7 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue(result["verified"])
         self.assertEqual(result["version"], self.version)
         self.assertTrue(result["runtime"]["doctor"]["fts5"])
-        self.assertIn("fetch_web", result["runtime"]["mcp_tools"])
+        self.assertIn("fetch", result["runtime"]["mcp_tools"])
         self.assertFalse(result["runtime"]["network_checked"])
         self.assertFalse(result["getting_started"]["configuration"]["config_exists"])
         self.assertEqual(result["getting_started"]["configuration"]["settings"]["search"]["providers"], ["exa", "parallel"])
@@ -436,7 +438,7 @@ class InstallerTests(unittest.TestCase):
         document["items"][0]["children"][0]["note"] = "not-yet-synchronized"
         write_json(package, TEMP, document)
         result = install._runtime_check(self.source)
-        self.assertIn("plan_research", result["mcp_tools"])
+        self.assertEqual(set(Settings.QUICK_TOOLS), set(result["mcp_tools"]))
         self.assertNotIn("source_history", result["mcp_tools"])
         self.assertFalse(result["database_created"])
         self.assertEqual(database.read_bytes(), before)
@@ -715,7 +717,7 @@ class PinnedInterpreterTests(unittest.TestCase):
             ])
             result = install.manage("install", cli, source=self.source)
             self.assertTrue(result["verified"])
-            self.assertIn("fetch_web", result["runtime"]["mcp_tools"])
+            self.assertIn("fetch", result["runtime"]["mcp_tools"])
             server = export_bundle.read_plugin_manifest(bundle)["mcpServers"][install.NAME]
             self.assertEqual(server["command"], sys.executable)
             self.assertLessEqual({"SystemRoot", "windir"}, set(server["env_vars"]))

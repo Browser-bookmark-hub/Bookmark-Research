@@ -35,10 +35,11 @@ class SourceManager:
         self.index, self.connection = index, index.connection
         self.clock, self.debounce, self.deletion_grace = clock, debounce, deletion_grace
         self.storage = index.db_path.with_name(index.db_path.name + ".sources") if index.db_path else None
-        with index.transaction():
-            for statement in SCHEMA:
-                self.connection.execute(statement)
-            self._recover_retired_snapshots()
+        if not index.readonly:
+            with index.transaction():
+                for statement in SCHEMA:
+                    self.connection.execute(statement)
+                self._recover_retired_snapshots()
 
     def _recover_retired_snapshots(self):
         """Recover a removal interrupted before commit, using surviving DB references."""

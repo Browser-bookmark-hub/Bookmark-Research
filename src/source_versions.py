@@ -5,6 +5,8 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
+import storage
+
 
 class SourceVersions:
     def __init__(self, path):
@@ -18,9 +20,15 @@ class SourceVersions:
         except (ValueError, TypeError, AttributeError):
             return None
 
-    def _connect(self):
+    def _connect(self, readonly=False):
         if self.path.is_symlink():
             raise ValueError("Source version index must not be a symlink")
+        if readonly:
+            if not self.path.is_file():
+                raise sqlite3.OperationalError("Source version index is not built yet: %s" % self.path)
+            connection = storage.connect(self.path, readonly=True)
+            connection.row_factory = sqlite3.Row
+            return storage.mark_query_only(connection)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(str(self.path), timeout=10)
         connection.row_factory = sqlite3.Row
@@ -69,11 +77,21 @@ class SourceVersions:
                                "DO UPDATE SET attempted_at=excluded.attempted_at,status=excluded.status",
                                (SourceArchive._key(url), datetime.now(timezone.utc).isoformat(), status))
 
+    def _open_read(self):
+        """Reads keep working when the observations directory is read-only."""
+        try:
+            connection = self._connect()
+        except (sqlite3.DatabaseError, OSError) as error:
+            if not storage.is_readonly_failure(error) or not self.path.is_file():
+                raise
+            return self._connect(readonly=True)
+        return connection
+
     def inspect(self, url, sha256, acquired_at, published_at, scope_id=None, source_id=None):
         from archive import SourceArchive
         if not self.path.is_file():
             return {"available": False, "latest": None, "newer": None, "last_attempt": None}
-        with closing(self._connect()) as connection:
+        with closing(self._open_read()) as connection:
             key = SourceArchive._key(url)
             baseline = connection.execute("SELECT seq FROM snapshots WHERE scope_id=? AND source_id=? AND sha256=?",
                                           (scope_id, source_id, sha256)).fetchone()

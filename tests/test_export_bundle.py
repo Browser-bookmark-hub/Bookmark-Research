@@ -219,7 +219,7 @@ class ExportBundleTests(unittest.TestCase):
                 self.assertEqual([row["id"] for row in responses], [1, 2, 3] if create_database else [1, 2])
                 self.assertEqual(responses[0]["result"]["protocolVersion"], "2025-11-25")
                 tool_names = {row["name"] for row in responses[1]["result"]["tools"]}
-                self.assertTrue({"search_bookmarks", "get_context", "search_web"} <= tool_names)
+                self.assertTrue({"locate", "read", "search"} <= tool_names)
                 self.assertEqual((self.data / "index.sqlite3").exists(), create_database)
                 if create_database:
                     self.assertFalse(responses[-1]["result"]["isError"])

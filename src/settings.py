@@ -22,11 +22,7 @@ class Settings:
     # Daily context, retrieval, knowledge storage and provider-managed research.
     # Persistent inventories and diagnostics remain in the explicit full catalog.
     QUICK_TOOLS = (
-        "sync_package", "index_status", "search_bookmarks", "lookup_url", "get_context", "traverse_graph", "plan_research",
-        "search_web", "merge_search_results", "agentic_search", "fetch_web", "search_archive", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
-        "research_services", "research_service_prepare", "research_service_start", "research_service_status",
-        "research_service_result", "research_service_cancel", "research_service_attach",
-        "get_settings", "update_settings")
+        "locate", "read", "walk", "search", "fetch", "ingest", "save", "spawn", "job", "health")
     OPENAI_RESEARCH_MODELS = ("gpt-5.6-sol", "o3-deep-research", "o4-mini-deep-research")
 
     def __init__(self, path=None):

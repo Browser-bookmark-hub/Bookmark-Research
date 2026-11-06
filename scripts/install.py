@@ -214,8 +214,10 @@ def _runtime_check(root, timeout=30):
     responses = {row.get("id"): row for row in (json.loads(line) for line in mcp.stdout.splitlines())}
     tools = responses.get(2, {}).get("result", {}).get("tools", [])
     names = sorted(row["name"] for row in tools)
-    if not {"search_bookmarks", "search_web", "fetch_web"} <= set(names):
-        raise RuntimeError("Installed MCP did not expose the expected bookmark and research tools")
+    available = set(names)
+    if not ({"locate", "search", "fetch"} <= available or
+            {"search_bookmarks", "search_web", "fetch_web"} <= available):
+        raise RuntimeError("Installed MCP did not expose the bookmark and research primitives")
     if "result" not in responses.get(1, {}):
         raise RuntimeError("Installed MCP initialization failed")
     return {"doctor": health, "mcp_protocol": responses[1]["result"]["protocolVersion"],

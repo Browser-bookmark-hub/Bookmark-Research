@@ -11,7 +11,8 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from mcp_server import PROTOCOLS, StdioMcpServer, serve
+from mcp_server import (DEPRECATED_TOOL_TARGETS, PROTOCOLS, StdioMcpServer, TOOL_SCHEMAS,
+                        _legacy_compatibility_expired, serve)
 from settings import Settings
 
 
@@ -33,6 +34,9 @@ def decode_tool(response):
 
 class McpServerTests(unittest.TestCase):
     def setUp(self):
+        self.release_patch = mock.patch("mcp_server.release_version", return_value="0.6.2")
+        self.release_patch.start()
+        self.addCleanup(self.release_patch.stop)
         self.temp = tempfile.TemporaryDirectory(prefix="bookmark-mcp-test-")
         self.base = Path(self.temp.name)
         self.db_path = self.base / "index.sqlite3"
@@ -76,15 +80,15 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(response["result"]["capabilities"], {"tools": {}})
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
         self.assertEqual({tool["name"] for tool in listing}, {
-            "sync_package", "source_history", "search_bookmarks", "lookup_url", "traverse_graph", "get_context", "plan_research", "discovery_bundle", "index_status",
+            "sync_package", "source_history", "locate", "search_bookmarks", "lookup_url", "traverse_graph", "get_context", "plan_research", "discovery_bundle", "index_status",
             "source_remove", "source_merge",
-            "search_web", "agentic_search", "fetch_web", "search_providers", "search_archive", "merge_search_results", "get_settings", "update_settings", "research_readiness",
+            "search_web", "search", "agentic_search", "fetch_web", "fetch", "search_providers", "search_archive", "merge_search_results", "ingest", "get_settings", "update_settings", "research_readiness",
             "research_start", "research_status", "research_search", "research_fetch",
             "research_source", "research_record", "research_finish", "research_inventory",
             "research_coverage", "research_import_evidence", "research_route", "research_services",
             "research_service_prepare", "research_service_start", "research_service_status",
-            "research_service_result", "research_service_cancel", "research_service_attach",
-            "research_service_import", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
+            "research_service_result", "research_service_cancel", "research_service_attach", "read", "walk", "save",
+            "research_service_import", "spawn", "job", "health", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
             "wiki_lint", "wiki_acknowledge", "wiki_refresh", "wiki_work"})
         self.assertTrue(all(tool["inputSchema"]["additionalProperties"] is False for tool in listing))
         tools = {tool["name"]: tool for tool in listing}
@@ -111,6 +115,24 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(decode_tool(response), expected)
         search.assert_called_once_with(query="question")
 
+    def test_p0b_primitive_aliases_are_discoverable_and_health_is_bounded(self):
+        self.ready()
+        listing = self.server.handle(request("tools/list"))["result"]["tools"]
+        names = {tool["name"] for tool in listing}
+        self.assertTrue({"search", "fetch", "ingest", "spawn", "job", "health"} <= names)
+        health = decode_tool(self.call("health"))
+        self.assertEqual("ok", health["status"])
+        self.assertLessEqual(len(json.dumps(health, ensure_ascii=False)), 200)
+        self.assertIn("sources", health)
+
+    def test_ingest_alias_enforces_inline_batch_budget(self):
+        self.ready()
+        batches = [{"target": "q", "provider": "host", "query": "q", "status": "error", "error": "x"}
+                   for _ in range(17)]
+        response = self.call("ingest", {"batches": batches})
+        self.assertEqual(-32602, response["error"]["code"])
+        self.assertIn("batches", response["error"]["message"])
+
 
 
     def test_quick_tool_scope_preset_exposes_the_everyday_surface(self):
@@ -122,8 +144,41 @@ class McpServerTests(unittest.TestCase):
         names = {tool["name"] for tool in listing}
         self.assertEqual(set(Settings.QUICK_TOOLS), names)
         self.assertNotIn("research_source", names)
+        self.assertEqual({"locate", "read", "walk", "search", "fetch", "ingest", "save", "spawn", "job", "health"}, names)
+        self.assertNotIn("search_bookmarks", names)
+        self.assertNotIn("search_web", names)
+        self.sync()
+        compatible = self.call("get_context", {"source_id": "fixture", "item_id": "temp-one",
+                                                "refresh": False})
+        self.assertFalse(compatible["result"]["isError"], compatible)
 
-    def test_tool_scope_narrows_the_catalog_and_rejects_hidden_calls(self):
+    def test_replaced_legacy_tools_are_labeled_but_remain_in_all_catalog(self):
+        self.ready()
+        listing = {tool["name"]: tool for tool in self.server.handle(request("tools/list"))["result"]["tools"]}
+        for old, replacement in (("search_bookmarks", "locate"), ("get_context", "read"),
+                                 ("traverse_graph", "walk"), ("search_web", "search"),
+                                 ("fetch_web", "fetch"), ("merge_search_results", "ingest"),
+                                 ("wiki_write", "save"), ("wiki_get", "read"),
+                                 ("research_source", "read"), ("research_service_start", "spawn")):
+            self.assertIn(old, listing)
+            self.assertTrue(listing[old]["description"].startswith("[deprecated→%s]" % replacement))
+
+    def test_legacy_catalog_and_calls_expire_at_070(self):
+        self.assertFalse(_legacy_compatibility_expired("0.7.0-rc.1"))
+        self.assertTrue(_legacy_compatibility_expired("0.7.0"))
+        self.assertTrue(_legacy_compatibility_expired("0.7.1"))
+        self.assertFalse(_legacy_compatibility_expired("0+unknown"))
+
+        self.ready()
+        with mock.patch("mcp_server.release_version", return_value="0.7.0"):
+            listing = {tool["name"] for tool in self.server.handle(request("tools/list"))["result"]["tools"]}
+            self.assertFalse(DEPRECATED_TOOL_TARGETS.keys() & listing)
+            self.assertTrue(set(Settings.QUICK_TOOLS) <= listing)
+            removed = self.call("get_context", {"source_id": "fixture", "refresh": False})
+        self.assertEqual(-32602, removed["error"]["code"])
+        self.assertIn("Unknown tool: get_context", removed["error"]["message"])
+
+    def test_explicit_tool_scope_narrows_catalog_and_rejects_hidden_calls(self):
         self.ready()
         changed = self.call("update_settings", {"changes": {"tool_scope": ["get_context", "plan_research"]}})
         self.assertIn("result", changed, changed)
@@ -143,7 +198,10 @@ class McpServerTests(unittest.TestCase):
 
     def test_all_protocols_and_version_specific_content(self):
         for protocol in PROTOCOLS:
-            server = StdioMcpServer(self.base / (protocol + ".sqlite3"), stderr=self.stderr)
+            protocol_settings = Settings(self.base / (protocol + ".json"))
+            protocol_settings.update({"tool_scope_preset": "all"})
+            server = StdioMcpServer(self.base / (protocol + ".sqlite3"), stderr=self.stderr,
+                                    settings=protocol_settings)
             try:
                 self.assertEqual(server.handle(initialize(protocol))["result"]["protocolVersion"], protocol)
                 server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"})
@@ -341,6 +399,9 @@ class McpServerTests(unittest.TestCase):
 
     def test_settings_and_fetch_archive_work_through_mcp_without_creating_index(self):
         self.settings.path.unlink()
+        scope = mock.patch.dict(os.environ, {"BOOKMARK_RESEARCH_TOOL_SCOPE": ""})
+        scope.start()
+        self.addCleanup(scope.stop)
         self.ready()
         current = decode_tool(self.call("get_settings"))
         self.assertFalse(current["config_exists"])
@@ -461,6 +522,9 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(fetched["sources"][0]["id"], "s1")
         read = decode_tool(self.call("research_source", {"research_id": research_id, "source_id": "s1"}))
         self.assertEqual(read["text"], "Only search and extract are supported here.")
+        primitive_read = decode_tool(self.call("read", {"research_id": research_id,
+                                                          "evidence_source_id": "s1"}))
+        self.assertEqual(read["text"], primitive_read["text"])
         claim = self.call("research_record", {"research_id": research_id, "entry": {"kind": "claim", "question_id": "q1",
             "statement": "Search and extract are available.", "citations": [{"source_id": "s1", "quote": read["text"]}]}})
         self.assertFalse(claim["result"]["isError"])
@@ -619,7 +683,8 @@ class McpServerTests(unittest.TestCase):
             request("tools/call", {"name": "sync_package", "arguments": {"package_path": "missing"}}, request_id=3)]
         stdin = io.StringIO("{broken\n" + "\n".join(json.dumps(value, ensure_ascii=False) for value in messages) + "\n")
         stdout, stderr = io.StringIO(), io.StringIO()
-        serve(self.db_path, stdin=stdin, stdout=stdout, stderr=stderr)
+        serve(self.db_path, stdin=stdin, stdout=stdout, stderr=stderr,
+              settings=self.settings)
         rows = [json.loads(line) for line in stdout.getvalue().splitlines()]
         self.assertEqual(len(rows), 5)
         self.assertEqual(rows[0]["error"]["code"], -32700)
@@ -678,6 +743,335 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(scored["score_mode"], "hint")
         self.assertTrue(len(scored["results"]) > 0)
         self.assertIn("score", scored["results"][0])
+
+    def test_locate_canvas_returns_index_why_and_source_version(self):
+        self.ready()
+        self.sync()
+
+        located = decode_tool(self.call("locate", {
+            "text": "示例公司甲", "in": ["canvas"], "source_id": "fixture", "refresh": False}))
+        self.assertEqual(["canvas"], located["in"])
+        self.assertEqual(1, located["total"])
+        hit = located["hits"][0]
+        self.assertEqual("canvas", hit["source_kind"])
+        self.assertEqual("bookmark_instance", hit["evidence_kind"])
+        self.assertEqual("fixture", hit["source_id"])
+        self.assertTrue(hit["version_id"])
+        self.assertEqual(["示例", "公司", "司甲"], hit["why"]["terms"])
+        self.assertIn("title", hit["why"]["fields"])
+        self.assertEqual(140, hit["why"]["field_weights"]["title"])
+        self.assertEqual(located["match_mode"], hit["why"]["match_mode"])
+        self.assertLessEqual(len(hit["ref"]), 8)
+        read = decode_tool(self.call("read", {"ref": hit["ref"], "refresh": False}))
+        self.assertEqual("temp-one", read["items"][0]["item_id"])
+        self.assertEqual("fixture", read["source"]["source_id"])
+        self.assertEqual(hit["version_id"], read["source"]["version_id"])
+        self.assertTrue(read["v"].startswith("v-"))
+        repeated = decode_tool(self.call("read", {"ref": hit["ref"], "refresh": False}))
+        self.assertEqual(read["v"], repeated["v"])
+        self.assertEqual(read["source"]["source_id"], repeated["source"]["source_id"])
+        self.assertEqual({"source_id", "version_id"}, set(repeated["source"]))
+        self.assertLess(len(json.dumps(repeated, ensure_ascii=False)),
+                        len(json.dumps(read, ensure_ascii=False)))
+        self.assertLessEqual(len(read["v"]), 8)
+        expanded = decode_tool(self.call("read", {"v": read["v"]}))
+        self.assertEqual(hit["version_id"], expanded["source"]["version_id"])
+        self.assertGreater(len(expanded["source"]), len(repeated["source"]))
+        walked = decode_tool(self.call("walk", {"ref": hit["ref"], "refresh": False}))
+        self.assertIn("No matching canvas nodes", walked.get("error", ""))
+        self.assertEqual([], located["candidates"])
+
+        self.document["items"].append({"id": "three-d", "sectionId": "temp-section-A-1",
+            "type": "bookmark", "title": "3D 工具", "url": "https://example.test/3d",
+            "note": "Note"})
+        self.document["items"].append({"id": "two-d", "sectionId": "temp-section-A-1",
+            "type": "bookmark", "title": "2D 工具", "url": "https://example.test/2d",
+            "tags": [{"text": "vision", "color": "blue"}]})
+        self.write_document()
+        self.sync()
+        phrase = decode_tool(self.call("locate", {
+            "text": "3D 2D 英文名字 带 Note", "in": ["canvas"], "source_id": "fixture"}))
+        self.assertEqual(1, phrase["total"])
+        self.assertEqual("3D 工具", phrase["hits"][0]["title"])
+        self.assertNotIn("note", phrase["hits"][0]["why"]["fields"])
+        self.assertEqual(phrase["match_mode"], phrase["hits"][0]["why"]["match_mode"])
+        self.assertEqual({"has_note": True}, phrase["filters"])
+
+        explicit_filter = decode_tool(self.call("locate", {
+            "text": "3D 2D", "in": ["canvas"], "source_id": "fixture",
+            "has_note": True, "refresh": False}))
+        self.assertEqual(1, explicit_filter["total"])
+        self.assertEqual("3D 工具", explicit_filter["hits"][0]["title"])
+        self.assertEqual("1 hit with title+note; stop if it matches", explicit_filter["next"])
+
+        tag_filter = decode_tool(self.call("locate", {
+            "text": "3D 2D", "in": ["canvas"], "source_id": "fixture",
+            "has_tags": True, "refresh": False}))
+        self.assertEqual(1, tag_filter["total"])
+        self.assertEqual("2D 工具", tag_filter["hits"][0]["title"])
+
+        chinese_digit = decode_tool(self.call("locate", {
+            "text": "三D/二D", "in": ["canvas"], "source_id": "fixture", "refresh": False}))
+        self.assertGreaterEqual(chinese_digit["total"], 2)
+        self.assertIn("3D", chinese_digit["hits"][0]["why"]["terms"])
+
+        exact = decode_tool(self.call("locate", {
+            "url": "https://example.test/docs", "in": ["canvas"], "source_id": "fixture", "refresh": False}))
+        self.assertEqual(1, exact["total"])
+        self.assertEqual({"url"}, set(exact["hits"][0]["why"]["fields"]))
+        self.assertEqual("exact", exact["hits"][0]["why"]["match_mode"])
+        self.assertEqual(exact["match_mode"], exact["hits"][0]["why"]["match_mode"])
+
+        ambiguous = self.call("locate", {
+            "text": "示例", "url": "https://example.test/docs", "in": ["canvas"],
+            "source_id": "fixture", "refresh": False})
+        self.assertTrue(ambiguous["result"]["isError"])
+        self.assertIn("exactly one", decode_tool(ambiguous)["error"])
+        unsupported = self.call("locate", {
+            "text": "示例", "in": ["wiki"], "refresh": False})
+        self.assertFalse(unsupported["result"]["isError"])
+        self.assertEqual(["wiki"], decode_tool(unsupported)["in"])
+
+    def test_locate_folds_inherited_matches_for_unrelated_terms(self):
+        section_id = self.document["id"]
+        terms = ["视频", "agent", "code", "RAG", "公司", "3D"]
+        folder_ids = {}
+        for term_index, term in enumerate(terms):
+            folder_id = "path-folder-%02d" % term_index
+            children = [
+                {"id": "path-child-%02d-%02d" % (term_index, index), "sectionId": section_id,
+                 "type": "bookmark", "title": "Candidate %02d-%02d" % (term_index, index),
+                 "url": "https://example.test/path/%02d/%02d" % (term_index, index)}
+                for index in range(5)
+            ]
+            if term == "RAG":
+                folder_ids[term] = folder_id + "-nested"
+                nested = {"id": folder_ids[term], "sectionId": section_id, "type": "folder",
+                          "title": "RAG", "children": children}
+                outer_children = [nested]
+            else:
+                folder_ids[term] = folder_id
+                outer_children = children
+            self.document["items"].append({
+                "id": folder_id, "sectionId": section_id, "type": "folder",
+                "title": "RAG collection" if term == "RAG" else ("2D / 3D" if term == "3D" else term),
+                "children": outer_children,
+            })
+        self.write_document()
+        self.ready()
+        self.sync()
+
+        for term in terms:
+            with self.subTest(term=term):
+                located = decode_tool(self.call("locate", {
+                    "text": term, "in": ["canvas"], "source_id": "fixture", "refresh": False}))
+                folder = next(hit for hit in located["hits"]
+                              if hit.get("kind") == "folder" and hit["folder_id"] == folder_ids[term])
+                self.assertEqual(5, folder["count"])
+                self.assertEqual(3, len(folder["sample"]))
+                expected_path = (["2D / 3D"] if term == "3D" else
+                                 ["RAG collection", "RAG"] if term == "RAG" else [term])
+                self.assertEqual(expected_path, folder["path"])
+                self.assertEqual({"matched": 5, "folders": 1, "sampled": 3}, located["coverage"]["inherited"])
+                self.assertEqual(1, located["coverage"]["folders"])
+                self.assertFalse(any(hit.get("kind") != "folder" and hit["why"]["fields"] == ["path"]
+                                     for hit in located["hits"]))
+                if any(hit.get("kind") == "bookmark" for hit in located["hits"]):
+                    self.assertIn("direct hits", located["next"])
+                    if term == "公司":
+                        self.assertIn("top score 140 vs 60", located["next"])
+                    self.assertLess(
+                        next(index for index, hit in enumerate(located["hits"]) if hit.get("kind") == "bookmark"),
+                        next(index for index, hit in enumerate(located["hits"]) if hit.get("kind") == "folder"))
+                else:
+                    self.assertIn("inherited", located["next"])
+                read = decode_tool(self.call("read", {"ref": folder["ref"], "refresh": False}))
+                self.assertEqual(folder_ids[term], read["items"][0]["item_id"])
+
+        partial = decode_tool(self.call("locate", {
+            "text": "3D建模", "in": ["canvas"], "source_id": "fixture", "refresh": False}))
+        self.assertEqual(1, partial["coverage"]["folders"])
+        self.assertEqual("3D", partial["hints"][0]["term"])
+        self.assertIn("No full match", partial["next"])
+
+        empty = decode_tool(self.call("locate", {
+            "text": "bookmark-research-no-such-term", "in": ["canvas"],
+            "source_id": "fixture", "refresh": False}))
+        self.assertEqual(0, empty["coverage"]["matched"])
+        self.assertIn("No direct or inherited matches", empty["next"])
+
+    def test_locate_folder_id_without_query_lists_direct_children(self):
+        children = [self.document["items"][0]]
+        children.extend([
+            {"id": "temp-three", "sectionId": self.document["id"], "type": "bookmark",
+             "title": "第三项", "url": "https://example.test/three"},
+            {"id": "temp-four", "sectionId": self.document["id"], "type": "bookmark",
+             "title": "第四项", "url": "https://example.test/four"},
+        ])
+        self.document["items"] = [{"id": "temp-folder", "sectionId": self.document["id"],
+            "type": "folder", "title": "研究", "children": children}]
+        self.write_document()
+        self.ready()
+        self.sync()
+
+        first = decode_tool(self.call("locate", {"source_id": "fixture", "folder_id": "temp-folder",
+            "limit": 2, "refresh": False}))
+        self.assertEqual("folder_children", first["match_mode"])
+        self.assertEqual("研究", first["folder"]["title"])
+        self.assertEqual(3, first["total"])
+        self.assertEqual(["temp-one", "temp-three"], [hit["item_id"] for hit in first["hits"]])
+        self.assertEqual(["temp-folder", "temp-folder"], [hit["parent_id"] for hit in first["hits"]])
+        self.assertEqual(3, first["coverage"]["matched"])
+        self.assertEqual(2, first["more"]["offset"])
+
+        second = decode_tool(self.call("locate", {"handle": first["more"]["handle"],
+            "offset": first["more"]["offset"]}))
+        self.assertEqual(["temp-four"], [hit["item_id"] for hit in second["hits"]])
+        child = decode_tool(self.call("read", {"ref": second["hits"][0]["ref"], "refresh": False}))
+        self.assertEqual("temp-four", child["items"][0]["item_id"])
+
+    def test_read_canvas_ref_defaults_to_target_and_explicit_all_returns_section(self):
+        neighbors = [
+            {"id": "neighbor-%02d" % i, "type": "text", "text": "Neighbor %02d " % i + "x" * 300,
+             "x": 200 + i * 120, "y": 0, "width": 100, "height": 100}
+            for i in range(16)
+        ]
+        nodes = [{"id": "bookmark-card", "type": "file",
+                  "file": "临时栏目/常规链式/A-1 demo.json",
+                  "x": 0, "y": 0, "width": 100, "height": 100}, *neighbors]
+        edges = [{"id": "edge-%02d" % i, "fromNode": "bookmark-card",
+                  "toNode": "neighbor-%02d" % i, "toEnd": "arrow"}
+                 for i in range(len(neighbors))]
+        (self.package / "Board.canvas").write_text(
+            json.dumps({"nodes": nodes, "edges": edges}, ensure_ascii=False), encoding="utf-8")
+
+        self.ready()
+        self.sync()
+        located = decode_tool(self.call("locate", {
+            "text": "示例公司甲", "in": ["canvas"], "source_id": "fixture", "refresh": False}))
+        ref = located["hits"][0]["ref"]
+
+        compact = decode_tool(self.call("read", {"ref": ref, "refresh": False}))
+        compact_size = len(json.dumps(compact, ensure_ascii=False, separators=(",", ":")))
+        self.assertLess(compact_size, 2048)
+        self.assertEqual("temp-one", compact["items"][0]["item_id"])
+        self.assertIn("ancestors", compact["items"][0])
+        self.assertEqual("target_item_and_folder_ancestors", compact["read_scope"])
+        self.assertNotIn("raw_json", compact["items"][0])
+        self.assertNotIn("nodes", compact)
+        self.assertNotIn("related_nodes", compact)
+
+        full = decode_tool(self.call("read", {
+            "ref": ref, "collection": "all", "refresh": False}))
+        self.assertEqual(16, len(full["related_nodes"]))
+        self.assertGreater(len(json.dumps(full, ensure_ascii=False)), 2048)
+
+    def test_locate_schema_parameters_are_consumed_and_match_mode_is_consistent(self):
+        """Keep the public locate schema and handler contract in lockstep.
+
+        Each optional argument is sent through the real JSON-RPC path.  The
+        response echoes filter arguments, which makes a dropped wrapper
+        argument observable without reaching into private implementation
+        details.  The core exports the same request-key set so schema drift
+        fails at test collection instead of during a later harness review.
+        """
+        from locate import LOCATE_ARGUMENTS
+
+        self.ready()
+        self.sync()
+        schema_arguments = set(TOOL_SCHEMAS["locate"]["properties"])
+        self.assertEqual(schema_arguments, set(LOCATE_ARGUMENTS))
+
+        base = {"text": "示例公司甲", "source_id": "fixture", "refresh": False}
+        matrix = {
+            "in": ["canvas"],
+            "source_id": "fixture",
+            "section": "temp-section-A-1",
+            "folder_id": "missing-folder",
+            "tags": ["blue"],
+            "tag_colors": ["blue"],
+            "has_note": True,
+            "has_tags": False,
+            "metadata_match": "any",
+            "limit": 1,
+            "refresh": False,
+        }
+        for argument, value in matrix.items():
+            request_arguments = dict(base)
+            request_arguments[argument] = value
+            response = self.call("locate", request_arguments)
+            if argument == "folder_id":
+                # The fixture has no folder node.  A specific validation error
+                # proves the argument reached the index instead of being
+                # silently dropped by the MCP adapter.
+                self.assertTrue(response["result"]["isError"], response)
+                self.assertIn("Unknown folder ID", decode_tool(response)["error"])
+                continue
+            self.assertFalse(response["result"]["isError"], (argument, response))
+            result = decode_tool(response)
+            if argument == "in":
+                self.assertEqual(value, result["in"])
+            elif argument == "source_id":
+                self.assertEqual([value], result["source_ids"])
+            elif argument == "limit":
+                self.assertLessEqual(len(result["hits"]), value)
+            elif argument == "refresh":
+                # refresh is an execution control; successful dispatch is its
+                # observable contract and the response intentionally omits it.
+                self.assertIn("source_ids", result)
+            else:
+                self.assertEqual(value, result["filters"].get(argument), argument)
+
+            for hit in result["hits"]:
+                self.assertEqual(result["match_mode"], hit["why"]["match_mode"])
+
+        url_result = decode_tool(self.call("locate", {
+            "url": "https://example.test/docs", "in": ["canvas"],
+            "source_id": "fixture", "refresh": False,
+        }))
+        self.assertEqual("https://example.test/docs", url_result["url"])
+        self.assertEqual("exact", url_result["match_mode"])
+        for hit in url_result["hits"]:
+            self.assertEqual("exact", hit["why"]["match_mode"])
+
+    def test_locate_continuation_returns_more_handle_and_next_page(self):
+        """A bounded locate page must expose a usable continuation cursor."""
+        self.ready()
+        self.sync()
+        for index in range(3):
+            self.document["items"].append({
+                "id": f"needle-{index}", "sectionId": "temp-section-A-1",
+                "type": "bookmark", "title": f"Needle card {index}",
+                "url": f"https://example.test/needle-{index}",
+            })
+        self.write_document()
+        self.sync()
+
+        first = decode_tool(self.call("locate", {
+            "text": "Needle", "in": ["canvas"], "source_id": "fixture",
+            "limit": 1, "refresh": False,
+        }))
+        self.assertEqual(3, first["total"])
+        self.assertEqual(1, len(first["hits"]))
+        self.assertIn("more", first)
+        self.assertEqual({"handle", "offset", "total"}, set(first["more"]))
+        self.assertEqual(1, first["more"]["offset"])
+        self.assertEqual(3, first["more"]["total"])
+        self.assertEqual({"tool", "handle", "offset", "reason", "message"}, set(first["next"]))
+        self.assertEqual("locate", first["next"]["tool"])
+        first_ref = first["hits"][0]["ref"]
+
+        second = decode_tool(self.call("locate", {
+            "handle": first["more"]["handle"], "offset": first["more"]["offset"],
+        }))
+        self.assertEqual(first["total"], second["total"])
+        self.assertEqual(1, len(second["hits"]))
+        self.assertNotEqual(first_ref, second["hits"][0]["ref"])
+        self.assertEqual(first["match_mode"], second["match_mode"])
+
+        stale = self.call("locate", {"handle": "lh-does-not-exist", "offset": 1})
+        self.assertTrue(stale["result"]["isError"])
+        self.assertIn("unknown locate continuation handle", decode_tool(stale)["error"])
 
 
 if __name__ == "__main__":

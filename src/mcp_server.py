@@ -5,17 +5,22 @@ implements initialization, ping, tools/list and tools/call, not resources,
 prompts, sampling, tasks, HTTP transports or arbitrary SQL/command execution.
 """
 
+import copy
 import hashlib
 import json
 import math
 import os
+import re
 import sys
 import threading
+from collections import OrderedDict
 from pathlib import Path
 
 from release import release_version
 from settings import Settings
 from credentials import Credentials
+from locate import continuation_scope, locate as locate_core
+from ref_codec import resolve as resolve_ref
 
 
 PROTOCOLS = ("2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25")
@@ -121,6 +126,23 @@ TOOL_SCHEMAS = {
         ["source_id"]),
     "source_merge": _object_schema({"source_id": IDENTIFIER, "into_source_id": IDENTIFIER,
         "confirm": {"type": "boolean", "default": False}}, ["source_id", "into_source_id"]),
+    "locate": _object_schema({
+        "text": _text_schema(2000),
+        "url": _text_schema(8192),
+        "in": _array_schema({"type": "string", "enum": ["canvas", "wiki", "archive"]}, 3, 1),
+        "source_id": IDENTIFIER,
+        "section": IDENTIFIER,
+        "folder_id": {**IDENTIFIER, "description": "Filter matches to a folder subtree; with source_id and no text/url, list this folder's direct children."},
+        "tags": _array_schema(_text_schema(), 100),
+        "tag_colors": _array_schema(_text_schema(), 20),
+        "has_note": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) a non-empty note."},
+        "has_tags": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) one or more tags."},
+        "metadata_match": {"type": "string", "enum": ["all", "any"], "default": "all"},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 8},
+        "offset": {"type": "integer", "minimum": 0, "default": 0},
+        "handle": _text_schema(16384),
+        "refresh": {"type": "boolean", "default": False},
+    }),
     "search_bookmarks": _object_schema({
         "source_id": IDENTIFIER, "targets": _array_schema(_text_schema(), 100),
         "section": IDENTIFIER, "group_id": IDENTIFIER, "folder_id": IDENTIFIER,
@@ -259,6 +281,7 @@ TOOL_DESCRIPTIONS = {
     "source_history": "List saved source versions and managed snapshot paths, including partial-import data. Reimport a snapshot to recover it. Does not refresh sources or rewrite research inventories.",
     "source_remove": "Preview deletion of an imported source, index rows and managed snapshots; confirm=true performs it. Frozen research inventories remain, but item resolution stops and citing Wiki pages need review. For identical duplicates, prefer source_merge.",
     "source_merge": "Preview merging an identical source into into_source_id; confirm=true transfers path aliases and drops the duplicate. Synchronized content versions must match; synchronize legacy sources first.",
+    "locate": "Find literal matches in one local scope: Canvas bookmarks, Wiki revisions, or archived captures. Canvas returns direct title/URL/note/tag matches before inherited folder_path matches; inherited-only items fold into the nearest matching folder with a count and up to three samples. coverage reports underlying bookmark matches; total counts returned direct/folder rows. Use a returned folder_id with source_id and omit text/url to list that folder's direct children. If total exceeds limit, continue with more.handle and more.offset; handles survive CLI/MCP process restarts. Pass text or url, not both, unless listing folder children.",
     "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. score=true returns non-binding ranking score and field_hits hints while preserving literal match set. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
     "lookup_url": "Reverse index: find all bookmark item instances for an exact URL across sections and sources, with chronological added_at, parent folders and copy anchor cards. source_id is optional.",
     "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default. compact=true drops raw_json, description_md and revision; pair it with a collection to reach the smallest budget.",
@@ -461,6 +484,45 @@ TOOL_SCHEMAS.update({
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["query"]),
     "wiki_lint": _object_schema({"page_id": RESEARCH_ID}),
 })
+
+# P0b primitive names. The legacy schemas remain available during the
+# compatibility window; these aliases provide one stable surface while the
+# underlying providers and evidence rules are migrated incrementally.
+TOOL_SCHEMAS.update({
+    "search": _object_schema({
+        "query": _text_schema(2000), "providers": PROVIDERS,
+        "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8},
+    }, ["query"]),
+    "fetch": TOOL_SCHEMAS["fetch_web"],
+    "ingest": copy.deepcopy(TOOL_SCHEMAS["merge_search_results"]),
+    "spawn": TOOL_SCHEMAS["research_service_start"],
+    "job": _object_schema({
+        "external_id": RESEARCH_ID,
+        "action": {"type": "string", "enum": ["status", "result", "cancel"], "default": "status"},
+        "refresh": {"type": "boolean", "default": False},
+        "offset": {"type": "integer", "minimum": 0, "maximum": 10000000, "default": 0},
+        "limit": {"type": "integer", "minimum": 1, "maximum": 50000, "default": 12000},
+    }, ["external_id"]),
+    "health": _object_schema({}),
+    "read": copy.deepcopy(TOOL_SCHEMAS["get_context"]),
+    "walk": copy.deepcopy(TOOL_SCHEMAS["traverse_graph"]),
+    "save": TOOL_SCHEMAS["wiki_write"],
+})
+TOOL_SCHEMAS["ingest"]["properties"]["batches"]["maxItems"] = 16
+# The primitive surfaces accept a short ref as an alternative to repeating
+# source/section/item identifiers returned by locate.  Legacy schemas keep
+# their source_id requirement and remain available for compatibility calls.
+for _primitive_name in ("read", "walk"):
+    TOOL_SCHEMAS[_primitive_name]["required"] = []
+    TOOL_SCHEMAS[_primitive_name]["properties"]["ref"] = _text_schema(128)
+TOOL_SCHEMAS["read"]["properties"].update({
+    "research_id": RESEARCH_ID, "evidence_source_id": RESEARCH_ID,
+    "evidence_source_ids": dict(_array_schema(RESEARCH_ID, 8, 1), uniqueItems=True),
+    "page_id": RESEARCH_ID,
+    "revision": {"type": "integer", "minimum": 1, "maximum": 1000000},
+    "v": _text_schema(32),
+})
+TOOL_SCHEMAS["read"]["properties"]["collection"]["enum"].append("all")
 TOOL_DESCRIPTIONS.update({
     "research_route": "Describe available quick, agentic or deep routes without starting work. Collaboration and external services are optional; explicit provider is exclusive. failed_routes is cumulative and requires confirmed failures; observe active/unknown runs before choosing another route.",
     "research_services": "Describe optional OpenAI Deep Research and Parallel Task API configuration offline. Configured keys do not prove auth; anonymous Search MCP access is separate.",
@@ -479,7 +541,43 @@ TOOL_DESCRIPTIONS.update({
     "wiki_refresh": "Fetch and archive up to 16 cited webpage URLs from one Wiki revision. Reports changed/unchanged/unverified captures and affected pages; follow continuation for more. Uses retrieval quota. Read saved captures and review new claims before wiki_write; authored text and bookmark packages stay unchanged.",
     "wiki_search": "Find authored Wiki text using an incremental character index, literal/spacing matching and explicit aliases. Validates matching candidates; invalid/retracted evidence is excluded. Freshness warnings remain visible. No embeddings or network calls.",
     "wiki_lint": "Audit all selected Wiki evidence, hashes, source freshness, crosslinks and history. Mechanical integrity and declared semantic review are reported separately; no network.",
+    "search": "Search public sources and return discovery results with provider failures and coverage visible. Results are not page正文; fetch known URLs before citing.",
+    "fetch": "Fetch known URLs with provider fallback, bounded text budgets, content_state and optional archived capture continuation. A returned body is not automatically a verified citation.",
+    "ingest": "Fuse host or provider search batches by canonical URL and body SHA-256, preserving provider provenance, failures and coverage. This is deterministic result ingestion, not Agentic Search planning.",
+    "spawn": "Submit one provider-managed Deep Research task and return an external job identity. The host owns iteration and decides when to observe it with job.",
+    "job": "Observe or cancel a provider-managed research job. action=status reads state, result reads a bounded report page, and cancel requests cancellation; no new task is submitted.",
+    "health": "Return a compact local health summary for indexed sources and the source watcher. It performs no network fetch and is safe to call before research.",
+    "read": "Read a target Canvas bookmark and its folder ancestors by default; use collection='all' for full section context. Also reads a pinned Wiki revision, archived capture, or saved research evidence. Canvas refs are source-version-bound; Wiki and archive refs preserve revision/capture identity and content state.",
+    "walk": "Traverse Canvas edges and memberships through the shared walk primitive, preserving direction, depth, paths and pagination.",
+    "save": "Save a reviewed Wiki revision through the shared save primitive. Citation checks, expected_revision and review requirements remain enforced by WikiStore.",
 })
+
+DEPRECATED_TOOL_TARGETS = {
+    "search_bookmarks": "locate", "lookup_url": "locate", "search_archive": "locate",
+    "wiki_search": "locate", "wiki_list": "locate", "get_context": "read",
+    "traverse_graph": "walk", "search_web": "search", "fetch_web": "fetch",
+    "merge_search_results": "ingest", "wiki_write": "save", "wiki_acknowledge": "save",
+    "research_service_start": "spawn", "research_service_status": "job",
+    "research_service_result": "job", "research_service_cancel": "job",
+    "research_source": "read", "wiki_get": "read",
+}
+for _legacy_name, _replacement_name in DEPRECATED_TOOL_TARGETS.items():
+    TOOL_DESCRIPTIONS[_legacy_name] = "[deprecated→%s] %s" % (
+        _replacement_name, TOOL_DESCRIPTIONS[_legacy_name])
+
+
+def _legacy_compatibility_expired(version):
+    """Return whether a stable release has reached the 0.7.0 cutoff."""
+    match = re.fullmatch(
+        r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?",
+        str(version or ""))
+    if match is None:
+        return False
+    current = tuple(int(match.group(index)) for index in (1, 2, 3))
+    cutoff = (0, 7, 0)
+    if current != cutoff:
+        return current > cutoff
+    return match.group(4) is None
 
 
 class RpcError(Exception):
@@ -566,7 +664,48 @@ class StdioMcpServer:
         self._initialization_lock = threading.RLock()
         self._log_lock = threading.Lock()
         self._cancel_pending = None
+        self._envelope_versions = OrderedDict()
+        self._envelope_handles = {}
         self.settings = settings if settings is not None else Settings()
+
+    def _compact_source_envelope(self, result):
+        """Collapse repeated source diagnostics while retaining identity per response."""
+        if not isinstance(result, dict) or not isinstance(result.get("source"), dict):
+            return result
+        source = result["source"]
+        identity = {key: source[key] for key in ("source_id", "version_id") if key in source}
+        diagnostics = {key: value for key, value in source.items()
+                       if key not in ("source_id", "version_id")}
+        refresh = result.get("refresh")
+        sync = refresh.get("sync") if isinstance(refresh, dict) else None
+        dynamic_refresh = ({key: value for key, value in refresh.items() if key != "sync"}
+                           if isinstance(refresh, dict) else None)
+        payload = {"identity": identity, "source": diagnostics, "sync": sync}
+        encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False,
+                             sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        handle = self._envelope_handles.get(digest)
+        if handle is None:
+            prefix = "v-" + digest[:4]
+            sequence = 1
+            handle = prefix + "-" + str(sequence)
+            while handle in self._envelope_versions and self._envelope_versions[handle]["digest"] != digest:
+                sequence += 1
+                handle = prefix + "-" + str(sequence)
+            self._envelope_handles[digest] = handle
+        existing = handle in self._envelope_versions
+        self._envelope_versions[handle] = {"digest": digest, **payload}
+        self._envelope_versions.move_to_end(handle)
+        while len(self._envelope_versions) > 128:
+            old_handle, old_value = self._envelope_versions.popitem(last=False)
+            if self._envelope_handles.get(old_value["digest"]) == old_handle:
+                del self._envelope_handles[old_value["digest"]]
+        result["v"] = handle
+        if existing:
+            result["source"] = identity
+            if dynamic_refresh is not None:
+                result["refresh"] = dynamic_refresh
+        return result
 
     def close(self):
         if self._source_watcher is not None:
@@ -665,11 +804,36 @@ class StdioMcpServer:
         small without deleting any implementation.
         """
         scope = self._tool_scope()
-        return [name for name in TOOL_SCHEMAS if not scope or name in scope]
+        expired = _legacy_compatibility_expired(release_version())
+        available = [name for name in TOOL_SCHEMAS
+                     if not expired or name not in DEPRECATED_TOOL_TARGETS]
+        if not scope:
+            return available
+        allowed = set(available)
+        return list(dict.fromkeys(name for name in scope if name in allowed))
+
+    @staticmethod
+    def _legacy_tool_removed(name):
+        return (name in DEPRECATED_TOOL_TARGETS
+                and _legacy_compatibility_expired(release_version()))
 
     def _tool_enabled(self, name):
-        scope = self._tool_scope()
-        return not scope or name in scope
+        """Explicit scopes restrict calls; quick/deep presets only filter discovery.
+
+        The quick preset must keep deprecated handlers callable during the
+        compatibility window even though they are omitted from tools/list.
+        A host environment override or an explicit user allowlist remains a
+        hard capability boundary.
+        """
+        override = os.environ.get("BOOKMARK_RESEARCH_TOOL_SCOPE")
+        if override is not None:
+            scope = [item.strip() for item in override.split(",") if item.strip()]
+            return not scope or name in scope
+        preferences = self.settings.load()
+        explicit = preferences.get("tool_scope") or []
+        if explicit:
+            return name in explicit
+        return preferences.get("tool_scope_preset", "quick") in ("quick", "deep", "all")
 
     def _hydrate_sources(self, sources):
         """Turn capture pointers into verified evidence before bundling.
@@ -729,6 +893,15 @@ class StdioMcpServer:
             hydrated.append(row)
         return hydrated
 
+    def _locate_canvas(self, arguments):
+        """Thin MCP adapter around the shared Canvas locate primitive."""
+        requested = arguments.get("in", ["canvas"])
+        if arguments.get("handle"):
+            requested = continuation_scope(arguments["handle"], self.db_path)
+        wiki = self._wiki() if requested == ["wiki"] else None
+        raw = self._raw() if requested == ["archive"] else None
+        return locate_core(self._local(), self._sources(), arguments, wiki=wiki, raw=raw)
+
     def _call(self, name, arguments):
         # Explicit dispatch ensures input can never select a Python method,
         # executable, SQL statement, or unadvertised capability.
@@ -775,6 +948,151 @@ class StdioMcpServer:
             return self._sources().remove(**arguments)
         if name == "source_merge":
             return self._sources().merge(**arguments)
+        if name == "locate":
+            return self._locate_canvas(arguments)
+        if name == "search":
+            return self._web().search(
+                targets=[{"target": arguments["query"], "query": arguments["query"]}],
+                providers=arguments.get("providers"),
+                limit_per_target=arguments.get("limit", 8),
+            )
+        if name == "fetch":
+            return self._call("fetch_web", dict(arguments))
+        if name == "ingest":
+            batches = arguments.get("batches")
+            if isinstance(batches, list) and len(batches) > 16:
+                raise ValueError("ingest accepts at most 16 batches; use the CLI file path for larger input")
+            encoded = json.dumps(arguments, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+            if len(encoded) > 8000:
+                raise ValueError("ingest payload exceeds 8,000 characters; use the CLI file path for larger input")
+            return self._call("merge_search_results", dict(arguments))
+        if name == "spawn":
+            return self._call("research_service_start", dict(arguments))
+        if name == "job":
+            options = dict(arguments)
+            action = options.pop("action", "status")
+            external_id = options.pop("external_id")
+            if action == "status":
+                return self._services().status(external_id, options.get("refresh", False))
+            if action == "result":
+                return self._services().result(external_id, options.get("refresh", False),
+                                                options.get("offset", 0), options.get("limit", 12000))
+            return self._services().cancel(external_id)
+        if name == "health":
+            source_report = self._sources().status()
+            sources = []
+            for source in source_report.get("sources", []):
+                sources.append({key: source.get(key) for key in ("source_id", "mode", "state", "version_id")
+                                if source.get(key) is not None})
+            watcher = self._source_watcher.status() if self._source_watcher else {"running": False}
+            return {"status": "ok" if not source_report.get("errors") else "degraded",
+                    "sources": sources, "watcher": {"running": bool(watcher.get("running"))}}
+        if name == "read":
+            options = dict(arguments)
+            version_handle = options.pop("v", None)
+            if version_handle:
+                cached = self._envelope_versions.get(version_handle)
+                if cached is None:
+                    raise ValueError("unknown or expired source metadata ref")
+                self._envelope_versions.move_to_end(version_handle)
+                metadata = {"v": version_handle, "source": {**cached["source"], **cached["identity"]}}
+                if cached.get("sync") is not None:
+                    metadata["refresh"] = {"sync": cached["sync"]}
+                return metadata
+            ref = options.pop("ref", None)
+            canvas_ref = False
+            default_canvas_read = False
+            if ref:
+                resolved = resolve_ref(ref)
+                if resolved is None:
+                    raise ValueError("Unknown or expired ref; call locate again")
+                if resolved["kind"] == "w":
+                    page_id, revision = resolved["identity"]
+                    options.setdefault("page_id", page_id)
+                    options.setdefault("revision", int(revision))
+                elif resolved["kind"] == "b":
+                    canvas_ref = True
+                    default_canvas_read = "collection" not in options
+                    source_id, version_id, section_id, item_id = resolved["identity"]
+                    current = self._sources().source_status(source_id)
+                    if version_id and current.get("version_id") != version_id:
+                        raise ValueError("stale_ref: source version changed; call locate again")
+                    options.setdefault("source_id", source_id)
+                    options.setdefault("section", section_id)
+                    options.setdefault("item_id", item_id)
+                elif resolved["kind"] == "a":
+                    capture_id, expected_sha, url = resolved["identity"]
+                    if not capture_id or not url:
+                        raise ValueError("Archive ref has no readable capture; use fetch on the hit URL")
+                    from archive import SourceArchive
+                    prefs = self.settings.load()["fetch"]
+                    archived = SourceArchive(self.settings.load()["archive"]["directory"]).read_capture(
+                        capture_id, [url], max_characters=prefs["max_characters"],
+                        max_total_characters=prefs["max_total_characters"],
+                        fair_share_min=prefs["fair_share_min"])
+                    page = archived.get("pages", [{}])[0]
+                    if expected_sha and page.get("sha256") != expected_sha:
+                        raise ValueError("stale_ref: archived capture hash changed")
+                    return archived
+                else:
+                    raise ValueError("Unsupported ref kind")
+            if options.get("page_id"):
+                page_id = options.pop("page_id")
+                revision = options.pop("revision", None)
+                return self._wiki().get(page_id, revision)
+            if options.get("research_id"):
+                research_id = options.pop("research_id")
+                evidence_source_id = options.pop("evidence_source_id", None)
+                evidence_source_ids = options.pop("evidence_source_ids", None)
+                if options.keys() - {"offset", "limit"}:
+                    raise ValueError("research evidence read accepts research_id, source IDs, offset and limit")
+                return self._research().source(research_id, source_id=evidence_source_id,
+                                               offset=options.get("offset", 0),
+                                               limit=options.get("limit", 12000),
+                                               source_ids=evidence_source_ids)
+            if "source_id" not in options:
+                raise ValueError("read requires a Canvas ref/source_id, Wiki ref/page_id, or research_id")
+            if canvas_ref and options.get("collection") == "all":
+                options.pop("collection")
+            elif canvas_ref and "collection" not in options:
+                options.setdefault("collection", "items")
+                options.setdefault("limit", 1)
+                options.setdefault("compact", True)
+            result = self._call("get_context", options)
+            if default_canvas_read and isinstance(result, dict):
+                pagination = result.get("pagination", {})
+                result = {
+                    "source_id": result.get("source_id"),
+                    "items": result.get("items", []),
+                    "source": result.get("source", {}),
+                    "refresh": result.get("refresh", {}),
+                    "read_scope": "target_item_and_folder_ancestors",
+                    "pagination": {"items": pagination.get("items", {})},
+                }
+            if isinstance(result, dict) and isinstance(result.get("source"), dict):
+                result["source"].setdefault("source_id", options["source_id"])
+            return self._compact_source_envelope(result)
+        if name == "walk":
+            options = dict(arguments)
+            ref = options.pop("ref", None)
+            if ref:
+                resolved = resolve_ref(ref)
+                if resolved is None:
+                    raise ValueError("Unknown or expired ref; call locate again")
+                if resolved["kind"] != "b":
+                    raise ValueError("walk supports Canvas bookmark refs only")
+                source_id, version_id, section_id, item_id = resolved["identity"]
+                current = self._sources().source_status(source_id)
+                if version_id and current.get("version_id") != version_id:
+                    raise ValueError("stale_ref: source version changed; call locate again")
+                options.setdefault("source_id", source_id)
+                options.setdefault("section", section_id)
+                options.setdefault("item_id", item_id)
+            if "source_id" not in options:
+                raise ValueError("walk requires ref or source_id")
+            return self._call("traverse_graph", options)
+        if name == "save":
+            return self._call("wiki_write", dict(arguments))
         if name == "plan_research" and not arguments.get("source_id"):
             from research_plan import ResearchPlan
             options = dict(arguments)
@@ -885,7 +1203,7 @@ class StdioMcpServer:
             params = _params(message.get("params", {}), ("name", "arguments"), ("name",))
             name, arguments = params["name"], params.get("arguments", {})
             _validate(_text_schema(128), name, "name")
-            if name not in TOOL_SCHEMAS:
+            if name not in TOOL_SCHEMAS or self._legacy_tool_removed(name):
                 return False
             if not self._tool_enabled(name):
                 return False
@@ -970,7 +1288,7 @@ class StdioMcpServer:
                 _params(params, ("name", "arguments"), ("name",))
                 name = params["name"]
                 _validate(_text_schema(128), name, "name")
-                if name not in TOOL_SCHEMAS:
+                if name not in TOOL_SCHEMAS or self._legacy_tool_removed(name):
                     raise RpcError(-32602, "Unknown tool: " + name)
                 if not self._tool_enabled(name):
                     raise RpcError(-32602, "Tool is outside this profile's tool_scope: " + name)

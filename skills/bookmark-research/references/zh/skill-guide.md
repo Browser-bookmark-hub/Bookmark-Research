@@ -6,10 +6,12 @@
 
 ## 日常流程
 
-1. **理解上下文。** 包内用 `search_bookmarks` 与 `get_context`；`plan_research(question, source_id?)` 汇总有界的书签、画布、Wiki 与归档候选。分数只是检索提示，结合邻近文字、分组、连线方向/标签及重复出现位置判断；完整范围要翻页。
-2. **复用知识。** 已知页面直接 `wiki_get`，否则 `wiki_search` 或 `search_archive`。Wiki 不依赖当前画布命中。字面无匹配不证明知识不存在，可换实体名、别名或原文语言，并检查时效和适用范围。
-3. **补足证据。** 明确 URL 用 `fetch_web` 或宿主读取器直接读；缺来源时用当前宿主实际搜索工具或 `search_web`，随后阅读页面。宿主判断证据并追查缺口；独立检索/读取可并行，支持用户所问范围后停止。
-4. **回答与保存。** 引用实际来源 URL，说明不可读取的页面和重要缺口。已授权存 Wiki 时，`wiki_write` 一次传入整理后的章节、精确引用以及已读正文/存档；来源留存由插件内部完成，普通回答无需先建研究任务。
+1. **定位本地证据。** Canvas 书签用 `locate(text=..., in=["canvas"])` 和元数据过滤；Wiki 修订用 `locate(in=["wiki"])`；归档捕获用 `locate(in=["archive"])`。把返回的短 `ref` 传给 `read`；仅当 Canvas 条目有图节点时调用 `walk`。出现 `more` 时用其 handle/offset 续读。Canvas、Wiki、归档跨域问题可用 `plan_research(question, source_id?)` 获取有界总览。
+2. **搜索并读取网页。** 优先使用宿主实际提供的搜索工具；宿主结果不足或需要 provider 多样性时用插件 `search(query, providers?)`。搜索结果是发现摘要；已知 URL 用 `fetch(urls)` 读取并检查 `content_state`，续读时使用保存的 capture ID。后续查询由宿主决定，在支持用户所问范围后停止。
+3. **需要时归并宿主结果。** 将规范化的宿主/provider 批次传给 `ingest`，执行确定性 URL 与内容哈希去重、RRF 排序，并保留 provider/失败来源。内联最多 16 批、8,000 字符；更大批次用 `br ingest --input <file>`。归并不负责决定下一轮搜索或判断事实真伪。
+4. **回答与留存知识。** 引用实际来源 URL，说明不可读取页面和重要缺口。获准存入 Wiki 时用 `save` 写整理后的章节、精确引用与已读正文/捕获，传入 expected_revision 和真实 review。搜索摘要不能证明页面事实；provider 命中重合不等于独立事实确认；引用未经核验的模型回答仍属二手证据。
+
+将 `locate` 用作有界证据循环。若 `coverage` 和 `next` 表明标题/URL/Note/Tag 有直接命中，读取排序最高且匹配问题的条目；证据足够就停止。若只有继承命中，用返回的 `folder_id` 和 `source_id` 调用不带 text/url 的 locate，列出直属子项；若无命中，按数据生成的 `hints` 调整查询，最多调用三次 locate。严禁用递归 `/**/` glob 扫全包。不要用 Bash 解析原始 JSON 反推 locate 结果；Bash 检查超过约 5 秒时改用 `locate`/`read`。
 
 已知 URL 不需要预先路由、服务检查或证据包。搜索摘要不能证明页面事实。复用已读材料，只为缺失上下文、输入变化或必要时效核验重新获取。优先使用现有宿主能力，遵守用户指定 provider；插件可作为另一检索渠道。provider 回退/并发在 search/fetch 内处理。已授权的浏览器或爬虫取得的正文也可走同一个 Wiki 来源输入。
 
@@ -17,17 +19,17 @@
 
 复用已有 source_id。一次性读 JSON 无需导入；可复用的导出使用 `sync_package(mode:"snapshot", completeness:"partial")`，持续目录可用 live，明确完整镜像才用 complete。外部授权编辑后同步同一个来源。
 
-区分书签实例、唯一 URL 与副本。搜索结果的 canvas_matches 包含文字/分组/连线命中；get_context 提供矩形、包含关系、邻近文本与有向/有标签连线。接近不等于备注归属。大结果用 compact 分页，按引用顺序读取。见[包语义](package-semantics.md)。
+区分书签实例、唯一 URL 与副本。`read(ref=...)` 返回有界卡片上下文；`walk` 沿 Canvas 连线与 memberships 遍历。推断前检查邻近文字、包含关系、连线标签和方向；空间接近不能证明备注归属。大结果按 `more/next` 续读并保留原范围。见[包语义](package-semantics.md)。
 
 时间变化结合日期字段/ID 线索与宿主 Git 工具的真实内容差异（git log/show/diff）。保留日期含义与精度；收藏不证明阅读或掌握。source_history 是导入快照，不是 Git。见[Git 与学习回顾](github-and-sync.md#回顾学习阶段)。
 
 ## Wiki
 
-直接写入的 sources/citations 格式见 [Wiki](wiki.md)。review 如实标明审阅者；引用须来自实际读过的正文。更新前读取当前 revision 并传 expected_revision。遵守既有授权及 wiki.after_research，报告实际写入的页面和版本。保存一个回答不会扩成整库审查。
+`save` 的 sources/citations 格式见 [Wiki](wiki.md)。review 如实标明审阅者；引用须来自实际读过的正文。更新前读取当前 revision 并传 expected_revision。遵守既有授权及 wiki.after_research，报告实际写入的页面和版本。保存一个回答不会扩成整库审查。
 
 ## 持续调研
 
-API 深研可先用 research_service_prepare 看请求，再调用 research_service_start(input, operation_id, provider?)；research_id 可省略。按返回 external_id 观察状态并读完报告，需要时核验其引用的原始页面。报告属于二手证据。配置/恢复见[研究服务](research-services.md)。
+API 深研用 `spawn(input, operation_id, provider?)` 提交；research_id 可省略。用返回 external_id 调用 `job(action="status|result|cancel")`，读完结果页并按需核验原始引用。报告属于二手证据。配置/恢复见[研究服务](research-services.md)。
 
 明确要求整包覆盖或可续做调查时，切到完整工具目录（update_settings 的 tool_scope_preset:"deep"），使用[持续研究](deep-research.md)的清单、预算、覆盖与断点记录。仅在有用且已授权委派时读[宿主工作流](host-workflows.md)。普通独立问题使用现有宿主子代理即可，传递相关指令并审阅结果。
 
