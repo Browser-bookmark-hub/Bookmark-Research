@@ -4,29 +4,34 @@
 
 所有命令使用 Python 3.9+ 标准库，stdout 为 JSON。把 `<root>` 替换为本插件实际绝对路径。包路径、来源名、公司名、节点 ID 和 example.com URL 均为占位示例，使用时替换为用户输入或实际查询结果。插件没有预置这些来源或书签。`--db` 与 `--config` 是全局参数，须放在子命令之前。MCP 提供相同核心能力；CLI 是未接 MCP 载体的执行入口。
 
-| MCP | CLI 命令 |
+| MCP 原语 | CLI 命令 |
 | --- | --- |
-| `research_readiness` | `readiness` |
-| 终端配置向导 | `setup` |
-| `index_status`／`sync_package` | `status`／`sync` |
-| `search_bookmarks`／`get_context` | `search`／`context` |
-| `fetch_web`／`search_web` | `fetch-web`／`search-web` |
-| `search_archive` | `search-archive` |
-| `research_start`／`research_fetch` | `research start`／`research fetch` |
-| `wiki_refresh`／`wiki_list` | `wiki refresh`／`wiki list --source-url URL` |
-| `wiki_work` | `wiki work --research-id ID`／`wiki work --kind page --status needs_review` |
+| `locate` | `locate`（文本、URL、目录子项、标签／Note 过滤） |
+| `read` | `context`（卡片、栏目条目、分组、连线）；`read` 目前仅 MCP |
+| `walk` | `traverse` |
+| `search` | `search-web` |
+| `fetch` | `fetch-web` |
+| `ingest` | `ingest` |
+| `save` | `wiki write` |
+| `spawn` | `job submit`（本地任务）或 `research service start`（provider 长任务） |
+| `job` | `job submit|list|status|result|cancel|worker` |
+| `health` | `status`／`providers` |
+
+默认 MCP 面为 10 个原语。CLI 保留历史命令名（`context`、`traverse`、`search-web`、`fetch-web`），但共享同一 core、ref 与返回 schema；`locate`、`dupes`、`job` 两个入口同名。所有命令都支持全局 `--json`、`--out FILE`、`--quiet`、`--fields`。
 
 ```sh
-python3 <root>/src/cli.py doctor
-python3 <root>/src/cli.py sync /absolute/path/to/package --source-id my-canvas
-python3 <root>/src/cli.py status
-python3 <root>/src/cli.py search my-canvas --target '示例公司甲' --target '示例公司乙' --section A --limit 5
-python3 <root>/src/cli.py search my-canvas --group card-group-example --limit 50
-python3 <root>/src/cli.py context my-canvas --group card-group-example
-python3 <root>/src/cli.py context my-canvas --item actual-bookmark-id
+python3 <root>/src/cli.py locate --source-id my-canvas --text '示例公司甲' --limit 5
+python3 <root>/src/cli.py locate --source-id my-canvas --folder-id <folder-id>
+python3 <root>/src/cli.py locate --source-id my-canvas --has-note
+python3 <root>/src/cli.py dupes --source-id my-canvas --limit 20
+python3 <root>/src/cli.py job submit --kind fetch --input job.json --idempotency-key op-1
+python3 <root>/src/cli.py job worker --concurrency 2
+python3 <root>/src/cli.py serve
 ```
 
-`sync` 接受目录、ZIP 或单卡 JSON；`--mode snapshot` 保存快照，`--mode live` 绑定持续目录。`--completeness partial` 保留未提供文件，明确完整镜像才用 `complete`。新普通导出默认 snapshot、Git 目录默认 live；已有来源沿用原模式。同一画布的新导出沿用 `--source-id`。完整说明见 [来源生命周期](source-lifecycle.md)。
+`locate` 覆盖三种查询形状：文本或 URL；只给 `--folder-id` 列直接子项；只给元数据过滤（`--tag`、`--tag-color`、`--has-note`/`--without-note`、`--has-tags`/`--without-tags`）。需要先导入包或卡片导出时，先跑 `sync`（支持目录、ZIP、无 id 的 section JSON、Netscape HTML 与包裹），再用 `locate --source-id` 查询。`dupes` 按 URL 分组并给出建议保留项（分隔符噪音行已排除）。`job` 提交到本地持久化队列，单例 `job worker` 用有界线程池执行。`serve` 从源码启动 stdio MCP 服务。
+
+`sync` 接受目录、ZIP、单卡 JSON、无 id 的卡片导出、Netscape 书签 HTML 与 `{"data": …}` 包裹；`--mode snapshot` 保存快照，`--mode live` 绑定持续目录。`--completeness partial` 保留未提供文件，明确完整镜像才用 `complete`。新普通导出默认 snapshot、Git 目录默认 live；已有来源沿用原模式。同一画布的新导出沿用 `--source-id`。完整说明见 [来源生命周期](source-lifecycle.md)。
 
 `history <source-id>` 列出内容版本与可恢复的快照路径。MCP 运行期间自动检查 live 来源；只用终端时可运行 `watch`，前台持续检查并输出状态变化的 JSON 行。
 

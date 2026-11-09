@@ -15,7 +15,7 @@ The host owns reasoning, search decisions, agent coordination and source-file ed
 
 A path ending in `.canvas`, a `.zip`, a directory containing a `.canvas`, a JSON whose `format` starts with `bookmark-canvas` (including a `{"data": …}` wrapper), or the card's right-click export (a section JSON without ids, or a Netscape bookmark `.html`) is plugin input, not text to parse. Call `locate(package_path=<path>)` once: it imports a snapshot and returns counts, sections (with their `source`/`temp_kind`), notes, search-result pages, divider/junk rows and duplicate groups. Then search with `locate(source_id=..., text=...)` and open hits with `read(ref=...)`.
 
-Never `cat`, `json.load`, `jq` or regex the artifact instead: raw parsing loses refs, source versions, counts and the line between discovery, page text and archived evidence. If the plugin cannot read the format, say so instead of silently parsing it.
+Never `cat`, `json.load`, `jq` or regex the artifact instead: raw parsing loses refs, source versions, counts and the line between discovery, page text and archived evidence. If the plugin cannot read the format, say so instead of silently parsing it. The CLI runs the same core with historical names (`context`, `traverse`, `search-web`, `fetch-web`) plus `locate`, `dupes` and `job`; see [CLI](references/cli.md) when a host lacks the MCP tool.
 
 ## One ordinary workflow
 

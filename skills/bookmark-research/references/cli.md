@@ -4,29 +4,34 @@
 
 Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<root>` with the actual absolute plugin path. Package paths, source/company names, node IDs and example.com URLs are placeholders for user input or actual query results; the plugin does not preload them. Global `--db` and `--config` options precede the subcommand. MCP provides the same core operations. Use the CLI in any host missing the required MCP tool.
 
-| MCP | CLI command |
+| MCP primitive | CLI command |
 | --- | --- |
-| `research_readiness` | `readiness` |
-| Terminal-only setup | `setup` |
-| `index_status` / `sync_package` | `status` / `sync` |
-| `search_bookmarks` / `get_context` | `search` / `context` |
-| `fetch_web` / `search_web` | `fetch-web` / `search-web` |
-| `search_archive` | `search-archive` |
-| `research_start` / `research_fetch` | `research start` / `research fetch` |
-| `wiki_refresh` / `wiki_list` | `wiki refresh` / `wiki list --source-url URL` |
-| `wiki_work` | `wiki work --research-id ID` / `wiki work --kind page --status needs_review` |
+| `locate` | `locate` (text, URL, folder children, tags/has-note) |
+| `read` | `context` (card, section items, group, edges); `read` itself is MCP-only for now |
+| `walk` | `traverse` |
+| `search` | `search-web` |
+| `fetch` | `fetch-web` |
+| `ingest` | `ingest` |
+| `save` | `wiki write` |
+| `spawn` | `job submit` (local work) or `research service start` (provider run) |
+| `job` | `job submit|list|status|result|cancel|worker` |
+| `health` | `status` / `providers` |
+
+The default MCP surface is 10 primitives. The CLI keeps its historical command names (`context`, `traverse`, `search-web`, `fetch-web`) while sharing the same core, refs and result schema; `locate`, `dupes` and `job` use the same names on both entries. Every command accepts global `--json`, `--out FILE`, `--quiet` and `--fields`.
 
 ```sh
-python3 <root>/src/cli.py doctor
-python3 <root>/src/cli.py sync /absolute/path/to/package --source-id my-canvas
-python3 <root>/src/cli.py status
-python3 <root>/src/cli.py search my-canvas --target 'Example Company A' --target 'Example Company B' --section A --limit 5
-python3 <root>/src/cli.py search my-canvas --group card-group-example --limit 50
-python3 <root>/src/cli.py context my-canvas --group card-group-example
-python3 <root>/src/cli.py context my-canvas --item actual-bookmark-id
+python3 <root>/src/cli.py locate --source-id my-canvas --text 'Example Company A' --limit 5
+python3 <root>/src/cli.py locate --source-id my-canvas --folder-id <folder-id>
+python3 <root>/src/cli.py locate --source-id my-canvas --has-note
+python3 <root>/src/cli.py dupes --source-id my-canvas --limit 20
+python3 <root>/src/cli.py job submit --kind fetch --input job.json --idempotency-key op-1
+python3 <root>/src/cli.py job worker --concurrency 2
+python3 <root>/src/cli.py serve
 ```
 
-`sync` accepts directories, ZIPs or single-card JSON. `--mode snapshot` saves a snapshot; `--mode live` connects a persistent directory. `--completeness partial` retains omitted files; use `complete` only for a confirmed full mirror. New ordinary exports default to snapshot, Git directories to live; existing sources retain their mode. Reuse `--source-id` for a new export of the same canvas. See [source lifecycle](source-lifecycle.md).
+`locate` covers the three query shapes: text or URL; `--folder-id` with no text to list direct children; metadata filters (`--tag`, `--tag-color`, `--has-note`/`--without-note`, `--has-tags`/`--without-tags`) with no text. To import a package or a card export first, run `sync` (it accepts directories, ZIPs, section JSON without ids, Netscape HTML and envelopes), then `locate --source-id`. `dupes` groups duplicate URLs and proposes a keeper (divider rows excluded). `job` submits to the durable local queue; a single worker (`job worker`) executes with a bounded pool. `serve` runs the stdio MCP server from source.
+
+`sync` accepts directories, ZIPs, single-card JSON, card exports without ids, Netscape bookmark HTML and `{"data": …}` envelopes. `--mode snapshot` saves a snapshot; `--mode live` connects a persistent directory. `--completeness partial` retains omitted files; use `complete` only for a confirmed full mirror. New ordinary exports default to snapshot, Git directories to live; existing sources retain their mode. Reuse `--source-id` for a new export of the same canvas. See [source lifecycle](source-lifecycle.md).
 
 `history <source-id>` lists versions and recoverable snapshot paths. MCP checks live sources while running. In terminal-only use, `watch` provides foreground monitoring and JSON lines for status changes.
 
