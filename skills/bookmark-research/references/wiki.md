@@ -89,4 +89,18 @@ New revision records store evidence paths relative to their research task. `wiki
 
 Each write regenerates `index.md` (current pages by kind: link, title, one-line summary, revision, date, claim count) and appends `log.md` (`## [date] write | title (rN)` with page ID, change note and research IDs). Read or grep them to orient; `index.json` and revision files remain authoritative, and `wiki_lint` warns `catalog_stale`/`catalog_missing` until the next write regenerates `index.md`.
 
+## Plan an incremental compile
+
+`wiki_compile(action:"plan", source_id=…, folder_id/tags/query?, max_pages, min_cluster_size, max_items_per_cluster)` (deep preset; CLI `br wiki compile plan`) is the deterministic half of a compile run. It resolves the scope, drops search-result pages, dividers and duplicate URLs, clusters the remaining bookmarks by folder, and compares their URLs with the current revisions. Each cluster carries its planned items (short refs, URLs, notes, tags), `existing_pages`, `affected_pages` and a `page_id_hint`; items beyond the budget appear as `deferred`. Planning starts no fetch and writes no page — the plan file is `compile/<plan_id>.json` under the Wiki directory.
+
+`wiki_compile(action:"status", plan_id=…)` recomputes coverage from the current revisions and reports `covered_items`/`gap_items`/`pending_items` per cluster plus the pages each cluster touches; `coverage_basis` states that the denominator is the planned (capped) items, and `source_changed` flags a package that moved since planning. Write or merge the pending clusters with `save(expected_revision=…)`, then run status again.
+
+When a planned URL was attempted but the provider returned nothing usable, record it instead of leaving it pending forever:
+
+```json
+{"action":"gap","plan_id":"…","urls":["https://example.com/a"],"reason":"provider returned no content","provider":"parallel"}
+```
+
+`gap` writes `compile/<plan_id>.gaps.json`; it never covers an item. If the URL later becomes cited, coverage wins over the gap. Coverage is URL-based and is not a semantic review.
+
 Complete an already authorized Wiki write without asking again; use only eligible reviewed claims. `research_finish.wiki_follow_up` follows `settings.wiki.after_research`: `auto` (default) synthesizes reviewed claims and automatically writes or merges into the eligible topic page without blocking for confirmation, `suggest` offers candidates before writing and requests confirmation, and `off` skips it. Updates still require the current `expected_revision`. Report completed writes. The `eligible_claims` list marks each claim's exact first quotes and whether it is an inference. `draft.page` goes one step further: sections are grouped by question, the text is the claim statements themselves, and every section already carries its `{research_id, claim_id}` list split at the write limits, so one `wiki_write` with the actual review block can save the bounded page within existing authorization. `remaining_claim_ids` identifies claims that need another page. Do not add claims outside that list.

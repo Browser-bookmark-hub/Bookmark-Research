@@ -89,7 +89,7 @@ class McpServerTests(unittest.TestCase):
             "research_service_prepare", "research_service_start", "research_service_status",
             "research_service_result", "research_service_cancel", "research_service_attach", "read", "walk", "save",
             "research_service_import", "spawn", "job", "health", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
-            "wiki_lint", "wiki_acknowledge", "wiki_refresh", "wiki_work"})
+            "wiki_lint", "wiki_acknowledge", "wiki_refresh", "wiki_work", "wiki_compile"})
         self.assertTrue(all(tool["inputSchema"]["additionalProperties"] is False for tool in listing))
         tools = {tool["name"]: tool for tool in listing}
         plan = tools["plan_research"]

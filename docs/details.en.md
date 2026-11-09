@@ -223,6 +223,7 @@ The `deep` preset additionally exposes the catalog below; the deprecated aliases
 | `wiki_write` / `wiki_get` / `wiki_list` / `wiki_search` / `wiki_lint` / `wiki_acknowledge` | Maintain reviewed knowledge, immutable evidence-linked revisions and input review acknowledgements |
 | `wiki_refresh` | Fetch cited URLs, record source observations and identify pages that need review |
 | `wiki_work` | Resume compilation and review using saved work states and committed publication receipts |
+| `wiki_compile` | Plan an incremental compile from a bookmark scope and audit coverage against current revisions; planning writes a plan file only |
 
 ### Web providers
 

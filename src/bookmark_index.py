@@ -975,6 +975,31 @@ class BookmarkIndex:
             clauses.append("(" + (" OR " if metadata_match == "any" else " AND ").join(metadata_clauses) + ")")
         return clauses, args
 
+    def bookmark_rows(self, source_id, section=None, folder_id=None, tags=None, limit=2000, offset=0):
+        """Return lightweight bookmark rows for planning; raw JSON stays out.
+
+        This is the paging surface for derived work that needs every bookmark's
+        title, URL, note, folder path and tags, but not the full item payload.
+        """
+        source_id = self.resolve_source_id(source_id)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 5000:
+            raise ValueError("limit must be an integer from 1 to 5000")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+        self._source(source_id)
+        clauses, args = self._scope(source_id, section, None, folder_id, tags, None,
+                                    ["bookmark"], None, None, "all")
+        rows = self.connection.execute(
+            "SELECT i.section_id, i.item_id, i.title, i.url, i.note, i.folder_path, i.tags_json, i.added_at"
+            " FROM items i WHERE " + " AND ".join(clauses) +
+            " ORDER BY i.section_id, i.preorder, i.item_id LIMIT ? OFFSET ?",
+            args + [limit, offset]).fetchall()
+        return [{"section_id": row["section_id"], "item_id": row["item_id"],
+                 "title": row["title"] or "", "url": row["url"] or "",
+                 "note": row["note"] or "", "folder_path": row["folder_path"] or "",
+                 "tags": json.loads(row["tags_json"] or "[]"), "added_at": row["added_at"]}
+                for row in rows]
+
     def source_summary(self, source_id):
         """Recognise a freshly imported package: counts, sections, noise, duplicates."""
         source_id = self.resolve_source_id(source_id)

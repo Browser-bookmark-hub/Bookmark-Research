@@ -11,7 +11,7 @@ Research with bookmark context and retain reusable knowledge. Read a [Bookmark C
 
 ## Version 0.7.0
 
-0.7.0 consolidates the CLI and MCP entries into one tool surface: 10 default primitives, a durable local job queue, card-export imports (JSON or Netscape HTML), search-result page skipping and a TTL fetch cache. The full catalog still lists 57 names; deprecated names stay callable until the 0.8.0 cutoff.
+0.7.0 consolidates the CLI and MCP entries into one tool surface: 10 default primitives, a durable local job queue, card-export imports (JSON or Netscape HTML), search-result page skipping and a TTL fetch cache. The full catalog still lists 58 names; deprecated names stay callable until the 0.8.0 cutoff.
 
 The stable release includes bilingual Canvas package support, safer Exa batch reading that isolates ambiguous pages, and concise installation/update summaries. Installation prints the version, actual paths, checks and any required action. Use `--json` for complete structured diagnostics; `--non-interactive` only disables prompts. Existing settings, credentials and research data are retained during upgrades.
 
@@ -100,7 +100,7 @@ Install notes:
 | Duplicate URL report | `bookmark-research dupes --source-id <id>` |
 | Local job queue | `bookmark-research job submit --kind fetch --input job.json` · `bookmark-research job worker --concurrency 2` |
 
-Use `npx bookmark-research@latest …` if the command is not installed globally. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards. `--lang zh` shows the wizard and menu in Chinese. The default `quick` preset exposes 10 primitives shared by the CLI and MCP. Use `bookmark-research config set --tool-scope-preset deep` for the full catalog (57 names, including deprecated aliases) when a persistent collection audit is needed. An explicit `tool_scope` list still overrides the preset.
+Use `npx bookmark-research@latest …` if the command is not installed globally. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards. `--lang zh` shows the wizard and menu in Chinese. The default `quick` preset exposes 10 primitives shared by the CLI and MCP. Use `bookmark-research config set --tool-scope-preset deep` for the full catalog (58 names, including deprecated aliases) when a persistent collection audit is needed. An explicit `tool_scope` list still overrides the preset.
 
 **Update.** Run `npx bookmark-research@latest install` and confirm the upgrade/overwrite plan to adopt the latest release for your installed clients. For Codex without prompts, use `npx bookmark-research@latest install codex --non-interactive --replace-source`. `bookmark-research update` refreshes the recorded source: Git/npm selectors follow their selected ref, while a bundled build or pinned release stays on that build. Both paths preserve preferences, keys and data. Start a new host session afterwards.
 
@@ -173,7 +173,7 @@ Default MCP tools:
 
 Long or batch work does not block a tool step: `spawn(task="fetch"|"ingest"|"research", args)` enqueues it, a singleton `bookmark-research job worker` executes it with a bounded pool, and `job(job_id)` reports state and result. The queue is shared by every host and the CLI.
 
-The `deep` preset additionally exposes the deprecated aliases (`search_bookmarks`, `get_context`, `fetch_web`, `wiki_write`, …), source maintenance, persistent research records, routing diagnostics and Wiki maintenance. Deprecated names are hidden from the default catalog and will be rejected at 0.8.0. Git history uses the host's shell.
+The `deep` preset additionally exposes the deprecated aliases (`search_bookmarks`, `get_context`, `fetch_web`, `wiki_write`, …), source maintenance, persistent research records, routing diagnostics, Wiki maintenance and `wiki_compile` incremental compile plans. Deprecated names are hidden from the default catalog and will be rejected at 0.8.0. Git history uses the host's shell.
 
 Tool descriptions: [details](docs/details.en.md#mcp-tools).
 

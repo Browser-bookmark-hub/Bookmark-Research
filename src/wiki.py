@@ -69,6 +69,14 @@ class WikiStore:
         """
         return settings.load().get("wiki", {}).get("directory", Settings.data_directory() / "wiki")
 
+    def enabled(self):
+        """Whether Wiki storage and its tools are available in this profile."""
+        return bool(self.settings.load().get("wiki", {}).get("enabled", True))
+
+    def _require_enabled(self):
+        if not self.enabled():
+            raise ValueError("Wiki is disabled; enable wiki.enabled in settings to read or write Wiki pages")
+
     @staticmethod
     def _slug(value):
         if not isinstance(value, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,79}", value):

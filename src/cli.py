@@ -361,6 +361,25 @@ def _parser():
     refresh.add_argument("--max-characters", type=int)
     refresh.add_argument("--offset", type=int, default=0)
     refresh.add_argument("--limit", type=int, default=8)
+    compile_parser = wiki_commands.add_parser("compile", help="Plan and audit incremental Wiki compilation")
+    compile_commands = compile_parser.add_subparsers(dest="compile_command", required=True)
+    compile_plan = compile_commands.add_parser("plan", help="Write a deterministic compile plan; starts no work")
+    compile_plan.add_argument("--source-id", required=True)
+    compile_plan.add_argument("--section")
+    compile_plan.add_argument("--folder-id")
+    compile_plan.add_argument("--tag", action="append", default=[])
+    compile_plan.add_argument("--query")
+    compile_plan.add_argument("--max-pages", type=int, default=12)
+    compile_plan.add_argument("--min-cluster-size", type=int, default=3)
+    compile_plan.add_argument("--max-items", type=int, default=40)
+    compile_plan.add_argument("--include-covered", action="store_true")
+    compile_status = compile_commands.add_parser("status", help="Recompute coverage and gaps for a stored plan")
+    compile_status.add_argument("--plan-id", required=True)
+    compile_gap = compile_commands.add_parser("gap", help="Record planned URLs that could not be read")
+    compile_gap.add_argument("--plan-id", required=True)
+    compile_gap.add_argument("--url", action="append", required=True)
+    compile_gap.add_argument("--reason", required=True)
+    compile_gap.add_argument("--provider")
     for name in ("list", "search"):
         view = wiki_commands.add_parser(name)
         if name == "search":
@@ -625,6 +644,21 @@ def main(argv=None):
                                        expected_revision=args.expected_revision, offset=args.offset, limit=args.limit)
             elif args.wiki_command == "search":
                 result = store.search(args.query, args.offset, args.limit)
+            elif args.wiki_command == "compile":
+                from wiki_compile import WikiCompile
+                with BookmarkIndex(str(_database(args.db)), readonly=True) as index:
+                    compiler = WikiCompile(index, store, settings)
+                    if args.compile_command == "plan":
+                        result = compiler.plan(
+                            args.source_id, section=args.section, folder_id=args.folder_id,
+                            tags=args.tag or None, query=args.query, max_pages=args.max_pages,
+                            min_cluster_size=args.min_cluster_size,
+                            max_items_per_cluster=args.max_items,
+                            include_covered=args.include_covered)
+                    elif args.compile_command == "status":
+                        result = compiler.status(args.plan_id)
+                    else:
+                        result = compiler.gap(args.plan_id, args.url, args.reason, args.provider)
             else:
                 result = store.lint(args.page_id)
         elif args.command == "job":

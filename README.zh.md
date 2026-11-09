@@ -11,13 +11,13 @@
 
 ## 0.7.0 正式版
 
-0.7.0 把 CLI 与 MCP 合并成同一套工具面：默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存。全量目录仍保留 57 个名字；旧名从默认目录隐藏并标记 deprecated，将在 0.8.0 拒绝。升级保留已有配置、密钥和研究数据。
+0.7.0 把 CLI 与 MCP 合并成同一套工具面：默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存。全量目录仍保留 58 个名字；旧名从默认目录隐藏并标记 deprecated，将在 0.8.0 拒绝。升级保留已有配置、密钥和研究数据。
 
 ## 它是怎么工作的
 
 - **本地理解层。** 数据包按结构读，而不是一张平铺的 URL 清单：卡片与分组的位置、连线的方向与标签、同一书签在不同卡片的出现位置（空间上下文）；日期字段、ID 中协议定义的日期段，以及真正改过内容的 Git 提交（时间上下文）。这些都是离线查询。
 - **外部调研走三条路线。** 读取已知 URL 不需要推理；Agentic 搜索由宿主模型自己规划、搜索、阅读并追查缺口；Deep Research 可直接调用 OpenAI／Parallel 研究 API；完整清单与覆盖审计在明确需要时启用。`search_web` 聚合已配置的 URL 搜索来源（可选 Perplexity Search）；`agentic_search` 可按需返回 Grok 或用户自定义 OpenAI 兼容模型的回答与引用。自定义模型是否真正联网取决于上游能力，且不参加 URL 排名。
-- **可复核的知识存储。** 完成的研究可以沉淀成 Wiki：带历史版本和相互链接的已审核页面，之后提问直接复用，不必重新搜索网页。
+- **可复核的知识存储。** 完成的研究可以沉淀成 Wiki：带历史版本和相互链接的已审核页面，之后提问直接复用，不必重新搜索网页。安装向导或 `update_settings` 可用 `wiki.enabled` 关闭整个 Wiki；关闭后 `save` 与 Wiki 工具会从工具面消失。
 
 ## 环境要求
 
@@ -97,7 +97,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | 重复 URL 报告 | `bookmark-research dupes --source-id <id>` |
 | 本地作业队列 | `bookmark-research job submit --kind fetch --input job.json` · `bookmark-research job worker --concurrency 2` |
 
-没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。默认 `quick` 只暴露 CLI 与 MCP 共用的 10 个原语；`deep`（或 `all`）启用完整目录（57 个名字，含 deprecated 别名），供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
+没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。默认 `quick` 只暴露 CLI 与 MCP 共用的 10 个原语；`deep`（或 `all`）启用完整目录（58 个名字，含 deprecated 别名），供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
 
 **更新。** 运行 `npx bookmark-research@latest install`，在向导中确认升级覆盖，即可为已安装宿主采用最新发布版。Codex 无交互升级可用 `npx bookmark-research@latest install codex --non-interactive --replace-source`。`bookmark-research update` 刷新的是已登记来源：Git／npm 选择器沿用所选 ref，随包保留的构建或固定版本仍留在该构建。两种方式均保留偏好、Key 和数据；完成后新建宿主会话。
 
@@ -169,7 +169,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 长任务或批量任务不会占住工具步：`spawn(task="fetch"|"ingest"|"research", args)` 入队，单例 `bookmark-research job worker` 用有界线程池执行，`job(job_id)` 查看状态与结果；队列由三个宿主与 CLI 共享。
 
-`deep` 预设额外提供 deprecated 别名（`search_bookmarks`、`get_context`、`fetch_web`、`wiki_write` 等）、来源维护、完整研究记录、选路诊断与 Wiki 维护。旧名从默认目录隐藏，0.8.0 起拒绝。Git 时间上下文由宿主 shell 查询。
+`deep` 预设额外提供 deprecated 别名（`search_bookmarks`、`get_context`、`fetch_web`、`wiki_write` 等）、来源维护、完整研究记录、选路诊断、Wiki 维护与 `wiki_compile` 增量编译计划。旧名从默认目录隐藏，0.8.0 起拒绝。Git 时间上下文由宿主 shell 查询。
 
 ## 更多
 

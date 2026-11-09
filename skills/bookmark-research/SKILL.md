@@ -47,7 +47,7 @@ For changes over time, combine dated fields/ID clues with actual content differe
 
 ## Wiki storage
 
-Use [Wiki](references/wiki.md) for the `save` source/citation format and updates. Supply a truthful `review`; verify quotes against text actually read. Read the current revision and pass `expected_revision`. Honor existing authorization and `wiki.after_research`; report completed page IDs and revisions. Do not turn saving one answer into a review of the whole library.
+Use [Wiki](references/wiki.md) for the `save` source/citation format and updates; for a scoped compile plan use the deep `wiki_compile` tool or `br wiki compile plan`. If `wiki.enabled` is false, `save` and the Wiki tools are unavailable: report that instead of retrying or looking for another write path. Supply a truthful `review`; verify quotes against text actually read. Read the current revision and pass `expected_revision`. Honor existing authorization and `wiki.after_research`; report completed page IDs and revisions. Do not turn saving one answer into a review of the whole library.
 
 ## Extended research
 

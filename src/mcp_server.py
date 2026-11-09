@@ -486,6 +486,22 @@ TOOL_SCHEMAS.update({
     "wiki_search": _object_schema({"query": _text_schema(500), "offset": {"type": "integer", "minimum": 0, "maximum": 10000000},
         "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["query"]),
     "wiki_lint": _object_schema({"page_id": RESEARCH_ID}),
+    "wiki_compile": _object_schema({
+        "action": {"type": "string", "enum": ["plan", "status", "gap"]},
+        "source_id": IDENTIFIER,
+        "section": IDENTIFIER,
+        "folder_id": IDENTIFIER,
+        "tags": _array_schema(_text_schema(200), 100),
+        "query": _text_schema(2000),
+        "max_pages": {"type": "integer", "minimum": 1, "maximum": 50},
+        "min_cluster_size": {"type": "integer", "minimum": 1, "maximum": 100},
+        "max_items_per_cluster": {"type": "integer", "minimum": 1, "maximum": 200},
+        "include_covered": {"type": "boolean", "default": False},
+        "plan_id": {"type": "string", "pattern": "^[0-9a-f]{16}$"},
+        "urls": _array_schema(_text_schema(8192), 16, 1),
+        "reason": _text_schema(1000),
+        "provider": _text_schema(100),
+    }, ["action"]),
 })
 
 # P0b primitive names. The legacy schemas remain available during the
@@ -550,16 +566,23 @@ TOOL_DESCRIPTIONS.update({
     "wiki_refresh": "Fetch and archive up to 16 cited webpage URLs from one Wiki revision. Reports changed/unchanged/unverified captures and affected pages; follow continuation for more. Uses retrieval quota. Read saved captures and review new claims before wiki_write; authored text and bookmark packages stay unchanged.",
     "wiki_search": "Find authored Wiki text using an incremental character index, literal/spacing matching and explicit aliases. Validates matching candidates; invalid/retracted evidence is excluded. Freshness warnings remain visible. No embeddings or network calls.",
     "wiki_lint": "Audit all selected Wiki evidence, hashes, source freshness, crosslinks and history. Mechanical integrity and declared semantic review are reported separately; no network.",
-    "search": "Search public sources and return discovery results with provider failures and coverage visible. Results are not page正文; fetch known URLs before citing.",
+    "wiki_compile": "Plan and audit incremental Wiki compilation. action=plan clusters a bookmark scope by folder, drops junk/search/duplicate URLs, reports coverage by current revisions and the pages a cluster would touch; action=status recomputes coverage, gap and pending items from a stored plan (coverage_basis says which denominator); action=gap records planned URLs that were attempted but could not be read (urls, reason, provider). Planning and gaps write only plan/gap files; no fetch and no Wiki page. Deep preset only.",
+    "search": "Search public sources and return discovery results with provider failures and coverage visible. A host-native search is the default discovery channel; call this when it is unavailable, insufficient or provider diversity is requested. Results are not page正文; fetch known URLs before citing.",
     "fetch": "Fetch known URLs with provider fallback, bounded text budgets, content_state and optional archived capture continuation. A returned body is not automatically a verified citation.",
-    "ingest": "Fuse host or provider search batches by canonical URL and body SHA-256, preserving provider provenance, failures and coverage. This is deterministic result ingestion, not Agentic Search planning.",
+    "ingest": "Fuse host or provider search batches by canonical URL and body SHA-256, preserving provider provenance, failures and coverage. Tag host batches with provider=host:<name> so the channel stays auditable. This is deterministic result ingestion, not Agentic Search planning.",
     "spawn": "Submit work that outlives one tool step. task=deep_research (default) starts a provider-managed Deep Research run and returns an external id; task=fetch/ingest/research enqueues a durable local job and returns job_id, processed by `br job worker`. The host owns iteration and decides when to observe it with job.",
     "job": "Observe or cancel a job. Accepts a local job_id (j-...) or a provider external_id. action=status reads state, result returns the stored result (artifact_path for large output), cancel requests cancellation; no new task is submitted. For local jobs, state=succeeded means the worker finished; read result.status and per_url for the actual fetch outcome.",
-    "health": "Return a compact local health summary for indexed sources and the source watcher. It performs no network fetch and is safe to call before research.",
+    "health": "Return a compact local health summary for indexed sources and the source watcher; no network fetch. Pass host and observed_tools to confirm whether the host's own search is available (discovery only; merge its results with ingest).",
     "read": "Read a target Canvas bookmark and its folder ancestors by default; use collection='all' for full section context. Also reads a pinned Wiki revision, archived capture, or saved research evidence. Canvas refs are source-version-bound; Wiki and archive refs preserve revision/capture identity and content state.",
     "walk": "Traverse Canvas edges and memberships through the shared walk primitive, preserving direction, depth, paths and pagination.",
     "save": "Save a reviewed Wiki revision through the shared save primitive. Citation checks, expected_revision and review requirements remain enforced by WikiStore.",
 })
+
+WIKI_ONLY_TOOLS = frozenset({
+    "save", "wiki_write", "wiki_get", "wiki_list", "wiki_search", "wiki_lint",
+    "wiki_acknowledge", "wiki_refresh", "wiki_work", "wiki_compile",
+})
+
 
 DEPRECATED_TOOL_TARGETS = {
     "search_bookmarks": "locate", "lookup_url": "locate", "search_archive": "locate",
@@ -996,6 +1019,9 @@ class StdioMcpServer:
                         "wiki_lint": "lint", "wiki_acknowledge": "acknowledge", "wiki_refresh": "refresh", "wiki_work": "work"}
         if name in wiki_methods:
             return getattr(self._wiki(), wiki_methods[name])(**arguments)
+        if name == "wiki_compile":
+            from wiki_compile import WikiCompile
+            return WikiCompile(self._local(readonly=True), self._wiki(), self.settings).run(**arguments)
         if name == "research_route":
             from routing import ResearchRouting
             return ResearchRouting(self.settings).route(**arguments)
