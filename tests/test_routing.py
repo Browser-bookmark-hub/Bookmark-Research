@@ -185,6 +185,30 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(complete["selected"]["route_id"], "host_iterative_research")
         self.assertIn("host_research_mcp:parallel", complete["fallback"]["remaining_routes"])
 
+    def test_host_search_accepts_namespaced_names_and_rejects_plugin_mcp_tools(self):
+        for tool in ("web.run", "web__run", "functions.web__run", "tools.web__run", "web_search"):
+            result = self.router.route(host="codex", observed_tools=[tool])
+            self.assertEqual(tool, result["host_search"]["tool"])
+        for tool in ("mcp__codex__web_search", "mcp__other__web_search", "mcp__claude__WebSearch"):
+            result = self.router.route(host="codex", observed_tools=[tool])
+            self.assertFalse(result["host_search"]["available"])
+        unknown = ResearchRouting.host_search("unknown", ["web.run"])
+        self.assertTrue(unknown["available"])
+        report = ResearchRouting.host_search("claude_code", ["mcp__claude__WebSearch", "WebSearch"])
+        self.assertEqual("WebSearch", report["tool"])
+        self.assertEqual("ingest", report["backflow_tool"])
+        self.assertEqual("search", report["fallback_tool"])
+        self.assertFalse(report["runtime_tested"])
+
+    def test_readiness_reports_observed_host_search(self):
+        from readiness import Readiness
+        report = Readiness(self.settings).check(offline=True, host="codex", observed_tools=["tools.web__run"])
+        search = report["host_integrations"]["search"]
+        self.assertTrue(search["available"])
+        self.assertEqual("tools.web__run", search["tool"])
+        absent = Readiness(self.settings).check(offline=True, host="codex", observed_tools=["mcp__x__web_search"])
+        self.assertFalse(absent["host_integrations"]["search"]["available"])
+
     def test_saved_service_preference_orders_external_fallbacks_after_the_host(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": "openai"}})
         with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic", "PARALLEL_API_KEY": "synthetic"}):

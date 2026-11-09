@@ -38,7 +38,7 @@
 | 分类 | 工具 |
 | --- | --- |
 | 本地画布 | `locate`、`read`、`walk` |
-| 诊断 | `health` |
+| 诊断 | `health`（可传 `host`/`observed_tools` 报告宿主原生搜索） |
 | 联网 | `search`、`fetch`、`ingest` |
 | 长任务 | `spawn`、`job` |
 | 知识 | `save` |

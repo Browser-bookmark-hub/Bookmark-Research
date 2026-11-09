@@ -164,7 +164,7 @@ Default MCP tools:
 | Group | Tools | What they answer |
 | --- | --- | --- |
 | Local Canvas | `locate`, `read`, `walk` | Find an item (text, URL, folder children or metadata only), open its card or a folder's children, follow edges |
-| Diagnostics | `health` | Bounded readiness summary (no network, no index write) |
+| Diagnostics | `health` | Bounded readiness summary (no network, no index write); pass `host`/`observed_tools` to confirm host-native search |
 | Web | `search`, `fetch`, `ingest` | Discovery results, bounded page text with `content_state`/`capture_id`, deterministic host-result fusion |
 | Long-running | `spawn`, `job` | Submit fetch/ingest/research work to the durable local queue and observe or cancel it |
 | Knowledge | `save` | Reviewed Wiki revisions with exact citations |

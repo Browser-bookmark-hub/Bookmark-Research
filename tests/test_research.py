@@ -573,6 +573,37 @@ class ResearchTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "closed"):
             self.fetch(research_id, "read-after-finish")
 
+    def test_finish_requires_backflow_when_host_search_is_reported(self):
+        research_id = self.start()
+        self.sessions.search(research_id, "round-1", [{"question_id": "q1", "query": "search API"}])
+        self.fetch(research_id)
+        self.claim(research_id)
+        self.answer(research_id)
+        with self.assertRaisesRegex(ValueError, "merged with ingest"):
+            self.sessions.finish(research_id, "Premature report",
+                                 discovery={"host_search": "WebSearch", "ingested": False})
+        finished = self.sessions.finish(research_id, "Report with declared discovery",
+            discovery={"host_search": "WebSearch", "plugin_search": ["exa"], "ingested": True})
+        audit = finished["discovery_audit"]
+        self.assertTrue(audit["reported"])
+        self.assertEqual("WebSearch", audit["declared"]["host_search"])
+        self.assertEqual([], audit["warnings"])
+        manifest = json.loads(Path(finished["artifacts"]["sources"]).read_text())
+        self.assertEqual("WebSearch", manifest["discovery"]["host_search"])
+
+    def test_finish_flags_an_unreported_discovery_channel(self):
+        research_id = self.start()
+        self.sessions.search(research_id, "round-1", [{"question_id": "q1", "query": "search API"}])
+        self.fetch(research_id)
+        self.claim(research_id)
+        self.answer(research_id)
+        finished = self.sessions.finish(research_id, "Report without discovery")
+        audit = finished["discovery_audit"]
+        self.assertFalse(audit["reported"])
+        self.assertIsNone(audit["declared"])
+        self.assertEqual(1, len(audit["warnings"]))
+        self.assertIn("not reported", audit["warnings"][0])
+
     def test_incomplete_and_cancelled_report_do_not_invent_answers(self):
         for status in ("incomplete", "cancelled"):
             with self.subTest(status=status):

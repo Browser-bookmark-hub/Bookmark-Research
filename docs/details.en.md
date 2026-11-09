@@ -187,7 +187,7 @@ Default MCP surface (10 primitives, shared with the CLI):
 | `save` | Save a reviewed Wiki revision with exact citations and `expected_revision` |
 | `spawn` | Start a provider research run or enqueue a local fetch/ingest/research job |
 | `job` | Observe or cancel a local job (`j-…`) or a provider run |
-| `health` | Bounded readiness summary with no network and no index write |
+| `health` | Bounded readiness summary with no network and no index write; optional `host`/`observed_tools` report host-native search |
 
 The `deep` preset additionally exposes the catalog below; the deprecated aliases (`search_bookmarks`, `get_context`, `fetch_web`, `wiki_write`, …) remain callable until 0.8.0 and are replaced by the primitives above.
 

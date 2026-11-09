@@ -258,6 +258,7 @@ class Readiness:
             "next_step": "Use the host's own search/read loop when collaboration is unavailable. Enable the host's supported subagent/workflow capability only when needed.",
             "reference": "skills/bookmark-research/references/host-workflows.md"}
         return {"host": host, "session_observed": observed_tools is not None,
+                "search": ResearchRouting.host_search(host=host, observed_tools=tools),
                 "collaboration": collaboration, "native_research_mcps": rows}
 
     def check(self, providers=None, service=None, refresh=False, offline=False, test_retrieval=False,

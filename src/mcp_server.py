@@ -387,6 +387,12 @@ TOOL_SCHEMAS.update({
         "research_id": RESEARCH_ID, "summary": _text_schema(16000),
         "status": {"type": "string", "enum": ["completed", "incomplete", "cancelled"]},
         "limitations": _array_schema(_text_schema(4000), 100),
+        "discovery": _object_schema({
+            "host_search": _text_schema(300),
+            "plugin_search": _array_schema(_text_schema(100), 10),
+            "ingested": {"type": "boolean"},
+            "notes": _text_schema(2000),
+        }, ["ingested"]),
     }, ["research_id", "summary"]),
 })
 TOOL_DESCRIPTIONS.update({
@@ -399,7 +405,7 @@ TOOL_DESCRIPTIONS.update({
     "research_inventory": "Read frozen original URLs, stable inventory IDs, duplicate instances and context. Follow next_offset to cover the requested scope.",
     "research_coverage": "Compare frozen input with accounted, usable-text, reviewed and answered coverage. Paginate missing/unread/unreviewed IDs as needed. A completed provider run does not establish original-source coverage.",
     "research_import_evidence": "Save supplied text and provenance using an idempotent operation_id. Imports start unreviewed; external reports do not count as reading cited originals. No fetch or source-package changes.",
-    "research_finish": "Write report, source manifest and coverage. completed requires supported answers, reviewed original input and no unresolved conflicts, pending operations or active/unknown external runs. Exclusions stay in scope; use incomplete for material gaps. An incomplete or cancelled result also carries insufficiency (the fixed-shape gap list: question statuses and gaps, open conflicts, pending operations, coverage blockers; a question with no recorded gap gets a derived one and gap_source says which) and wiki_follow_up (candidate pages, eligible_claims with exact first quotes and inference marks, and draft: a page skeleton grouped by question whose sections are already split to wiki_write limits, remaining_claim_ids identifies claims that need another page; write within existing authorization after review).",
+    "research_finish": "Write report, source manifest and coverage. Pass discovery={host_search?, plugin_search?, ingested, notes?} when external search was used: declaring a host search with ingested=false is rejected, and an unreported channel is flagged in discovery_audit. completed requires supported answers, reviewed original input and no unresolved conflicts, pending operations or active/unknown external runs. Exclusions stay in scope; use incomplete for material gaps. An incomplete or cancelled result also carries insufficiency (the fixed-shape gap list: question statuses and gaps, open conflicts, pending operations, coverage blockers; a question with no recorded gap gets a derived one and gap_source says which) and wiki_follow_up (candidate pages, eligible_claims with exact first quotes and inference marks, and draft: a page skeleton grouped by question whose sections are already split to wiki_write limits, remaining_claim_ids identifies claims that need another page; write within existing authorization after review).",
 })
 
 
@@ -528,7 +534,8 @@ TOOL_SCHEMAS.update({
         "offset": {"type": "integer", "minimum": 0, "maximum": 10000000, "default": 0},
         "limit": {"type": "integer", "minimum": 1, "maximum": 50000, "default": 12000},
     }),
-    "health": _object_schema({}),
+    "health": _object_schema({"host": {"type": "string", "enum": ["codex", "claude_code", "dsh", "unknown"]},
+        "observed_tools": _array_schema(_text_schema(300), 1000)}),
     "read": copy.deepcopy(TOOL_SCHEMAS["get_context"]),
     "walk": copy.deepcopy(TOOL_SCHEMAS["traverse_graph"]),
     "save": TOOL_SCHEMAS["wiki_write"],
@@ -1119,8 +1126,13 @@ class StdioMcpServer:
                 sources.append({key: source.get(key) for key in ("source_id", "mode", "state", "version_id")
                                 if source.get(key) is not None})
             watcher = self._source_watcher.status() if self._source_watcher else {"running": False}
-            return {"status": "ok" if not source_report.get("errors") else "degraded",
-                    "sources": sources, "watcher": {"running": bool(watcher.get("running"))}}
+            result = {"status": "ok" if not source_report.get("errors") else "degraded",
+                      "sources": sources, "watcher": {"running": bool(watcher.get("running"))}}
+            if arguments.get("observed_tools") is not None:
+                from routing import ResearchRouting
+                result["host_search"] = ResearchRouting.host_search(
+                    host=arguments.get("host", "unknown"), observed_tools=arguments["observed_tools"])
+            return result
         if name == "read":
             options = dict(arguments)
             version_handle = options.pop("v", None)

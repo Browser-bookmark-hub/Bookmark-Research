@@ -293,6 +293,7 @@ def _parser():
     finish.add_argument("--summary", required=True)
     finish.add_argument("--status", choices=("completed", "incomplete", "cancelled"), default="completed")
     finish.add_argument("--limitation", action="append")
+    finish.add_argument("--discovery", help="JSON {host_search?, plugin_search?, ingested, notes?}")
     for name in ("inventory", "coverage"):
         view = research_commands.add_parser(name, help="Read the frozen source scope or remaining evidence gaps")
         view.add_argument("research_id")
@@ -622,7 +623,14 @@ def main(argv=None):
                 else:
                     raise ValueError("Provide source_id or --source-id")
             else:
-                result = sessions.finish(args.research_id, args.summary, args.status, args.limitation)
+                discovery = None
+                if args.discovery:
+                    try:
+                        discovery = json.loads(args.discovery)
+                    except ValueError as error:
+                        raise ValueError("--discovery must be valid JSON: " + str(error))
+                result = sessions.finish(args.research_id, args.summary, args.status, args.limitation,
+                                         discovery)
         elif args.command == "wiki":
             from research import ResearchSessions
             from wiki import WikiStore

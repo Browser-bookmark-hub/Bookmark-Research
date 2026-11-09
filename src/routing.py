@@ -8,6 +8,16 @@ from credentials import Credentials
 
 class ResearchRouting:
     HOSTS = ("codex", "claude_code", "dsh", "unknown")
+    # Names under which each host exposes its own search. Matching accepts the
+    # exact name and a namespaced suffix, because hosts also surface the same
+    # tool as ``tools.web__run`` or ``functions.web__run``. Tools under an MCP
+    # server prefix (``mcp__...``) belong to a plugin, never to the host.
+    SEARCH_TOOLS = {
+        "codex": ("web.run", "web__run", "web_search"),
+        "claude_code": ("WebSearch",),
+        "dsh": ("web_search",),
+        "unknown": ("web_search", "web.run", "web__run", "WebSearch"),
+    }
     METHODS = {
         "comparative_analysis": "skills/bookmark-research/references/research-methods.md",
         "fact_check": "skills/bookmark-research/references/research-methods.md",
@@ -33,6 +43,34 @@ class ResearchRouting:
         return any(tool == name or tool.endswith(("__" + name, "." + name, ":" + name))
                    for tool in tools for name in names)
 
+    @classmethod
+    def _native_search(cls, tools, host):
+        """Return the observed host search tool, ignoring plugin MCP tools."""
+        for tool in tools:
+            if tool.startswith("mcp__"):
+                continue
+            for name in cls.SEARCH_TOOLS.get(host, ()):
+                if tool == name or tool.endswith(("." + name, "__" + name, ":" + name)):
+                    return tool
+        return None
+
+    @classmethod
+    def host_search(cls, host="unknown", observed_tools=None):
+        """Report whether the current host exposes a search tool of its own.
+
+        This is discovery information reported by the caller; it starts no work
+        and proves no login or result quality.
+        """
+        if host not in cls.HOSTS:
+            raise ValueError("Unsupported host")
+        tools = cls._names(observed_tools, "observed_tools")
+        tool = cls._native_search(tools, host)
+        return {"available": tool is not None, "tool": tool,
+                "role": "discovery_only; fetch remains the evidence read",
+                "backflow_tool": "ingest", "fallback_tool": "search",
+                "names_checked": list(cls.SEARCH_TOOLS[host]),
+                "basis": "caller_reported_current_host", "runtime_tested": False}
+
     def route(self, depth=None, host="unknown", task_shape="investigation", observed_tools=None,
               available_commands=None, installed_extensions=None, provider=None, failed_routes=None):
         settings = self.settings.load()
@@ -45,14 +83,8 @@ class ResearchRouting:
             raise ValueError("Professional provider must be openai or parallel")
         tools = self._names(observed_tools, "observed_tools")
         # A host-native search tool is discovery, not evidence. Prefer it when
-        # the caller reports it, but keep fetch_web as the page-reading step.
-        native_names = {
-            "codex": ("web.run", "web__run", "functions.web__run", "web_search"),
-            "claude_code": ("WebSearch",),
-            "dsh": ("web_search",),
-            "unknown": ("web_search", "WebSearch"),
-        }
-        host_search = next((tool for tool in tools if tool in native_names[host]), None)
+        # the caller reports it, but keep fetch as the page-reading step.
+        host_search = self._native_search(tools, host)
         commands = self._names(available_commands, "available_commands")
         extensions = self._names(installed_extensions, "installed_extensions")
         failed = self._names(failed_routes, "failed_routes")

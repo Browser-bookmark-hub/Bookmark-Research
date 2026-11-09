@@ -1626,8 +1626,58 @@ class ResearchSessions:
         state["events"].append({"at": self._now(), "kind": kind, "value": copy.deepcopy(recorded)})
         return {"research_id": research_id, "kind": kind, "recorded": recorded}
 
-    def finish(self, research_id, summary, status="completed", limitations=None):
+    @classmethod
+    def _discovery(cls, value):
+        """Validate the optional discovery report for a research finish.
+
+        ``ingested`` states whether host-native search results were merged with
+        the ingest primitive; declaring a host search without merging is
+        rejected because that channel would be unauditable.
+        """
+        if value is None:
+            return None
+        allowed = {"host_search", "plugin_search", "ingested", "notes"}
+        if not isinstance(value, dict) or set(value) - allowed:
+            raise ValueError("discovery accepts host_search, plugin_search, ingested and notes")
+        ingested = value.get("ingested")
+        if type(ingested) is not bool:
+            raise ValueError("discovery.ingested must be a boolean")
+        result = {"ingested": ingested, "plugin_search": []}
+        host = value.get("host_search")
+        if host is not None:
+            result["host_search"] = cls._text(host, "discovery.host_search", 300)
+        plugins = value.get("plugin_search", [])
+        if (not isinstance(plugins, list) or len(plugins) > 10
+                or any(not isinstance(name, str) or not name.strip() or len(name) > 100 for name in plugins)):
+            raise ValueError("discovery.plugin_search must be a list of provider names")
+        result["plugin_search"] = list(dict.fromkeys(name.strip() for name in plugins))
+        notes = value.get("notes")
+        if notes is not None:
+            result["notes"] = cls._text(notes, "discovery.notes", 2000)
+        return result
+
+    @staticmethod
+    def _discovery_audit(state):
+        declared = state.get("discovery")
+        sources = state.get("sources", [])
+        host_sources = [source for source in sources
+                        if isinstance(source.get("provider"), str)
+                        and source["provider"].startswith("host:")]
+        web_sources = [source for source in sources if source.get("url")]
+        warnings = []
+        if declared is None and web_sources:
+            warnings.append("Discovery was not reported; host search use cannot be audited.")
+        return {"reported": declared is not None, "declared": declared,
+                "host_sources": len(host_sources), "web_sources": len(web_sources),
+                "warnings": warnings}
+
+    def finish(self, research_id, summary, status="completed", limitations=None, discovery=None):
         summary = self._text(summary, "Summary", 16000)
+        discovery = self._discovery(discovery)
+        if discovery and discovery.get("host_search") and not discovery["ingested"]:
+            raise ValueError(
+                "Host-native search results must be merged with ingest before finish; "
+                "set discovery.ingested=true after merging, or omit host_search if it was not used")
         if status not in ("completed", "incomplete", "cancelled"):
             raise ValueError("status must be completed, incomplete or cancelled")
         limitations = [] if limitations is None else limitations
@@ -1664,6 +1714,8 @@ class ResearchSessions:
                             raise ValueError("Saved external result artifact hash changed")
             coverage = self._coverage(path, state)
             state.update(status=status, summary=summary, limitations=limitations, finished_at=self._now())
+            if discovery is not None:
+                state["discovery"] = discovery
             coverage_text = json.dumps(coverage, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
             coverage_name = "coverage-" + hashlib.sha256(coverage_text.encode("utf-8")).hexdigest()[:24] + ".json"
             state["artifacts"] = {"report": str(path / "report.md"), "sources": str(path / "sources.json"),
@@ -1679,9 +1731,11 @@ class ResearchSessions:
                         "questions": state["questions"], "limitations": limitations,
                         "source_scope": state.get("source_scope"), "inventory_manifest_sha256": state.get("inventory_manifest_sha256"),
                         "inventory_reviews": state.get("inventory_reviews", []), "external_runs": state.get("external_runs", []),
+                        "discovery": state.get("discovery"),
                         "coverage": {key: value for key, value in coverage.items() if key != "rows"}})
             self._save(path, state)
             result = self._summary(path, state)
+            result["discovery_audit"] = self._discovery_audit(state)
             if status != "completed":
                 result["insufficiency"] = self._insufficiency(state, coverage)
         # Outside the task lock: the Wiki lookup reads other research tasks.

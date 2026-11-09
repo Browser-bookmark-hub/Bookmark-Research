@@ -160,7 +160,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | 分类 | 工具 | 回答什么 |
 | --- | --- | --- |
 | 本地画布 | `locate`、`read`、`walk` | 按文本／URL／目录子项／纯元数据定位；打开卡片或目录子项；沿画布关系遍历 |
-| 诊断 | `health` | 有界的就绪摘要（不联网、不写索引） |
+| 诊断 | `health` | 有界的就绪摘要（不联网、不写索引；传 `host`/`observed_tools` 可确认宿主原生搜索） |
 | 联网 | `search`、`fetch`、`ingest` | 发现结果；带 `content_state`/`capture_id` 的有界正文；宿主结果确定性归并 |
 | 长任务 | `spawn`、`job` | 提交到本地持久化队列，观察或取消 |
 | 知识 | `save` | 通过校验的 Wiki 修订与逐字引用 |
