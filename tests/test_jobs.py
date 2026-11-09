@@ -82,6 +82,28 @@ class JobStoreTests(unittest.TestCase):
         stored = self.store.get(job["job_id"])
         self.assertEqual("failed", stored["state"])
         self.assertIn("boom", stored["error"])
+    def test_worker_lock_and_prune(self):
+        self.assertFalse(self.store.worker_running())
+        worker = JobWorker(self.store, handlers={}, concurrency=1)
+        self.assertTrue(worker._acquire_singleton())
+        try:
+            self.assertTrue(self.store.worker_running())
+        finally:
+            worker._release_singleton()
+        self.assertFalse(self.store.worker_running())
+        done = self.store.submit("fetch", {"urls": ["https://example.test/a"]})
+        self.store.claim("w-1")
+        self.store.finish(done["job_id"], "w-1", "succeeded", result={"ok": True})
+        # Make the row look old, then prune by age.
+        with self.store._lock, self.store.connection:
+            self.store.connection.execute(
+                "UPDATE jobs SET finished_at='2000-01-01T00:00:00+00:00' WHERE job_id=?",
+                (done["job_id"],))
+        result = self.store.prune(keep_days=7, keep_latest=200)
+        self.assertEqual(1, result["deleted"])
+        self.assertIsNone(self.store.get(done["job_id"]))
+        self.assertEqual(0, self.store.counts()["succeeded"])
+
 
 
 if __name__ == "__main__":

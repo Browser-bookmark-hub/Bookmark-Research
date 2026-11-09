@@ -12,7 +12,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 JOB_STATES = ("queued", "running", "succeeded", "failed", "cancelled")
@@ -177,6 +177,45 @@ class JobStore:
                     "UPDATE jobs SET cancel_requested=1 WHERE job_id=?", (job_id,))
         return self.get(job_id)
 
+    def counts(self):
+        rows = self.connection.execute(
+            "SELECT state, COUNT(*) AS c FROM jobs GROUP BY state").fetchall()
+        totals = {state: 0 for state in JOB_STATES}
+        totals.update({row["state"]: row["c"] for row in rows})
+        return totals
+
+    def worker_running(self):
+        """True when another process holds the worker lock."""
+        path = Path(str(self.path) + ".lock")
+        try:
+            handle = open(path, "a+")
+        except OSError:
+            return False
+        try:
+            import fcntl
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return True
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            return False
+        finally:
+            handle.close()
+
+    def prune(self, keep_days=7, keep_latest=200):
+        """Drop old terminal jobs; running and queued rows are never touched."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, int(keep_days)))).isoformat()
+        with self._lock, self.connection:
+            deleted = self.connection.execute(
+                "DELETE FROM jobs WHERE state IN ('succeeded','failed','cancelled')"
+                " AND finished_at IS NOT NULL AND finished_at < ?", (cutoff,)).rowcount
+            deleted += self.connection.execute(
+                "DELETE FROM jobs WHERE state IN ('succeeded','failed','cancelled')"
+                " AND job_id NOT IN (SELECT job_id FROM jobs WHERE state IN"
+                " ('succeeded','failed','cancelled') ORDER BY COALESCE(finished_at, created_at)"
+                " DESC LIMIT ?)", (max(1, int(keep_latest)),)).rowcount
+        return {"deleted": deleted, "keep_days": keep_days, "keep_latest": keep_latest}
+
     def recover_expired(self):
         """Requeue jobs whose worker died without finishing."""
         now = time.time()
@@ -267,6 +306,7 @@ class JobWorker:
         lock = self._acquire_singleton()
         if lock is None:
             raise RuntimeError("another job worker already owns this data directory")
+        self.store.prune()
         finished = 0
         pending = set()
         try:

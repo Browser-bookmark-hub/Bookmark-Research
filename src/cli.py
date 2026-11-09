@@ -201,6 +201,8 @@ def _parser():
     tags_filter.add_argument("--without-tags", dest="has_tags", action="store_false")
     locate.set_defaults(has_tags=None)
     locate.add_argument("--metadata-match", choices=("all", "any"), default="all")
+    locate.add_argument("--exclude-junk", action="store_true",
+                        help="Drop divider/placeholder rows such as symbol-only search pages")
     locate.add_argument("--limit", type=int, default=8)
     locate.add_argument("--offset", type=int, default=0)
     locate.add_argument("--handle", help="Continue a previous locate response")
@@ -208,7 +210,7 @@ def _parser():
     refresh.add_argument("--refresh", dest="refresh", action="store_true")
     refresh.add_argument("--no-refresh", dest="refresh", action="store_false")
     locate.set_defaults(refresh=False)
-    context = commands.add_parser("context")
+    context = commands.add_parser("context", aliases=["read"])
     context.add_argument("source")
     context.add_argument("--section")
     context.add_argument("--group")
@@ -217,7 +219,7 @@ def _parser():
     context.add_argument("--collection", choices=("sections", "items", "nodes", "groups", "edges", "related_nodes", "memberships"))
     context.add_argument("--offset", type=int, default=0)
     context.add_argument("--limit", type=int, default=200, help="Rows per context collection")
-    traverse = commands.add_parser("traverse", help="Multi-hop graph traversal along canvas edges and memberships")
+    traverse = commands.add_parser("traverse", aliases=["walk"], help="Multi-hop graph traversal along canvas edges and memberships")
     traverse.add_argument("source")
     traverse.add_argument("--section")
     traverse.add_argument("--group")
@@ -238,7 +240,7 @@ def _parser():
     web.add_argument("--provider", action="append")
     web.add_argument("--limit", type=int)
     web.add_argument("--timeout", type=int)
-    fetch = commands.add_parser("fetch-web")
+    fetch = commands.add_parser("fetch-web", aliases=["fetch"])
     fetch.add_argument("urls", nargs="+")
     fetch.add_argument("--provider", choices=Settings.FETCH_PROVIDERS)
     fetch.add_argument("--timeout", type=int, help="Per provider HTTP request timeout; discovery and fallback can take longer overall")
@@ -392,6 +394,9 @@ def _parser():
     result.add_argument("job_id")
     cancel = job_commands.add_parser("cancel")
     cancel.add_argument("job_id")
+    prune = job_commands.add_parser("prune", help="Delete old terminal jobs")
+    prune.add_argument("--days", type=int, default=7)
+    prune.add_argument("--keep-latest", type=int, default=200)
     worker = job_commands.add_parser("worker", help="Run the singleton job worker")
     worker.add_argument("--once", action="store_true", help="Claim and run at most one job")
     worker.add_argument("--max-jobs", type=int, default=None)
@@ -416,7 +421,12 @@ def _parser():
             if isinstance(action, argparse._SubParsersAction):
                 for child in action.choices.values():
                     add_output_options(child)
+    seen_parsers = set()
     for command_parser in commands.choices.values():
+        # Aliases share the same parser object; add options once.
+        if id(command_parser) in seen_parsers:
+            continue
+        seen_parsers.add(id(command_parser))
         add_output_options(command_parser)
     return parser
 
@@ -460,6 +470,8 @@ def main(argv=None):
     from textio import utf8_stdio
     utf8_stdio()
     args = _parser().parse_args(argv)
+    args.command = {"read": "context", "walk": "traverse", "fetch": "fetch-web"}.get(
+        args.command, args.command)
     try:
         settings = Settings(args.config)
         if args.command == "bench":
@@ -644,6 +656,9 @@ def main(argv=None):
                         _emit_result(job["result"], args)
                 elif args.job_command == "cancel":
                     _emit_result({"job": store.cancel(args.job_id)}, args)
+                elif args.job_command == "prune":
+                    _emit_result({"pruned": store.prune(keep_days=args.days,
+                                                        keep_latest=args.keep_latest)}, args)
                 elif args.job_command == "worker":
                     worker = JobWorker(store, handlers=default_handlers(),
                                        concurrency=args.concurrency,
@@ -819,6 +834,7 @@ def main(argv=None):
                         "has_tags": args.has_tags, "metadata_match": args.metadata_match,
                         "limit": args.limit, "offset": args.offset,
                         "handle": args.handle, "refresh": args.refresh,
+                        "exclude_junk": args.exclude_junk,
                     }, wiki=wiki, raw=raw)
                 elif args.command == "source":
                     if args.source_command == "remove":

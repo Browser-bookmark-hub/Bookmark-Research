@@ -33,6 +33,18 @@
 
 “备用”表示已加入回退列表；“需要配置”表示条件未满足时跳过；“仅调研”表示没有接入，失败也不会自动安装。OpenAI／Parallel 研究 API 默认关闭，需启用并提供凭据。宿主已加载的 Exa `agent_run`、完整 Parallel Task MCP 会被路由识别，实际认证仍以调用结果为准。Scrapling、Firecrawl、MarkItDown 等调研项目没有集成成自动后端。
 
+## 本地 MCP 工具面（10 个原语）
+
+| 分类 | 工具 |
+| --- | --- |
+| 本地画布 | `locate`、`read`、`walk` |
+| 诊断 | `health` |
+| 联网 | `search`、`fetch`、`ingest` |
+| 长任务 | `spawn`、`job` |
+| 知识 | `save` |
+
+`locate(package_path=...)` 用于首次接触：导入包或卡片导出并返回条目数、栏目（含 `source`/`temp_kind`）、Note、搜索页、噪音行与重复组。`spawn(task="fetch"|"ingest"|"research")` 进入本地队列，`job` 观察或取消；`job worker` 是单例 worker。旧工具名保留在 `deep` 目录，0.8.0 起拒绝。CLI 命令与别名见 [cli.md](../skills/bookmark-research/references/cli.md)。
+
 ## 数据包与保存位置
 
 JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无需单独数据库服务器。插件不会回写原始画布包。导出的 `AGENTS.md`/`CLAUDE.md` 可能把本插件列为可选的只读辅助；这个提及不授予写入权限，包内修改仍以该指南为准。

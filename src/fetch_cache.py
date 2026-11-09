@@ -50,6 +50,19 @@ class FetchCache:
         except ValueError:
             return None
 
+    MAX_ROWS = 500
+
+    def prune(self, ttl_seconds=0):
+        cutoff = time.time() - max(0, float(ttl_seconds or 0))
+        deleted = self.connection.execute(
+            "DELETE FROM fetch_cache WHERE stored_at < ?", (cutoff,)).rowcount if ttl_seconds else 0
+        deleted += self.connection.execute(
+            "DELETE FROM fetch_cache WHERE cache_key NOT IN ("
+            "SELECT cache_key FROM fetch_cache ORDER BY stored_at DESC LIMIT ?)",
+            (self.MAX_ROWS,)).rowcount
+        self.connection.commit()
+        return deleted
+
     def put(self, cache_key, urls, provider, result):
         self.connection.execute(
             "INSERT OR REPLACE INTO fetch_cache (cache_key, urls, provider, result, stored_at, retrieved_at)"
@@ -58,3 +71,4 @@ class FetchCache:
              json.dumps(result, ensure_ascii=False, allow_nan=False),
              time.time(), result.get("retrieved_at") or ""))
         self.connection.commit()
+        self.prune(86400)

@@ -7,10 +7,10 @@
 | MCP 原语 | CLI 命令 |
 | --- | --- |
 | `locate` | `locate`（文本、URL、目录子项、标签／Note 过滤） |
-| `read` | `context`（卡片、栏目条目、分组、连线）；`read` 目前仅 MCP |
-| `walk` | `traverse` |
-| `search` | `search-web` |
-| `fetch` | `fetch-web` |
+| `read` | `read`（`context` 的别名：卡片、栏目条目、分组、连线） |
+| `walk` | `walk`（`traverse` 的别名） |
+| `search` | `search-web`（`search` 已被书签搜索占用，不设别名） |
+| `fetch` | `fetch`（`fetch-web` 的别名） |
 | `ingest` | `ingest` |
 | `save` | `wiki write` |
 | `spawn` | `job submit`（本地任务）或 `research service start`（provider 长任务） |
@@ -29,7 +29,7 @@ python3 <root>/src/cli.py job worker --concurrency 2
 python3 <root>/src/cli.py serve
 ```
 
-`locate` 覆盖三种查询形状：文本或 URL；只给 `--folder-id` 列直接子项；只给元数据过滤（`--tag`、`--tag-color`、`--has-note`/`--without-note`、`--has-tags`/`--without-tags`）。需要先导入包或卡片导出时，先跑 `sync`（支持目录、ZIP、无 id 的 section JSON、Netscape HTML 与包裹），再用 `locate --source-id` 查询。`dupes` 按 URL 分组并给出建议保留项（分隔符噪音行已排除）。`job` 提交到本地持久化队列，单例 `job worker` 用有界线程池执行。`serve` 从源码启动 stdio MCP 服务。
+`locate` 覆盖三种查询形状：文本或 URL；只给 `--folder-id` 列直接子项；只给元数据过滤（`--tag`、`--tag-color`、`--has-note`/`--without-note`、`--has-tags`/`--without-tags`）。`--exclude-junk` 会丢弃分隔符噪音行（如只有符号的搜索页）。需要先导入包或卡片导出时，先跑 `sync`（支持目录、ZIP、无 id 的 section JSON、Netscape HTML 与包裹），再用 `locate --source-id` 查询。`dupes` 按 URL 分组并给出建议保留项（分隔符噪音行已排除）。`job` 提交到本地持久化队列，单例 `job worker` 用有界线程池执行；`job prune --days 7 --keep-latest 200` 清理旧终态记录。`spawn` 会返回 `worker: running|not_running`，缺 worker 时可见。`serve` 从源码启动 stdio MCP 服务。
 
 `sync` 接受目录、ZIP、单卡 JSON、无 id 的卡片导出、Netscape 书签 HTML 与 `{"data": …}` 包裹；`--mode snapshot` 保存快照，`--mode live` 绑定持续目录。`--completeness partial` 保留未提供文件，明确完整镜像才用 `complete`。新普通导出默认 snapshot、Git 目录默认 live；已有来源沿用原模式。同一画布的新导出沿用 `--source-id`。完整说明见 [来源生命周期](source-lifecycle.md)。
 

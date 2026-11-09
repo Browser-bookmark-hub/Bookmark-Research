@@ -68,6 +68,25 @@ class DuplicateReportTests(unittest.TestCase):
             self.index.duplicate_urls(self.source_id, min_count=1)
 
 
+class FetchCacheTests(unittest.TestCase):
+    def test_prune_drops_expired_and_excess_rows(self):
+        from fetch_cache import FetchCache
+        with tempfile.TemporaryDirectory(prefix="bookmark-cache-test-") as temporary:
+            cache = FetchCache(Path(temporary) / "cache.sqlite3")
+            try:
+                cache.put("a", ["https://example.test/a"], "exa", {"retrieved_at": "x"})
+                cache.put("b", ["https://example.test/b"], "exa", {"retrieved_at": "x"})
+                with cache.connection:
+                    cache.connection.execute(
+                        "UPDATE fetch_cache SET stored_at=0 WHERE cache_key='a'")
+                self.assertEqual(1, cache.prune(ttl_seconds=60))
+                self.assertIsNone(cache.get("a", 60))
+                self.assertIsNotNone(cache.get("b", 60))
+            finally:
+                cache.close()
+
+
+
 class FetchRoutingTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="bookmark-fetch-route-")

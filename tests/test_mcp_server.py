@@ -1006,6 +1006,21 @@ class McpServerTests(unittest.TestCase):
         missing = self.call("spawn", {"task": "deep_research"})
         self.assertTrue(missing["result"]["isError"])
 
+    def test_locate_exclude_junk_drops_divider_rows(self):
+        self.document["items"].append({
+            "id": "temp-divider", "sectionId": "temp-section-A-1", "type": "bookmark",
+            "title": "───────────── - 搜索",
+            "url": "https://www.bing.com/search?q=%E2%94%80%E2%94%80%E2%94%80"})
+        self.write_document()
+        self.ready()
+        self.sync()
+        everything = decode_tool(self.call("locate", {
+            "text": "搜索", "source_id": "fixture", "refresh": False}))
+        self.assertGreaterEqual(everything["total"], 1)
+        filtered = decode_tool(self.call("locate", {
+            "text": "搜索", "source_id": "fixture", "refresh": False, "exclude_junk": True}))
+        self.assertEqual(0, filtered["total"])
+
     def test_read_folder_ref_returns_children_summary(self):
         children = [
             {"id": "temp-a", "sectionId": "temp-section-A-1", "type": "bookmark",

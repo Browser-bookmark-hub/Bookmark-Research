@@ -31,7 +31,7 @@ LOCATE_STOPWORDS = frozenset({
 LOCATE_ARGUMENTS = (
     "text", "url", "in", "source_id", "section", "folder_id", "tags",
     "tag_colors", "has_note", "has_tags", "metadata_match", "limit", "offset", "handle", "refresh",
-    "package_path",
+    "package_path", "exclude_junk",
 )
 LOCATE_FIELD_WEIGHTS = {"title": 140, "url": 120, "tags": 110, "note": 90, "path": 60}
 LOCATE_DIRECT_FIELDS = frozenset(("title", "url", "note", "tags"))
@@ -391,6 +391,7 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
     if not folder_listing and not metadata_only and (text is None) == (url is None):
         raise ValueError("locate requires exactly one of text or url, folder_id, or a metadata filter (tags/has_note/has_tags)")
     metadata_match = request.get("metadata_match", "all")
+    exclude_junk = bool(request.get("exclude_junk", False))
     limit = request.get("limit", 8)
     refresh = request.get("refresh", False)
     if requested[0] != "canvas":
@@ -766,6 +767,11 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
     for hit in direct_hits + unresolved_inherited:
         hit.pop("_locate_parent_id", None)
     ranked_hits = direct_hits + folder_hits + unresolved_inherited[:2]
+    if exclude_junk:
+        from junk import is_junk
+        ranked_hits = [hit for hit in ranked_hits
+                       if hit.get("kind") == "folder"
+                       or not is_junk(hit.get("title"), hit.get("url"))]
     total_hits = len(ranked_hits)
     page_hits = ranked_hits[offset:offset + limit]
     direct_match_count = sum(bool(LOCATE_DIRECT_FIELDS.intersection(hit["why"]["fields"]))

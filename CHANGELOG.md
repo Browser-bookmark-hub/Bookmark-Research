@@ -1,3 +1,17 @@
+## 0.7.1 — 2026-11-09
+
+### Added
+- CLI aliases: `read` (context), `walk` (traverse), `fetch` (fetch-web). `search`
+  stays the bookmark search command, so web search remains `search-web`.
+- `bookmark-research job prune --days 7 --keep-latest 200`; the worker prunes on
+  start and `spawn` reports `worker: running|not_running`.
+- `locate --exclude-junk` (MCP `exclude_junk`) drops divider/placeholder rows.
+- Fetch cache eviction: expired rows and anything beyond the newest 500.
+- Chinese `docs/details.md` lists the 10-primitive MCP surface.
+
+### Tests
+- Added coverage for job pruning/worker lock, cache eviction and the junk filter.
+
 # Changelog
 
 ## 0.7.0 — 2026-11-09

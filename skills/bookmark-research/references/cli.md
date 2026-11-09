@@ -7,10 +7,10 @@ Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<roo
 | MCP primitive | CLI command |
 | --- | --- |
 | `locate` | `locate` (text, URL, folder children, tags/has-note) |
-| `read` | `context` (card, section items, group, edges); `read` itself is MCP-only for now |
-| `walk` | `traverse` |
-| `search` | `search-web` |
-| `fetch` | `fetch-web` |
+| `read` | `read` (alias of `context`: card, section items, group, edges) |
+| `walk` | `walk` (alias of `traverse`) |
+| `search` | `search-web` (`search` is the bookmark search command, so no alias) |
+| `fetch` | `fetch` (alias of `fetch-web`) |
 | `ingest` | `ingest` |
 | `save` | `wiki write` |
 | `spawn` | `job submit` (local work) or `research service start` (provider run) |
@@ -29,7 +29,7 @@ python3 <root>/src/cli.py job worker --concurrency 2
 python3 <root>/src/cli.py serve
 ```
 
-`locate` covers the three query shapes: text or URL; `--folder-id` with no text to list direct children; metadata filters (`--tag`, `--tag-color`, `--has-note`/`--without-note`, `--has-tags`/`--without-tags`) with no text. To import a package or a card export first, run `sync` (it accepts directories, ZIPs, section JSON without ids, Netscape HTML and envelopes), then `locate --source-id`. `dupes` groups duplicate URLs and proposes a keeper (divider rows excluded). `job` submits to the durable local queue; a single worker (`job worker`) executes with a bounded pool. `serve` runs the stdio MCP server from source.
+`locate` covers the three query shapes: text or URL; `--folder-id` with no text to list direct children; metadata filters (`--tag`, `--tag-color`, `--has-note`/`--without-note`, `--has-tags`/`--without-tags`) with no text. `--exclude-junk` drops divider rows such as symbol-only search pages. To import a package or a card export first, run `sync` (it accepts directories, ZIPs, section JSON without ids, Netscape HTML and envelopes), then `locate --source-id`. `dupes` groups duplicate URLs and proposes a keeper (divider rows excluded). `job` submits to the durable local queue; a single worker (`job worker`) executes with a bounded pool, and `job prune --days 7 --keep-latest 200` removes old terminal rows. `spawn` reports `worker: running|not_running` so a missing worker is visible. `serve` runs the stdio MCP server from source.
 
 `sync` accepts directories, ZIPs, single-card JSON, card exports without ids, Netscape bookmark HTML and `{"data": …}` envelopes. `--mode snapshot` saves a snapshot; `--mode live` connects a persistent directory. `--completeness partial` retains omitted files; use `complete` only for a confirmed full mirror. New ordinary exports default to snapshot, Git directories to live; existing sources retain their mode. Reuse `--source-id` for a new export of the same canvas. See [source lifecycle](source-lifecycle.md).
 

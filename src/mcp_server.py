@@ -138,6 +138,7 @@ TOOL_SCHEMAS = {
         "tag_colors": _array_schema(_text_schema(), 20),
         "has_note": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) a non-empty note. Usable alone, without text/url, to enumerate."},
         "has_tags": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) one or more tags. Usable alone, without text/url, to enumerate."},
+        "exclude_junk": {"type": "boolean", "default": False, "description": "Drop divider/placeholder rows such as a search page whose query is only symbols."},
         "metadata_match": {"type": "string", "enum": ["all", "any"], "default": "all"},
         "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 8},
         "offset": {"type": "integer", "minimum": 0, "default": 0},
@@ -151,6 +152,7 @@ TOOL_SCHEMAS = {
         "tag_colors": _array_schema(_text_schema(), 20),
         "has_note": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) a non-empty note. Usable alone, without text/url, to enumerate."},
         "has_tags": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) one or more tags. Usable alone, without text/url, to enumerate."},
+        "exclude_junk": {"type": "boolean", "default": False, "description": "Drop divider/placeholder rows such as a search page whose query is only symbols."},
         "metadata_match": {"type": "string", "enum": ["all", "any"], "default": "all",
                            "description": "Combine has_note and has_tags with AND (all) or OR (any)."},
         "sort_by": {"type": "string", "enum": ["default", "added_at_desc", "added_at_asc"], "default": "default",
@@ -1046,11 +1048,15 @@ class StdioMcpServer:
                 payload = arguments.get("args") or {}
                 if not isinstance(payload, dict):
                     raise ValueError("spawn args must be an object")
-                job = self._jobs().submit(task, payload,
-                                          idempotency_key=arguments.get("operation_id"),
-                                          priority=int(arguments.get("priority", 0)))
+                store = self._jobs()
+                job = store.submit(task, payload,
+                                   idempotency_key=arguments.get("operation_id"),
+                                   priority=int(arguments.get("priority", 0)))
+                running = store.worker_running()
                 return {"job_id": job["job_id"], "state": job["state"], "kind": job["kind"],
-                        "note": "queued; run `br job worker` (or it already runs) and observe with job(job_id)"}
+                        "worker": "running" if running else "not_running",
+                        "note": ("queued; observe with job(job_id)" if running else
+                                 "queued but no worker is running; start `br job worker` or `br job worker --once`")}
             if not arguments.get("input") or not arguments.get("operation_id"):
                 raise ValueError("spawn(task='deep_research') requires input and operation_id")
             options = {key: value for key, value in arguments.items()
