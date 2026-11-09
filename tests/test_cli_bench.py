@@ -29,7 +29,7 @@ class CliBenchTests(unittest.TestCase):
     def test_legacy_ladder_preset_expires_at_070(self):
         with tempfile.TemporaryDirectory(prefix="bookmark-ladder-") as temporary:
             destination = Path(temporary) / "ladder.json"
-            with mock.patch("mcp_server.release_version", return_value="0.7.0"):
+            with mock.patch("mcp_server.release_version", return_value="0.8.0"):
                 code = cli.main(["bench", "ladder", "--preset", "legacy", "--file", str(destination)])
             self.assertEqual(1, code)
             self.assertFalse(destination.exists())

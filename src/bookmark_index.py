@@ -495,8 +495,13 @@ class BookmarkIndex:
         else:
             if anchor:
                 raise ValueError("Only permanent sections can be copy anchors")
-            section_id = obj.get("id")
             label = obj.get("label", "unknown")
+            section_id = obj.get("id")
+            if not section_id:
+                # The canvas right-click export omits ids; derive a stable one so
+                # re-importing the same file keeps refs and duplicate groups.
+                digest = hashlib.sha256(("temporary|" + str(label) + "|" + _string(obj.get("title", ""), "section title") + "|" + file_path).encode("utf-8")).hexdigest()[:12]
+                section_id = "temp-section-export-" + digest
         _string(section_id, "section id", True)
         _string(label, "section label", True)
         return section_id, {
@@ -543,7 +548,14 @@ class BookmarkIndex:
             for position, node in enumerate(nodes):
                 if not isinstance(node, dict):
                     raise ValueError("Items must be JSON objects")
-                item_id = _string(node.get("id"), "item id", True)
+                if node.get("id") is None:
+                    # Exported items carry no id; derive one from position and
+                    # content so re-imports stay stable and duplicates still group.
+                    seed = "|".join([section_id, parent_id or "", str(position),
+                                     str(node.get("url") or ""), str(node.get("title") or "")])
+                    item_id = ("tempId_" if not permanent else "persistId_") + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+                else:
+                    item_id = _string(node.get("id"), "item id", True)
                 if item_id in seen:
                     raise ValueError("Duplicate item id in section: " + item_id)
                 seen.add(item_id)
@@ -552,8 +564,9 @@ class BookmarkIndex:
                 if not permanent and node.get("sectionId", section_id) != section_id:
                     raise ValueError("Temporary item sectionId mismatch: " + item_id)
                 title = _string(node.get("title", ""), "item title")
-                url = _string(node.get("url", ""), "item URL")
-                item_type = ("bookmark" if url else "folder") if permanent else node.get("type")
+                url = _string(node.get("url") or "", "item URL")
+                item_type = (("bookmark" if url else "folder") if permanent
+                             else (node.get("type") or ("bookmark" if url else "folder")))
                 if item_type not in ("bookmark", "folder") or (item_type == "bookmark" and not url):
                     raise ValueError("Invalid bookmark/folder type: " + item_id)
                 children = node.get("children", [])
@@ -961,6 +974,130 @@ class BookmarkIndex:
         if metadata_clauses:
             clauses.append("(" + (" OR " if metadata_match == "any" else " AND ").join(metadata_clauses) + ")")
         return clauses, args
+
+    def source_summary(self, source_id):
+        """Recognise a freshly imported package: counts, sections, noise, duplicates."""
+        source_id = self.resolve_source_id(source_id)
+        from url_classify import is_search_result_url
+        counts = {}
+        for row in self.connection.execute(
+                "SELECT item_type, COUNT(*) AS c FROM items WHERE source_id=? GROUP BY item_type",
+                (source_id,)):
+            counts[row["item_type"]] = row["c"]
+        notes = self.connection.execute(
+            "SELECT COUNT(*) FROM items WHERE source_id=? AND note!=''", (source_id,)).fetchone()[0]
+        notes_bookmarks = self.connection.execute(
+            "SELECT COUNT(*) FROM items WHERE source_id=? AND note!='' AND item_type='bookmark'",
+            (source_id,)).fetchone()[0]
+        tagged = self.connection.execute(
+            "SELECT COUNT(*) FROM items WHERE source_id=? AND tag_text!=''", (source_id,)).fetchone()[0]
+        section_counts = {row["section_id"]: row["c"] for row in self.connection.execute(
+            "SELECT section_id, COUNT(*) AS c FROM items WHERE source_id=? GROUP BY section_id",
+            (source_id,))}
+        sections = []
+        for row in self.connection.execute(
+                "SELECT section_id, label, title, section_type, file_path, raw_json FROM sections"
+                " WHERE source_id=? ORDER BY section_id", (source_id,)):
+            try:
+                raw = json.loads(row["raw_json"]) if row["raw_json"] else {}
+            except ValueError:
+                raw = {}
+            sections.append({**dict(row), "items": section_counts.get(row["section_id"], 0),
+                             "source": raw.get("source") or "",
+                             "temp_kind": raw.get("tempKind") or ""})
+            sections[-1].pop("raw_json", None)
+        urls = [row["url"] for row in self.connection.execute(
+            "SELECT DISTINCT url FROM items WHERE source_id=? AND url!=''", (source_id,))]
+        search_pages = sum(1 for url in urls if is_search_result_url(url))
+        from junk import is_junk
+        junk_items = 0
+        for row in self.connection.execute(
+                "SELECT title, url FROM items WHERE source_id=? AND item_type='bookmark'",
+                (source_id,)):
+            if is_junk(row["title"], row["url"]):
+                junk_items += 1
+        duplicates = self.duplicate_urls(source_id, include_search=False, limit=1)
+        return {"source_id": source_id,
+                "counts": {"items": sum(counts.values()), "bookmarks": counts.get("bookmark", 0),
+                           "folders": counts.get("folder", 0)},
+                "notes": notes, "notes_bookmarks": notes_bookmarks,
+                "notes_folders": notes - notes_bookmarks, "tagged": tagged, "unique_urls": len(urls),
+                "search_pages": search_pages, "junk_items": junk_items,
+                "duplicate_url_groups": duplicates["total_groups"],
+                "sections": sections}
+
+    def duplicate_urls(self, source_id, min_count=2, limit=50, offset=0, include_search=False):
+        """Group bookmarks that point at the same URL and suggest which copy to keep.
+
+        The suggestion prefers an instance with a note, then the earliest added
+        copy, then the shallowest folder path.  It is a proposal, never an edit.
+        """
+        source_id = self.resolve_source_id(source_id)
+        if isinstance(min_count, bool) or not isinstance(min_count, int) or min_count < 2:
+            raise ValueError("min_count must be an integer of at least 2")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 500:
+            raise ValueError("limit must be an integer from 1 to 500")
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+        if type(include_search) is not bool:
+            raise ValueError("include_search must be a boolean")
+        from junk import is_junk
+        from url_classify import is_search_result_url
+        base = ("FROM items WHERE source_id=? AND item_type='bookmark'"
+                " AND url IS NOT NULL AND url!=''")
+        rows = self.connection.execute(
+            "SELECT url, COUNT(*) AS copies, MIN(added_at) AS first_added " + base +
+            " GROUP BY url HAVING copies>=? ORDER BY copies DESC, first_added, url",
+            (source_id, min_count)).fetchall()
+        groups = [dict(row) for row in rows]
+        # Placeholder rows (divider searches) are not real duplicates; drop them
+        # before counting groups so the report stays honest.
+        junk_seen = 0
+        kept_groups = []
+        for group in groups:
+            if is_junk("", group["url"]):
+                junk_seen += group["copies"]
+                continue
+            kept_groups.append(group)
+        groups = kept_groups
+        if not include_search:
+            groups = [group for group in groups if not is_search_result_url(group["url"])]
+        urls = [group["url"] for group in groups]
+        by_url = {}
+        if urls:
+            placeholders = ",".join("?" for _ in urls)
+            instance_rows = self.connection.execute(
+                "SELECT section_id, item_id, url, title, note, note_color, folder_path, added_at, position "
+                + base + " AND url IN (" + placeholders + ") ORDER BY url, added_at, folder_path, item_id",
+                [source_id, *urls]).fetchall()
+            for row in instance_rows:
+                by_url.setdefault(row["url"], []).append(dict(row))
+        kept = []
+        for group in groups:
+            copies = []
+            for instance in by_url.get(group["url"], []):
+                if is_junk(instance.get("title"), instance.get("url")):
+                    junk_seen += 1
+                    continue
+                instance["depth"] = (instance.get("folder_path") or "").count("/") + 1
+                copies.append(instance)
+            if len(copies) < min_count:
+                continue
+            keep = sorted(copies, key=lambda item: (
+                0 if item.get("note") else 1, item.get("added_at") or "9999",
+                item["depth"], item["section_id"], item["item_id"]))[0]
+            group["copies"] = len(copies)
+            group["keep"] = {key: keep[key] for key in ("section_id", "item_id", "title",
+                                                        "folder_path", "note", "added_at")}
+            group["instances"] = copies
+            kept.append(group)
+        total_groups = len(kept)
+        page = kept[offset:offset + limit]
+        shown = offset + len(page)
+        return {"source_id": source_id, "total_groups": total_groups, "groups": page,
+                "limit": limit, "offset": offset,
+                "next_offset": shown if shown < total_groups else None,
+                "include_search": include_search, "junk_instances_excluded": junk_seen}
 
     def folder_children(self, source_id, folder_id, section=None, tags=None, tag_colors=None,
                         has_note=None, has_tags=None, metadata_match="all", limit=8, offset=0):

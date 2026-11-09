@@ -71,15 +71,15 @@ wall ≈ 24.3s + 3.15s × 步数        r = 0.902,  r² = 0.813
 
 | 工具 | 签名 | 覆盖的现有工具 | 为什么必须是原语 |
 |---|---|---|---|
-| `locate` | **当前实现**：`locate(text?, url?, in=["canvas","wiki","archive"], source_id?, section?, folder_id?, tags?, tag_colors?, has_note?, has_tags?, metadata_match="all", limit=8, offset=0, handle?, refresh=false)`（`text`/`url` 二选一，`in` 单 scope）；Canvas、Wiki revision、archive capture 均已有 adapter | `search_bookmarks`、`lookup_url`、`search_archive`、`wiki_search`、`wiki_list`、`plan_research` 的本地候选段 | 统一入口保留各 scope 的 evidence kind、revision/capture provenance 和验证状态；Canvas 承担元数据过滤，Wiki/archive 拒绝伪造 Canvas 条件 |
+| `locate` | **当前实现**：`locate(text?, url?, in=["canvas","wiki","archive"], source_id?, section?, folder_id?, tags?, tag_colors?, has_note?, has_tags?, metadata_match="all", limit=8, offset=0, handle?, refresh=false)`（`text`/`url` 二选一；或只给 `folder_id` 列子项；或只给元数据过滤（tags/tag_colors/has_note/has_tags）枚举命中；或只给 `package_path` 导入单卡/包并返回来源摘要，`in` 单 scope）；Canvas、Wiki revision、archive capture 均已有 adapter | `search_bookmarks`、`lookup_url`、`search_archive`、`wiki_search`、`wiki_list`、`plan_research` 的本地候选段 | 统一入口保留各 scope 的 evidence kind、revision/capture provenance 和验证状态；Canvas 承担元数据过滤，Wiki/archive 拒绝伪造 Canvas 条件 |
 | `read` | `read(ref, …)`；也接受 Wiki `page_id/revision` 或 research `research_id/evidence_source_id(s)` | `get_context`、`wiki_get`、`research_source` | Canvas 短 ref 绑定 source version；Wiki ref 固定 revision；archive ref 固定 capture/hash；research source 保留 content state |
 | `walk` | `walk(ref, dir="out", depth=1)` | `traverse_graph` | 沿 Canvas edges / memberships 多跳遍历，shell 难以稳定复现 |
 | `search` | `search(query, targets?, providers?, limit=8)` | `search_web` | 需要鉴权、并发、provider fallback、失败与覆盖记账；只返回外部发现结果，不声称页面正文已核验 |
 | `fetch` | `fetch(urls, provider?, archive=true, capture_id?, offset?)` | `fetch_web` | 已知 URL 的多页并发读取、内容状态分类、归档与同一捕获续读；保留预算和 provider fallback |
 | `ingest` | `ingest(batches, archive=false)`；内联最多 16 条结果、序列化 payload ≤8,000 字符 | `merge_search_results` | 宿主原生搜索结果回流后，由 core 按规范 URL / 内容哈希归并、RRF 排序、保留 provider 来源与覆盖；超预算时宿主写 JSON 文件，再由 CLI 读取，不把已生成的搜索结果重复塞回上下文 |
 | `save` | `save(kind="wiki", page, sources, expected_revision)` | `wiki_write`、`wiki_acknowledge` | 精确引用、来源文本或不可变捕获、书签引用、修订冲突与新鲜度校验必须集中执行 |
-| `spawn` | `spawn(task="deep_research", args)` → `job_id` | `research_service_start` | 仅提交 Deep Research API 等外部长任务；宿主自己的 Agentic Search / 子代理仍由宿主规划 |
-| `job` | `job(id, action="status|result|cancel")` | `research_service_status`、`research_service_result`、`research_service_cancel` | 与异步外部任务配套，提供可恢复的外部 ID、状态和结果路径 |
+| `spawn` | `spawn(task="deep_research"|"fetch"|"ingest"|"research", args)` → `job_id` | `research_service_start` | `deep_research` 提交外部 API 长任务；`fetch`/`ingest`/`research` 进入本地持久化作业队列（`br job worker` 消费，三宿主共享） |
+| `job` | `job(job_id|external_id, action="status|result|cancel")` | `research_service_status`、`research_service_result`、`research_service_cancel` | 本地 `j-…` 作业与外部 provider 作业统一观察；状态、结果、取消一致 |
 | `health` | `health()` → ≤200 字符摘要 | `index_status`、`research_services` 的就绪摘要 | 热路径诊断要短；完整预算、provider 配置和维护操作走 CLI `br route` / `br doctor` |
 
 ### 3.2 CLI：其余全部及批量工作流
@@ -93,9 +93,11 @@ wall ≈ 24.3s + 3.15s × 步数        r = 0.902,  r² = 0.813
 | `br doctor` | 离线自检 | （已有） |
 | `br archive` | 存档检索/归并 | `search_archive`（批量与维护用法） |
 | `br ingest` | 归并宿主搜索结果；可选归档 | `merge_search_results` 的 CLI 入口，与 MCP `ingest` 共用 core |
+| `br dupes` | 重复 URL 报告：分组、份数、建议保留项（只读，不改包） | （新增） |
 | `br locate` / `br ingest --input <file>` | `locate` 复用共享 core；`ingest` 从文件读取大批次并调用 `fuse_results` | 与 MCP 原语共用业务 core；其他原语仍可通过 `br research/wiki/fetch-web` 等现有 CLI 命令调用 |
 | `br wiki lint\|refresh\|work` | Wiki 维护 | `wiki_lint`、`wiki_refresh`、`wiki_work` |
 | `br research plan\|record\|finish\|coverage\|inventory` | 深度研究流程 | `research_start`、`research_record`、`research_finish`、`research_coverage`、`research_inventory`、`research_import_evidence`、`research_service_import` |
+| `br job submit\|list\|status\|result\|cancel\|worker` | 本地作业队列与单例 worker | （新增） |
 | `br bench …` | 基准回归 | （新增） |
 
 ### 3.3 替代、弃用与保留
@@ -108,7 +110,7 @@ wall ≈ 24.3s + 3.15s × 步数        r = 0.902,  r² = 0.813
 | `lookup_url` | **并入** `locate(url=...)`，仅表示本地索引命中；要读取页面正文仍调用 `fetch` |
 | `wiki_list` / `wiki_search` | **并入** `locate(in=["wiki"])`，返回页面 ref 与修订号，不混入 Web 搜索发现结果 |
 | `get_context` / `traverse_graph` | **并入** `read` / `walk` |
-| 被默认原语替代的旧工具（`search_bookmarks`、`lookup_url`、`search_archive`、`wiki_search`、`wiki_list`、`get_context`、`traverse_graph`、`research_source`、`search_web`、`fetch_web`、`merge_search_results`、`wiki_write`、`wiki_get`、`wiki_acknowledge`、`research_service_start/status/result/cancel`） | P0b 起从默认 `quick` 移除，改由 10 个原语承接；all/deep 兼容目录仍保留，用差分等价验证结果集、排序、分页、错误和 provenance。旧 description 已标 `[deprecated→目标]`，0.6.x 兼容期内旧 handler 仍可调用；**0.7.0 起 quick 拒绝非契约旧工具调用，并移除旧 schema 与 handler**。未被替代的 deep 工具保持冻结 |
+| 被默认原语替代的旧工具（`search_bookmarks`、`lookup_url`、`search_archive`、`wiki_search`、`wiki_list`、`get_context`、`traverse_graph`、`research_source`、`search_web`、`fetch_web`、`merge_search_results`、`wiki_write`、`wiki_get`、`wiki_acknowledge`、`research_service_start/status/result/cancel`） | P0b 起从默认 `quick` 移除，改由 10 个原语承接；all/deep 兼容目录仍保留，用差分等价验证结果集、排序、分页、错误和 provenance。旧 description 已标 `[deprecated→目标]`，0.6.x 兼容期内旧 handler 仍可调用；**0.8.0 起 quick 拒绝非契约旧工具调用，并移除旧 schema 与 handler（原定 0.7.0，因测试迁移未完成顺延一个版本）**。未被替代的 deep 工具保持冻结 |
 
 ### 3.4 净效果
 
@@ -157,7 +159,7 @@ ref 格式：<kind><scope><seq>  例：b-k9d4-1 / w-p3a1-2 / a-91f0-1
 
 ### 4.2.1 locate 参数与所有权
 
-P0a/P0b 的 locate 查询参数矩阵固定为 15 项：`text`、`url`、`in`、`source_id`、`section`、`folder_id`、`tags`、`tag_colors`、`has_note`、`has_tags`、`metadata_match`、`limit`、`refresh`；分页控制另有 `offset` 与不透明的 `handle` 两项。`text` 与 `url` 必须恰好提供一个，续读请求改为提供 `handle` 与 `offset`；当前已支持单一 `in` scope：Canvas、Wiki 或 archive。Canvas 才接受 `source_id` 和 metadata filters；未指定 Canvas `source_id` 时只能选唯一 live 源，否则返回 `source_required`。`metadata_match` 只组合 Canvas metadata 条件，不能改变词命中的定义。
+P0a/P0b 的 locate 查询参数矩阵固定为 15 项：`text`、`url`、`in`、`source_id`、`section`、`folder_id`、`tags`、`tag_colors`、`has_note`、`has_tags`、`metadata_match`、`limit`、`refresh`；分页控制另有 `offset` 与不透明的 `handle` 两项。`text` 与 `url` 二选一；列目录可只给 `folder_id`；纯元数据查询可只给 `tags`/`tag_colors`/`has_note`/`has_tags`。续读请求改为提供 `handle` 与 `offset`；当前已支持单一 `in` scope：Canvas、Wiki 或 archive。Canvas 才接受 `source_id` 和 metadata filters；未指定 Canvas `source_id` 时只能选唯一 live 源，否则返回 `source_required`。`metadata_match` 只组合 Canvas metadata 条件，不能改变词命中的定义。
 
 locate 的规范化、停用词处理、口语 metadata 识别、排序、分页和 `why` 生成属于共享 core；MCP 与 CLI 只负责参数校验、调用和传输。P0a 可以暂时保留 MCP 薄包装，但不得在 CLI 复制规则；新增的 core 测试必须覆盖两入口逐字等价。
 

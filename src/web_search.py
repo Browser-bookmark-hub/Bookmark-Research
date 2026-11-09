@@ -4,6 +4,7 @@ import concurrent.futures
 import copy
 import json
 import re
+import sqlite3
 import threading
 import time
 import uuid
@@ -1054,7 +1055,73 @@ class SearchProviders:
         pool.shutdown(wait=not abandoned)
         return assemble(abandoned)
 
-    def fetch(self, urls, provider=None, archive=None, max_characters=None, probe=True):
+    def fetch(self, urls, provider=None, archive=None, max_characters=None, probe=True, use_cache=True):
+        """Route known URLs: skip search-result pages, reuse a fresh cache hit, else fetch."""
+        from url_classify import is_search_result_url
+        preferences = self.settings.load()
+        if not isinstance(urls, list):
+            return self._fetch(urls, provider, archive, max_characters, probe)
+        skipped = [url for url in urls if isinstance(url, str) and is_search_result_url(url)]
+        fetchable = [url for url in urls if url not in skipped]
+        skipped_rows = [{"url": url, "status": "skipped", "content_state": "unavailable",
+                         "extraction_status": "search_result_page", "characters": 0,
+                         "complete_page_verified": False,
+                         "error": "search-engine result page; search again instead of fetching it"}
+                        for url in skipped]
+        ttl = (preferences["fetch"].get("reuse_seconds") or 0) if use_cache else 0
+        cache = None
+        cache_key = None
+        if ttl > 0 and fetchable:
+            try:
+                from fetch_cache import FetchCache
+                cache = FetchCache()
+                effective_archive = (preferences["archive"]["enabled"]
+                                     if archive is None else archive)
+                effective_max = (preferences["fetch"]["max_characters"]
+                                 if max_characters is None else max_characters)
+                cache_key = FetchCache.key(fetchable, provider, effective_archive, effective_max)
+                hit = cache.get(cache_key, ttl)
+            except (OSError, ValueError, sqlite3.Error):
+                hit = None
+            if hit is not None:
+                cached, age = hit
+                cached = dict(cached)
+                cached["cached"] = True
+                cached["cache_age_seconds"] = round(age, 1)
+                if skipped_rows:
+                    cached["per_url"] = list(cached.get("per_url") or []) + skipped_rows
+                    cached["skipped_url_count"] = len(skipped_rows)
+                if cache is not None:
+                    cache.close()
+                return cached
+        try:
+            if not fetchable and skipped_rows:
+                return {"mode": "skipped", "urls": skipped, "providers": [], "attempts": [],
+                        "status": "error", "provider": None, "per_url": skipped_rows,
+                        "successful_url_count": 0, "skipped_url_count": len(skipped_rows),
+                        "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                        "archive": {"status": "disabled"},
+                        "freshness": "Search-result pages were not fetched; run a search instead."}
+            result = self._fetch(fetchable, provider, archive, max_characters, probe)
+            if skipped_rows:
+                result = dict(result)
+                result["per_url"] = list(result.get("per_url") or []) + skipped_rows
+                result["skipped_url_count"] = len(skipped_rows)
+                if result.get("status") == "ok" and result.get("successful_url_count") == 0:
+                    result["status"] = "partial"
+            if cache is not None and cache_key is not None and use_cache:
+                usable = any(row.get("status") == "ok" for row in result.get("per_url") or [])
+                if usable:
+                    try:
+                        cache.put(cache_key, fetchable, provider, result)
+                    except sqlite3.Error:
+                        pass
+            return result
+        finally:
+            if cache is not None:
+                cache.close()
+
+    def _fetch(self, urls, provider=None, archive=None, max_characters=None, probe=True):
         preferences = self.settings.load()
         automatic = provider is None
         provider = preferences["fetch"]["provider"] if provider is None else provider

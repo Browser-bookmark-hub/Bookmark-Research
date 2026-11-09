@@ -9,10 +9,13 @@ Examples:
     python3 scripts/bench_sync.py /path/to/Bookmark-Canvas/bookmark/书签画布
     python3 scripts/bench_sync.py --json
     python3 scripts/bench_sync.py --threshold 0.05
+
+Without a path (and without BOOKMARK_RESEARCH_BENCH_PACKAGE) it benchmarks a synthetic package.
 """
 
 import argparse
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -27,7 +30,8 @@ from source_manager import SourceManager
 from source_inputs import read_input
 
 
-DEFAULT_PACKAGE = Path("/Users/kk/Downloads/kk/Bookmark-Canvas/bookmark/书签画布")
+DEFAULT_PACKAGE = (Path(os.environ["BOOKMARK_RESEARCH_BENCH_PACKAGE"]).expanduser()
+                  if os.environ.get("BOOKMARK_RESEARCH_BENCH_PACKAGE") else None)
 
 
 def make_synthetic_package(root, sections=10, items_per_section=50):
@@ -67,7 +71,7 @@ def run_benchmark(package_path, threshold=0.05):
                 shutil.copytree(orig, pkg_copy)
             else:
                 shutil.copyfile(orig, pkg_copy)
-        elif DEFAULT_PACKAGE.exists():
+        elif DEFAULT_PACKAGE is not None and DEFAULT_PACKAGE.exists():
             shutil.copytree(DEFAULT_PACKAGE, pkg_copy)
         else:
             make_synthetic_package(pkg_copy)
@@ -118,7 +122,7 @@ def run_benchmark(package_path, threshold=0.05):
         threshold_exceeded = nochange_duration > threshold
 
         return {
-            "package_path": str(package_path or (pkg_copy if is_synthetic else DEFAULT_PACKAGE)),
+            "package_path": str(package_path or (pkg_copy if is_synthetic else DEFAULT_PACKAGE or "")),
             "is_synthetic": is_synthetic,
             "total_files": total_files,
             "threshold_seconds": threshold,

@@ -19,7 +19,7 @@ from pathlib import Path
 from release import release_version
 from settings import Settings
 from credentials import Credentials
-from locate import continuation_scope, locate as locate_core
+from locate import continuation_scope, locate as locate_core, locate_ref
 from ref_codec import resolve as resolve_ref
 
 
@@ -133,10 +133,11 @@ TOOL_SCHEMAS = {
         "source_id": IDENTIFIER,
         "section": IDENTIFIER,
         "folder_id": {**IDENTIFIER, "description": "Filter matches to a folder subtree; with source_id and no text/url, list this folder's direct children."},
+        "package_path": {**IDENTIFIER, "description": "Import this local Canvas package, single section JSON, or bookmark HTML export (snapshot) and query it; omit to use an already-imported source_id."},
         "tags": _array_schema(_text_schema(), 100),
         "tag_colors": _array_schema(_text_schema(), 20),
-        "has_note": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) a non-empty note."},
-        "has_tags": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) one or more tags."},
+        "has_note": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) a non-empty note. Usable alone, without text/url, to enumerate."},
+        "has_tags": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) one or more tags. Usable alone, without text/url, to enumerate."},
         "metadata_match": {"type": "string", "enum": ["all", "any"], "default": "all"},
         "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 8},
         "offset": {"type": "integer", "minimum": 0, "default": 0},
@@ -148,8 +149,8 @@ TOOL_SCHEMAS = {
         "section": IDENTIFIER, "group_id": IDENTIFIER, "folder_id": IDENTIFIER,
         "tags": _array_schema(_text_schema(), 100),
         "tag_colors": _array_schema(_text_schema(), 20),
-        "has_note": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) a non-empty note."},
-        "has_tags": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) one or more tags."},
+        "has_note": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) a non-empty note. Usable alone, without text/url, to enumerate."},
+        "has_tags": {"type": "boolean", "description": "Filter for bookmarks with (true) or without (false) one or more tags. Usable alone, without text/url, to enumerate."},
         "metadata_match": {"type": "string", "enum": ["all", "any"], "default": "all",
                            "description": "Combine has_note and has_tags with AND (all) or OR (any)."},
         "sort_by": {"type": "string", "enum": ["default", "added_at_desc", "added_at_asc"], "default": "default",
@@ -281,7 +282,7 @@ TOOL_DESCRIPTIONS = {
     "source_history": "List saved source versions and managed snapshot paths, including partial-import data. Reimport a snapshot to recover it. Does not refresh sources or rewrite research inventories.",
     "source_remove": "Preview deletion of an imported source, index rows and managed snapshots; confirm=true performs it. Frozen research inventories remain, but item resolution stops and citing Wiki pages need review. For identical duplicates, prefer source_merge.",
     "source_merge": "Preview merging an identical source into into_source_id; confirm=true transfers path aliases and drops the duplicate. Synchronized content versions must match; synchronize legacy sources first.",
-    "locate": "Find literal matches in one local scope: Canvas bookmarks, Wiki revisions, or archived captures. Canvas returns direct title/URL/note/tag matches before inherited folder_path matches; inherited-only items fold into the nearest matching folder with a count and up to three samples. coverage reports underlying bookmark matches; total counts returned direct/folder rows. Use a returned folder_id with source_id and omit text/url to list that folder's direct children. If total exceeds limit, continue with more.handle and more.offset; handles survive CLI/MCP process restarts. Pass text or url, not both, unless listing folder children.",
+    "locate": "Find matches in one local scope: Canvas bookmarks, Wiki revisions, or archived captures. Canvas returns direct title/URL/note/tag matches before inherited folder_path matches; inherited-only items fold into the nearest matching folder with a count and up to three samples. Three query shapes: text or url; folder_id with source_id and no text/url lists that folder's direct children; metadata filters (tags/tag_colors/has_note/has_tags) with no text/url/folder enumerate matching bookmarks newest-first. If total exceeds limit, continue with more.handle and more.offset; handles survive CLI/MCP process restarts. Pass text or url, not both.",
     "search_bookmarks": "Literal all-term search with independent target totals/pages; canvas_matches reports text/group/edge hits separately. compact=true returns shared rows plus ordered result_refs per page; row raw_json/metadata then contain extra/conflicting fields. Default false keeps full rows. score=true returns non-binding ranking score and field_hits hints while preserving literal match set. Keep instances distinct from unique_urls and shared copies. count_only or limit=0 omits rows; item_types=[\"folder\"] includes synthetic roots. Live inputs refresh by default; inspect source.state. refresh=false reads the saved index.",
     "lookup_url": "Reverse index: find all bookmark item instances for an exact URL across sections and sources, with chronological added_at, parent folders and copy anchor cards. source_id is optional.",
     "get_context": "Read section headers, bookmark metadata, folder ancestry, groups and directed edges. Defaults to 200 rows per collection; follow each collection's next_offset with the same scope. Counts cover the full scope. Copy anchors share their primary tree. Live inputs refresh by default. compact=true drops raw_json, description_md and revision; pair it with a collection to reach the smallest budget.",
@@ -495,14 +496,20 @@ TOOL_SCHEMAS.update({
     }, ["query"]),
     "fetch": TOOL_SCHEMAS["fetch_web"],
     "ingest": copy.deepcopy(TOOL_SCHEMAS["merge_search_results"]),
-    "spawn": TOOL_SCHEMAS["research_service_start"],
+    "spawn": _object_schema({**SERVICE_INPUT, "operation_id": RESEARCH_ID,
+        "task": {"type": "string", "enum": ["deep_research", "fetch", "ingest", "research"],
+                 "default": "deep_research"},
+        "args": {"type": "object",
+                 "description": "Local job payload: fetch {urls, provider?, archive?}, ingest {batches}, research {input, provider?}."},
+        "priority": {"type": "integer", "minimum": -100, "maximum": 100, "default": 0}}),
     "job": _object_schema({
+        "job_id": _text_schema(128),
         "external_id": RESEARCH_ID,
         "action": {"type": "string", "enum": ["status", "result", "cancel"], "default": "status"},
         "refresh": {"type": "boolean", "default": False},
         "offset": {"type": "integer", "minimum": 0, "maximum": 10000000, "default": 0},
         "limit": {"type": "integer", "minimum": 1, "maximum": 50000, "default": 12000},
-    }, ["external_id"]),
+    }),
     "health": _object_schema({}),
     "read": copy.deepcopy(TOOL_SCHEMAS["get_context"]),
     "walk": copy.deepcopy(TOOL_SCHEMAS["traverse_graph"]),
@@ -544,8 +551,8 @@ TOOL_DESCRIPTIONS.update({
     "search": "Search public sources and return discovery results with provider failures and coverage visible. Results are not page正文; fetch known URLs before citing.",
     "fetch": "Fetch known URLs with provider fallback, bounded text budgets, content_state and optional archived capture continuation. A returned body is not automatically a verified citation.",
     "ingest": "Fuse host or provider search batches by canonical URL and body SHA-256, preserving provider provenance, failures and coverage. This is deterministic result ingestion, not Agentic Search planning.",
-    "spawn": "Submit one provider-managed Deep Research task and return an external job identity. The host owns iteration and decides when to observe it with job.",
-    "job": "Observe or cancel a provider-managed research job. action=status reads state, result reads a bounded report page, and cancel requests cancellation; no new task is submitted.",
+    "spawn": "Submit work that outlives one tool step. task=deep_research (default) starts a provider-managed Deep Research run and returns an external id; task=fetch/ingest/research enqueues a durable local job and returns job_id, processed by `br job worker`. The host owns iteration and decides when to observe it with job.",
+    "job": "Observe or cancel a job. Accepts a local job_id (j-...) or a provider external_id. action=status reads state, result returns the stored result (artifact_path for large output), cancel requests cancellation; no new task is submitted. For local jobs, state=succeeded means the worker finished; read result.status and per_url for the actual fetch outcome.",
     "health": "Return a compact local health summary for indexed sources and the source watcher. It performs no network fetch and is safe to call before research.",
     "read": "Read a target Canvas bookmark and its folder ancestors by default; use collection='all' for full section context. Also reads a pinned Wiki revision, archived capture, or saved research evidence. Canvas refs are source-version-bound; Wiki and archive refs preserve revision/capture identity and content state.",
     "walk": "Traverse Canvas edges and memberships through the shared walk primitive, preserving direction, depth, paths and pagination.",
@@ -567,14 +574,14 @@ for _legacy_name, _replacement_name in DEPRECATED_TOOL_TARGETS.items():
 
 
 def _legacy_compatibility_expired(version):
-    """Return whether a stable release has reached the 0.7.0 cutoff."""
+    """Return whether a stable release has reached the 0.8.0 cutoff."""
     match = re.fullmatch(
         r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?",
         str(version or ""))
     if match is None:
         return False
     current = tuple(int(match.group(index)) for index in (1, 2, 3))
-    cutoff = (0, 7, 0)
+    cutoff = (0, 8, 0)
     if current != cutoff:
         return current > cutoff
     return match.group(4) is None
@@ -654,13 +661,16 @@ class StdioMcpServer:
         self.protocol = None
         self.ready = False
         self._index = None
+        self._read_index = None
         self._source_manager = None
+        self._read_source_manager = None
         self._source_watcher = None
         self._providers = None
         self._research_sessions = None
         self._research_services = None
         self._wiki_store = None
         self._raw_library = None
+        self._job_store = None
         self._initialization_lock = threading.RLock()
         self._log_lock = threading.Lock()
         self._cancel_pending = None
@@ -712,17 +722,48 @@ class StdioMcpServer:
             self._source_watcher.close()
             self._source_watcher = None
         self._source_manager = None
+        self._read_source_manager = None
         if self._index is not None:
             self._index.close()
             self._index = None
+        if self._read_index is not None:
+            self._read_index.close()
+            self._read_index = None
+        if self._job_store is not None:
+            self._job_store.close()
+            self._job_store = None
 
-    def _local(self):
+    def _local(self, readonly=False):
+        """Return the shared index handle; reads use a read-only connection.
+
+        A second MCP process used to open the read-write handle for every
+        ``read``/``walk`` and pay the schema/WAL write lock each time (4-15s
+        under concurrency).  Read-only handles skip schema writes and never
+        block the writer.
+        """
+        if readonly:
+            if self._read_index is None:
+                from bookmark_index import BookmarkIndex
+                self._read_index = BookmarkIndex(self.db_path, readonly=True)
+            return self._read_index
         if self._index is None:
+            # SQLite cannot run the read-write schema bootstrap while a read-only
+            # handle on the same file is open (it surfaces as "disk I/O error"), so
+            # an upgrade to the writer drops the cached reader first.
+            if self._read_index is not None:
+                self._read_index.close()
+                self._read_index = None
+                self._read_source_manager = None
             from bookmark_index import BookmarkIndex
             self._index = BookmarkIndex(self.db_path)
         return self._index
 
-    def _sources(self):
+    def _sources(self, readonly=False):
+        if readonly:
+            if self._read_source_manager is None:
+                from source_manager import SourceManager
+                self._read_source_manager = SourceManager(self._local(readonly=True))
+            return self._read_source_manager
         if self._source_manager is None:
             from source_manager import SourceManager
             self._source_manager = SourceManager(self._local())
@@ -770,6 +811,12 @@ class StdioMcpServer:
                 self._wiki_store = WikiStore(directory=selected, settings=self.settings,
                                              research_sessions=self._research())
             return self._wiki_store
+
+    def _jobs(self):
+        if self._job_store is None:
+            from jobs import JobStore
+            self._job_store = JobStore()
+        return self._job_store
 
     def _raw(self):
         # Rebuilt per call so archive/output setting changes apply without restart.
@@ -895,12 +942,39 @@ class StdioMcpServer:
 
     def _locate_canvas(self, arguments):
         """Thin MCP adapter around the shared Canvas locate primitive."""
+        arguments = dict(arguments)
+        package_path = arguments.pop("package_path", None)
+        imported = None
+        if package_path is not None:
+            if arguments.get("source_id"):
+                raise ValueError("pass package_path or source_id, not both")
+            if arguments.get("handle"):
+                raise ValueError("package_path cannot be combined with a continuation handle")
+            if not isinstance(package_path, str) or not package_path.strip():
+                raise ValueError("package_path must be a non-empty string")
+            resolved_path = Path(package_path).expanduser()
+            if not resolved_path.is_absolute():
+                raise ValueError("package_path must be an absolute path; pass the full path to the export or package")
+            imported = self._sources().sync(str(resolved_path), mode="snapshot", completeness="partial")
+            arguments["source_id"] = imported["source_id"]
+            self._start_watcher()
+            query_keys = ("text", "url", "folder_id", "tags", "tag_colors", "has_note", "has_tags")
+            if not any(arguments.get(key) is not None for key in query_keys):
+                summary = self._local(readonly=True).source_summary(imported["source_id"])
+                summary["imported"] = {"input_path": imported.get("input_path"),
+                                       "counts": imported.get("counts"),
+                                       "changed_files": imported.get("changed_files")}
+                summary["next"] = ("call locate(source_id=%r, text=...) to search, or read(ref=...) "
+                                   "on a hit" % imported["source_id"])
+                return summary
         requested = arguments.get("in", ["canvas"])
         if arguments.get("handle"):
             requested = continuation_scope(arguments["handle"], self.db_path)
         wiki = self._wiki() if requested == ["wiki"] else None
         raw = self._raw() if requested == ["archive"] else None
-        return locate_core(self._local(), self._sources(), arguments, wiki=wiki, raw=raw)
+        refresh = bool(arguments.get("refresh", False))
+        return locate_core(self._local(readonly=not refresh), self._sources(readonly=not refresh),
+                           arguments, wiki=wiki, raw=raw)
 
     def _call(self, name, arguments):
         # Explicit dispatch ensures input can never select a Python method,
@@ -967,19 +1041,47 @@ class StdioMcpServer:
                 raise ValueError("ingest payload exceeds 8,000 characters; use the CLI file path for larger input")
             return self._call("merge_search_results", dict(arguments))
         if name == "spawn":
-            return self._call("research_service_start", dict(arguments))
+            task = arguments.get("task") or "deep_research"
+            if task in ("fetch", "ingest", "research"):
+                payload = arguments.get("args") or {}
+                if not isinstance(payload, dict):
+                    raise ValueError("spawn args must be an object")
+                job = self._jobs().submit(task, payload,
+                                          idempotency_key=arguments.get("operation_id"),
+                                          priority=int(arguments.get("priority", 0)))
+                return {"job_id": job["job_id"], "state": job["state"], "kind": job["kind"],
+                        "note": "queued; run `br job worker` (or it already runs) and observe with job(job_id)"}
+            if not arguments.get("input") or not arguments.get("operation_id"):
+                raise ValueError("spawn(task='deep_research') requires input and operation_id")
+            options = {key: value for key, value in arguments.items()
+                       if key not in ("task", "args", "priority")}
+            return self._call("research_service_start", options)
         if name == "job":
             options = dict(arguments)
             action = options.pop("action", "status")
-            external_id = options.pop("external_id")
+            identifier = options.pop("job_id", None) or options.pop("external_id", None)
+            if not identifier:
+                raise ValueError("job requires job_id")
+            if identifier.startswith("j-"):
+                store = self._jobs()
+                job = store.get(identifier)
+                if job is None:
+                    raise ValueError("Unknown job: " + identifier)
+                if action == "status":
+                    return {"job": job}
+                if action == "result":
+                    return {"job_id": job["job_id"], "state": job["state"],
+                            "result": job["result"], "artifact_path": job["artifact_path"],
+                            "error": job["error"]}
+                return {"job": store.cancel(identifier)}
             if action == "status":
-                return self._services().status(external_id, options.get("refresh", False))
+                return self._services().status(identifier, options.get("refresh", False))
             if action == "result":
-                return self._services().result(external_id, options.get("refresh", False),
+                return self._services().result(identifier, options.get("refresh", False),
                                                 options.get("offset", 0), options.get("limit", 12000))
-            return self._services().cancel(external_id)
+            return self._services().cancel(identifier)
         if name == "health":
-            source_report = self._sources().status()
+            source_report = self._sources(readonly=True).status()
             sources = []
             for source in source_report.get("sources", []):
                 sources.append({key: source.get(key) for key in ("source_id", "mode", "state", "version_id")
@@ -1014,7 +1116,7 @@ class StdioMcpServer:
                     canvas_ref = True
                     default_canvas_read = "collection" not in options
                     source_id, version_id, section_id, item_id = resolved["identity"]
-                    current = self._sources().source_status(source_id)
+                    current = self._sources(readonly=True).source_status(source_id)
                     if version_id and current.get("version_id") != version_id:
                         raise ValueError("stale_ref: source version changed; call locate again")
                     options.setdefault("source_id", source_id)
@@ -1058,17 +1160,48 @@ class StdioMcpServer:
                 options.setdefault("collection", "items")
                 options.setdefault("limit", 1)
                 options.setdefault("compact", True)
+            options.setdefault("refresh", False)
             result = self._call("get_context", options)
             if default_canvas_read and isinstance(result, dict):
                 pagination = result.get("pagination", {})
+                items = result.get("items", [])
                 result = {
                     "source_id": result.get("source_id"),
-                    "items": result.get("items", []),
+                    "items": items,
                     "source": result.get("source", {}),
                     "refresh": result.get("refresh", {}),
                     "read_scope": "target_item_and_folder_ancestors",
                     "pagination": {"items": pagination.get("items", {})},
                 }
+                # A folder ref is a request for its children, not for one row.
+                folder_item = (items[0] if len(items) == 1
+                               and items[0].get("item_type") == "folder" else None)
+                if folder_item is not None:
+                    index = self._local(readonly=True)
+                    listing = index.folder_children(
+                        options["source_id"], folder_item["item_id"],
+                        section=folder_item.get("section_id"), limit=5)
+                    version = self._sources(readonly=True).source_status(
+                        options["source_id"]).get("version_id")
+                    children = []
+                    for child in listing["results"]:
+                        entry = {"ref": locate_ref(options["source_id"], child["section_id"],
+                                                   child["item_id"], version),
+                                 "kind": child["item_type"], "item_id": child["item_id"],
+                                 "title": child.get("title") or "",
+                                 "position": child.get("position")}
+                        for field in ("url", "note", "note_color", "tags"):
+                            if child.get(field):
+                                entry[field] = child[field]
+                        children.append(entry)
+                    result["folder"] = {"folder_id": folder_item["item_id"],
+                                        "title": folder_item.get("title") or "",
+                                        "path": folder_item.get("path") or []}
+                    result["children"] = children
+                    result["child_count"] = listing["total"]
+                    result["read_scope"] = "folder_children"
+                    result["next"] = ("%d direct children; read a child ref for its card"
+                                      % listing["total"]) if listing["total"] else "Folder is empty"
             if isinstance(result, dict) and isinstance(result.get("source"), dict):
                 result["source"].setdefault("source_id", options["source_id"])
             return self._compact_source_envelope(result)
@@ -1082,7 +1215,7 @@ class StdioMcpServer:
                 if resolved["kind"] != "b":
                     raise ValueError("walk supports Canvas bookmark refs only")
                 source_id, version_id, section_id, item_id = resolved["identity"]
-                current = self._sources().source_status(source_id)
+                current = self._sources(readonly=True).source_status(source_id)
                 if version_id and current.get("version_id") != version_id:
                     raise ValueError("stale_ref: source version changed; call locate again")
                 options.setdefault("source_id", source_id)
@@ -1090,6 +1223,7 @@ class StdioMcpServer:
                 options.setdefault("item_id", item_id)
             if "source_id" not in options:
                 raise ValueError("walk requires ref or source_id")
+            options.setdefault("refresh", False)
             return self._call("traverse_graph", options)
         if name == "save":
             return self._call("wiki_write", dict(arguments))
@@ -1112,7 +1246,7 @@ class StdioMcpServer:
             scope_notes = None if name != "get_context" or "item_id" in options else {
                 "items": "get_context fills items only for one item_id; read a card's bookmarks with "
                          "search_bookmarks(section=...) or plan_research."}
-            index = self._local()
+            index = self._local(readonly=not refresh)
             update = self._sources().refresh(options["source_id"]) if refresh else None
             if update and update["state"] in ("error", "unavailable"):
                 raise ValueError(update["error"] + "; use refresh=false to read the saved index")
@@ -1132,13 +1266,13 @@ class StdioMcpServer:
                         result = page_context(result, scope_notes=scope_notes, **pagination)
                         if compact:
                             result = compact_context(result)
-                result["source"] = self._sources().source_status(options["source_id"])
+                result["source"] = self._sources(readonly=not refresh).source_status(options["source_id"])
             result["refresh"] = {"performed": bool(refresh and result["source"]["mode"] == "live"),
                 "index_updated": bool(update and update.get("performed")),
                 "requested": refresh, "mode": "checked_package" if refresh and result["source"]["mode"] == "live" else "saved_snapshot", "sync": update}
             return result
         if name == "index_status":
-            result = self._sources().status(**arguments)
+            result = self._sources(readonly=True).status(**arguments)
             result["monitor"] = self._source_watcher.status() if self._source_watcher else {"running": False, "mechanism": "poll"}
             return result
         if name == "search_web":
@@ -1170,7 +1304,8 @@ class StdioMcpServer:
                     max_total_characters=total, offset=offset, fair_share_min=fair)
             if offset:
                 raise ValueError("offset requires capture_id so continued reads use the same saved evidence")
-            result = self._web().fetch(**options)
+            engine = self._web()
+            result = engine._fetch(**options) if raw else engine.fetch(**options)
             return result if raw else SourceArchive.compact_fetch(
                 result, max_total_characters=total, fair_share_min=fair)
         if name == "search_archive":

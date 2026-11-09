@@ -9,3 +9,9 @@ dist/
 exports/
 .coverage
 *.tgz
+
+# Local-only bench artifacts and caches (never shipped)
+.bench/local/
+.bench/br-data/
+.br-cache/
+.dsh-run/

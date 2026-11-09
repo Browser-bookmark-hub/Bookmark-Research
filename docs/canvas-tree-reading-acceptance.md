@@ -4,7 +4,7 @@
 
 ## 测试前准备
 
-测试数据目录：`/Users/kk/Downloads/kk/Bookmark-Canvas/bookmark/书签画布`。这是用户本机测试路径；换环境时替换为实际画布包目录。
+测试数据目录：`<画布包目录>`（例如 `~/Bookmark-Canvas/bookmark/书签画布`）。换环境时替换为实际画布包目录。
 
 1. 确认两个仓库的模板与插件改动已推送。
 2. 使用 Bookmark Research 仓库生成的本地 `.tgz` 安装/升级 Codex 插件，不从 npm 拉取线上版本。

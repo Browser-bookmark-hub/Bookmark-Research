@@ -164,13 +164,13 @@ class McpServerTests(unittest.TestCase):
             self.assertTrue(listing[old]["description"].startswith("[deprecated→%s]" % replacement))
 
     def test_legacy_catalog_and_calls_expire_at_070(self):
-        self.assertFalse(_legacy_compatibility_expired("0.7.0-rc.1"))
-        self.assertTrue(_legacy_compatibility_expired("0.7.0"))
-        self.assertTrue(_legacy_compatibility_expired("0.7.1"))
+        self.assertFalse(_legacy_compatibility_expired("0.8.0-rc.1"))
+        self.assertTrue(_legacy_compatibility_expired("0.8.0"))
+        self.assertTrue(_legacy_compatibility_expired("0.8.1"))
         self.assertFalse(_legacy_compatibility_expired("0+unknown"))
 
         self.ready()
-        with mock.patch("mcp_server.release_version", return_value="0.7.0"):
+        with mock.patch("mcp_server.release_version", return_value="0.8.0"):
             listing = {tool["name"] for tool in self.server.handle(request("tools/list"))["result"]["tools"]}
             self.assertFalse(DEPRECATED_TOOL_TARGETS.keys() & listing)
             self.assertTrue(set(Settings.QUICK_TOOLS) <= listing)
@@ -929,6 +929,104 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(["temp-four"], [hit["item_id"] for hit in second["hits"]])
         child = decode_tool(self.call("read", {"ref": second["hits"][0]["ref"], "refresh": False}))
         self.assertEqual("temp-four", child["items"][0]["item_id"])
+
+    def test_locate_metadata_only_filters_without_text_or_url(self):
+        self.document["items"] = [
+            {"id": "temp-note", "sectionId": "temp-section-A-1", "type": "bookmark",
+             "title": "带笔记的书签", "url": "https://example.test/note", "note": "内部备注"},
+            {"id": "temp-tag", "sectionId": "temp-section-A-1", "type": "bookmark",
+             "title": "带标签的书签", "url": "https://example.test/tag",
+             "tags": [{"color": "green", "text": "关注"}]},
+            {"id": "temp-plain", "sectionId": "temp-section-A-1", "type": "bookmark",
+             "title": "普通书签", "url": "https://example.test/plain"},
+        ]
+        self.write_document()
+        self.ready()
+        self.sync()
+
+        noted = decode_tool(self.call("locate", {
+            "has_note": True, "source_id": "fixture", "refresh": False}))
+        self.assertEqual("metadata", noted["match_mode"])
+        self.assertEqual(["temp-note"], [hit["item_id"] for hit in noted["hits"]])
+        self.assertEqual({"has_note": True}, noted["filters"])
+
+        tagged = decode_tool(self.call("locate", {
+            "tags": ["关注"], "source_id": "fixture", "refresh": False}))
+        self.assertEqual(["temp-tag"], [hit["item_id"] for hit in tagged["hits"]])
+
+        untagged = decode_tool(self.call("locate", {
+            "has_tags": False, "source_id": "fixture", "refresh": False}))
+        self.assertEqual(["temp-note", "temp-plain"],
+                         sorted(hit["item_id"] for hit in untagged["hits"]))
+
+        ambiguous = self.call("locate", {"source_id": "fixture", "refresh": False})
+        self.assertTrue(ambiguous["result"]["isError"])
+
+    def test_locate_package_path_imports_a_single_section_and_summarises(self):
+        self.ready()
+        summary = decode_tool(self.call("locate", {"package_path": str(self.section_path)}))
+        self.assertEqual(1, summary["counts"]["items"])
+        self.assertEqual(1, summary["counts"]["bookmarks"])
+        self.assertEqual(1, len(summary["sections"]))
+        self.assertEqual("A-1", summary["sections"][0]["label"])
+        self.assertIn("locate(source_id=", summary["next"])
+
+        found = decode_tool(self.call("locate", {
+            "package_path": str(self.section_path), "text": "示例公司甲"}))
+        self.assertGreaterEqual(found["total"], 1)
+        self.assertEqual("temp-one", found["hits"][0]["item_id"])
+
+    def test_locate_package_path_requires_an_absolute_path(self):
+        self.ready()
+        response = self.call("locate", {"package_path": "relative/export.json"})
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn("absolute", decode_tool(response)["error"])
+
+    def test_spawn_enqueues_local_job_and_job_observes_it(self):
+        self.ready()
+        data = self.base / "jobdata"
+        with mock.patch.dict(os.environ, {"BOOKMARK_RESEARCH_DATA_DIR": str(data)}):
+            spawned = decode_tool(self.call("spawn", {
+                "task": "fetch", "args": {"urls": ["https://example.test/a"]},
+                "operation_id": "op-local"}))
+            again = decode_tool(self.call("spawn", {
+                "task": "fetch", "args": {"urls": ["https://example.test/a"]},
+                "operation_id": "op-local"}))
+            self.assertTrue(spawned["job_id"].startswith("j-"))
+            self.assertEqual("queued", spawned["state"])
+            self.assertEqual(spawned["job_id"], again["job_id"])
+
+            status = decode_tool(self.call("job", {"job_id": spawned["job_id"]}))
+            self.assertEqual("queued", status["job"]["state"])
+            pending = decode_tool(self.call("job", {"job_id": spawned["job_id"], "action": "result"}))
+            self.assertIsNone(pending["result"])
+            cancelled = decode_tool(self.call("job", {"job_id": spawned["job_id"], "action": "cancel"}))
+            self.assertEqual("cancelled", cancelled["job"]["state"])
+
+        missing = self.call("spawn", {"task": "deep_research"})
+        self.assertTrue(missing["result"]["isError"])
+
+    def test_read_folder_ref_returns_children_summary(self):
+        children = [
+            {"id": "temp-a", "sectionId": "temp-section-A-1", "type": "bookmark",
+             "title": "子项甲", "url": "https://example.test/a"},
+            {"id": "temp-b", "sectionId": "temp-section-A-1", "type": "bookmark",
+             "title": "子项乙", "url": "https://example.test/b", "note": "乙的备注"},
+        ]
+        self.document["items"] = [{"id": "temp-folder", "sectionId": "temp-section-A-1",
+            "type": "folder", "title": "资料", "children": children}]
+        self.write_document()
+        self.ready()
+        self.sync()
+
+        listing = decode_tool(self.call("locate", {
+            "source_id": "fixture", "folder_id": "temp-folder", "refresh": False}))
+        read = decode_tool(self.call("read", {"ref": listing["folder"]["ref"]}))
+        self.assertEqual("folder_children", read["read_scope"])
+        self.assertEqual(2, read["child_count"])
+        self.assertEqual(["temp-a", "temp-b"], [child["item_id"] for child in read["children"]])
+        self.assertEqual("乙的备注", read["children"][1]["note"])
+        self.assertLess(len(json.dumps(read, ensure_ascii=False)), 4096)
 
     def test_read_canvas_ref_defaults_to_target_and_explicit_all_returns_section(self):
         neighbors = [

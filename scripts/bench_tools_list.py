@@ -48,7 +48,7 @@ def _request(method, request_id=None, params=None):
 def capture(preset, db_path=":memory:", excluded=()):
     """Return the parsed tools/list response and its exact emitted line."""
     if preset == "legacy" and _legacy_compatibility_expired(mcp_server.release_version()):
-        raise ValueError("The legacy tool surface ended at 0.7.0")
+        raise ValueError("The legacy tool surface ended at 0.8.0")
     temporary = tempfile.TemporaryDirectory(prefix="bookmark-tools-list-")
     old_scope = os.environ.get("BOOKMARK_RESEARCH_TOOL_SCOPE")
     try:

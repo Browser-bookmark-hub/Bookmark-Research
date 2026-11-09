@@ -36,6 +36,53 @@ def _safe_name(name):
     return parts
 
 
+def _looks_like_section(obj):
+    return isinstance(obj, dict) and (
+        obj.get("format") == "bookmark-canvas-section"
+        or (obj.get("sectionType") in ("permanent", "temporary")
+            and ("items" in obj or "tree" in obj)))
+
+
+def _unwrap_export(obj, depth=0):
+    """Mirror the canvas app: accept {data|tree|bookmarkTree|bookmarks|items} wrappers."""
+    if depth > 5 or not isinstance(obj, dict) or _looks_like_section(obj):
+        return obj
+    for key in ("data", "tree", "bookmarkTree", "bookmarks", "items"):
+        value = obj.get(key)
+        if isinstance(value, (dict, list)):
+            return _unwrap_export(value, depth + 1)
+    return obj
+
+
+def _wrap_items(items, name):
+    return {"format": "bookmark-canvas-section", "schemaVersion": 2,
+            "sectionType": "temporary", "title": Path(name).stem,
+            "label": "导入", "tempKind": "special", "source": "import-json",
+            "items": items}
+
+
+def _normalize_section_bytes(raw, name):
+    try:
+        obj = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return raw
+    if _looks_like_section(obj) and obj.get("format") == "bookmark-canvas-section":
+        return raw  # already a section: keep bytes identical for idempotent re-import
+    if _looks_like_section(obj):
+        obj = dict(obj, format="bookmark-canvas-section")
+        return json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    candidate = _unwrap_export(obj)
+    if _looks_like_section(candidate):
+        if "format" not in candidate:
+            candidate = dict(candidate, format="bookmark-canvas-section")
+        return json.dumps(candidate, ensure_ascii=False).encode("utf-8")
+    if isinstance(candidate, list):
+        return json.dumps(_wrap_items(candidate, name), ensure_ascii=False).encode("utf-8")
+    if isinstance(candidate, dict) and isinstance(candidate.get("children"), list):
+        return json.dumps(_wrap_items([candidate], name), ensure_ascii=False).encode("utf-8")
+    return raw
+
+
 def _section_name(name, raw, section_paths):
     obj = json_object(raw)
     prefix = "永久栏目" if obj.get("sectionType") == "permanent" else "临时栏目"
@@ -216,10 +263,16 @@ def read_input(path, section_paths=None):
         files, single_section = _zip(path, section_paths)
     elif path.is_file() and path.suffix.lower() == ".json":
         kind, single_section = "section", True
-        raw = _read_file(path, path.parent)
+        raw = _normalize_section_bytes(_read_file(path, path.parent), path.name)
         files = {_section_name(path.name, raw, section_paths): raw}
+    elif path.is_file() and path.suffix.lower() in (".html", ".htm"):
+        from netscape import encode as _encode_html_section, section_from_html
+        kind, single_section = "section", True
+        text = _read_file(path, path.parent).decode("utf-8", "replace")
+        raw = _encode_html_section(section_from_html(text, title=path.stem))
+        files = {_section_name(path.stem + ".json", raw, section_paths): raw}
     else:
-        raise ValueError("Input must be an existing package directory, ZIP, or section JSON: " + str(path))
+        raise ValueError("Input must be an existing package directory, ZIP, section JSON, or bookmark HTML: " + str(path))
     if not files:
         raise ValueError("No protocol JSON or .canvas files in export; the saved index was retained")
     if sum(name.endswith(".canvas") for name in files) > 1:

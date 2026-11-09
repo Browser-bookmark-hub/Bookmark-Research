@@ -35,13 +35,62 @@ python3 scripts/launcher.py doctor
 npm pack
 
 # 2. 用本地压缩包模拟 npx 安装（需指定 --package 指向 tgz，后接二进制名 bookmark-research）
-npx --yes --package ./bookmark-research-*.tgz bookmark-research install codex --non-interactive
+# npm 缓存若被其他用户创建过，先使用项目专用缓存，避免 npm-cache 权限干扰测试。
+LOCAL_NPM_CACHE=/private/tmp/bookmark-research-npm-cache
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package ./bookmark-research-*.tgz bookmark-research install codex --non-interactive --json
 
 # 或者测试交互模式
-npx --yes --package ./bookmark-research-*.tgz bookmark-research install
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package ./bookmark-research-*.tgz bookmark-research install
 ```
 - **优势**：执行逻辑与线上 `npx bookmark-research install` 完全一致（包含 package 打包过滤、tarball 解压、软链注入和宿主注册）；
 - **零成本**：纯本地运行，不污染 npm 线上版本库，无需等待 CDN 刷新，也不需要任何 2FA 登录验证。
+
+##### 三宿主与 DSH Desktop/CLI 的本地验收
+
+本地 tgz 必须分别验证三个宿主；DSH 的普通 CLI 和 Desktop CLI 是两个不同的安装目标，不能用一次 --profile 或一次 --dsh 路径代替。
+
+~~~sh
+LOCAL_NPM_CACHE=/private/tmp/bookmark-research-npm-cache
+LOCAL_PACKAGE=./bookmark-research-0.6.5.tgz
+CLI_PROFILE=web  # 替换为本机普通 DSH CLI 使用的 profile
+
+# Codex
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research install codex --non-interactive --json
+
+# Claude Code
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research install claude \
+  --scope user --non-interactive --json
+
+# 普通 DSH CLI：profile 名由 DSH 配置决定；需要 PATH 中可用的 dsh 和 pnpm。
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research install dsh \
+  --profile "$CLI_PROFILE" --non-interactive --json
+
+# DeepSeek Harness Desktop：必须使用桌面版自带 CLI 和保留的 desktop profile。
+# macOS 路径如下；Windows/Linux 按本机 Desktop 安装位置替换。
+DSH_DESKTOP_CLI="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research install dsh \
+  --dsh "$DSH_DESKTOP_CLI" --profile desktop --non-interactive --json
+~~~
+
+验收 JSON 必须逐项检查 host、profile、version、installed_path 和 verified；DSH Desktop 的 target 应为 desktop，并且使用桌面版 CLI。普通 DSH 的 profile 可以是已有名称或明确指定的新名称，不能把 desktop 交给 PATH 中的通用 CLI。
+
+本地包测试新构建时使用 install：它会把当前运行的 tarball 保留为干净来源，并在已有目标上执行覆盖安装。update 继续使用目标收据中已登记的来源，适合验证已发布 npm、Git 或已登记本地来源的后续更新；不要用旧收据的 update 来判断一个全新的本地 tarball 是否已经被安装。
+
+如果要测试已登记来源的升级，分别运行对应目标并确认版本：
+
+~~~sh
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research update dsh \
+  --profile "$CLI_PROFILE" --json
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research update dsh \
+  --dsh "$DSH_DESKTOP_CLI" --profile desktop --json
+
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research verify dsh \
+  --profile "$CLI_PROFILE" --json
+npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research verify dsh \
+  --dsh "$DSH_DESKTOP_CLI" --profile desktop --json
+~~~
+
+升级后必须重新打开对应宿主，并用同一个 profile 和同一个实际 CLI 跑 verify；只看到 Updated 或只检查安装器退出码不算通过。
 
 #### 方法三：本地全量自动化单测
 每次修改代码后必须运行全量单测，确保测试全部通过：

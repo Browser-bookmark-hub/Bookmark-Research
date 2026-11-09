@@ -1,6 +1,6 @@
 {
   "name": "bookmark-research",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "description": "Check bookmark URLs or Canvas packages, compare sources with host-led research, and retain verifiable reports.",
   "author": {
     "name": "kwenxu"

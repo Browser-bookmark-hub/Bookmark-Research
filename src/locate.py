@@ -31,6 +31,7 @@ LOCATE_STOPWORDS = frozenset({
 LOCATE_ARGUMENTS = (
     "text", "url", "in", "source_id", "section", "folder_id", "tags",
     "tag_colors", "has_note", "has_tags", "metadata_match", "limit", "offset", "handle", "refresh",
+    "package_path",
 )
 LOCATE_FIELD_WEIGHTS = {"title": 140, "url": 120, "tags": 110, "note": 90, "path": 60}
 LOCATE_DIRECT_FIELDS = frozenset(("title", "url", "note", "tags"))
@@ -377,13 +378,18 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
     source_id = request.get("source_id")
     section = request.get("section")
     folder_id = request.get("folder_id")
-    folder_listing = text is None and url is None and folder_id is not None
-    if not folder_listing and (text is None) == (url is None):
-        raise ValueError("locate requires exactly one of text or url, or folder_id without either")
     tags = request.get("tags")
     tag_colors = request.get("tag_colors")
     has_note = request.get("has_note")
     has_tags = request.get("has_tags")
+    folder_listing = text is None and url is None and folder_id is not None
+    # A metadata filter is a query in its own right: "show me the bookmarks with
+    # a note" must not require inventing a search term.  Only a request with no
+    # text, URL, folder and no metadata filter is ambiguous.
+    metadata_only = (text is None and url is None and folder_id is None
+                     and any(value is not None for value in (tags, tag_colors, has_note, has_tags)))
+    if not folder_listing and not metadata_only and (text is None) == (url is None):
+        raise ValueError("locate requires exactly one of text or url, folder_id, or a metadata filter (tags/has_note/has_tags)")
     metadata_match = request.get("metadata_match", "all")
     limit = request.get("limit", 8)
     refresh = request.get("refresh", False)
@@ -427,6 +433,7 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
         statuses[identifier] = source_manager.source_status(identifier)
 
     hits, seen, candidates = [], set(), []
+    folder_candidates = []
     folder_rows, hint_rows = {}, {}
     terms_by_source = {}
     text_match_mode = "literal_substring"
@@ -496,6 +503,57 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
                 result["more"] = {"handle": continuation, "offset": next_offset, "total": total_hits}
                 result["next"] = {"tool": "locate", "handle": continuation,
                                    "offset": next_offset, "reason": "continue_results",
+                                   "message": next_message}
+            else:
+                result["next"] = next_message
+            return result
+        if metadata_only:
+            # No term, no URL, no folder: the filters are the query.  Ranking is
+            # recency so a "what did I note recently" question gets a useful page.
+            identifier = source_ids[0]
+            found = index.search(identifier, targets=[], section=section, folder_id=folder_id,
+                                 tags=tags, tag_colors=tag_colors, limit=limit, offset=offset,
+                                 has_note=has_note, has_tags=has_tags,
+                                 metadata_match=metadata_match, sort_by="added_at_desc")
+            version = statuses[identifier].get("version_id")
+            page_hits = []
+            for item in found["results"]:
+                hit = {"ref": locate_ref(identifier, item["section_id"], item["item_id"], version),
+                       "source_kind": "canvas", "kind": item["item_type"],
+                       "source_id": identifier, "evidence_kind": "bookmark_instance",
+                       "section_id": item["section_id"], "item_id": item["item_id"],
+                       "parent_id": item.get("parent_id"),
+                       "title": item.get("title") or "",
+                       "path": list(item.get("path") or []) + ([item["title"]] if item.get("title") else []),
+                       "position": item.get("position"),
+                       "why": {"terms": [], "fields": [], "field_weights": {}, "weight": 0,
+                               "match_mode": "metadata"}}
+                if item.get("url"):
+                    hit["url"] = item["url"]
+                if item.get("note"):
+                    hit["note"] = item["note"]
+                if item.get("note_color"):
+                    hit["note_color"] = item["note_color"]
+                if item.get("tags"):
+                    hit["tags"] = item["tags"]
+                if version is not None:
+                    hit["version_id"] = version
+                page_hits.append(hit)
+            total_hits = found["total"]
+            shown = offset + len(page_hits)
+            result = {"hits": page_hits, "total": total_hits, "in": ["canvas"],
+                      "match_mode": "metadata", "source_ids": source_ids,
+                      "filters": {key: value for key, value in filters.items()
+                                  if value is not None and not (key == "metadata_match" and value == "all")},
+                      "coverage": {"matched": total_hits, "shown": len(page_hits),
+                                   "hidden": max(0, total_hits - shown)}}
+            next_message = ("%d bookmarks match the metadata filter; read a hit ref for its card"
+                            % total_hits if total_hits else "No bookmark matches these metadata filters")
+            if shown < total_hits:
+                continuation = _remember_handle(request, database_path)
+                result["more"] = {"handle": continuation, "offset": shown, "total": total_hits}
+                result["next"] = {"tool": "locate", "handle": continuation,
+                                   "offset": shown, "reason": "continue_results",
                                    "message": next_message}
             else:
                 result["next"] = next_message
@@ -585,6 +643,29 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
                         if version is not None:
                             hit["version_id"] = version
                         hits.append(hit)
+        if text is not None and folder_id is None:
+            # "Where is the 2D / 3D folder?" is answered by the folder itself.
+            # Bookmark hits stay first (existing ranking contract); the folder is
+            # reported alongside them so the caller does not have to guess that
+            # folder_id can list its children.
+            for identifier in source_ids:
+                folder_terms = terms_by_source.get(identifier) or []
+                if not folder_terms:
+                    continue
+                found_folders = index.search(identifier, targets=folder_terms, section=section,
+                                             item_types=["folder"], limit=100, offset=0)
+                for folder in found_folders["results"]:
+                    why = locate_why(folder, folder_terms)
+                    if len(why["terms"]) != len(folder_terms):
+                        continue
+                    version = statuses[identifier].get("version_id")
+                    folder_candidates.append({
+                        "ref": locate_ref(identifier, folder["section_id"], folder["item_id"], version),
+                        "folder_id": folder["item_id"], "source_id": identifier,
+                        "section_id": folder["section_id"],
+                        "title": folder.get("title") or "",
+                        "path": list(folder.get("path") or []) +
+                                ([folder["title"]] if folder.get("title") else [])})
         if url is None:
             for hit in hits:
                 if set(hit["why"]["fields"]) != {"path"}:
@@ -763,6 +844,16 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
                            "message": next_message}
     else:
         result["next"] = next_message
+    if folder_candidates:
+        result["folders"] = folder_candidates[:5]
+        message = ("Folder match: %s; pass its folder_id to list direct children."
+                   % folder_candidates[0]["title"])
+        if isinstance(result.get("next"), dict):
+            result["next"].setdefault("message", "")
+            result["next"]["message"] += " " + message
+        else:
+            current = str(result.get("next") or "").strip()
+            result["next"] = (current + " " + message).strip() if current else message
     if text is not None:
         result["query"] = text
     else:

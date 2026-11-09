@@ -367,6 +367,37 @@ def _parser():
             view.add_argument("--source-url", help="Filter direct citations and linked dependents")
         view.add_argument("--offset", type=int, default=0)
         view.add_argument("--limit", type=int, default=20)
+    dupes = commands.add_parser("dupes", help="Report bookmarks whose URL appears more than once")
+    dupes.add_argument("--source-id")
+    dupes.add_argument("--min-count", type=int, default=2)
+    dupes.add_argument("--limit", type=int, default=50)
+    dupes.add_argument("--offset", type=int, default=0)
+    dupes.add_argument("--include-search", action="store_true",
+                       help="Include search-engine result pages (excluded by default)")
+    job = commands.add_parser("job", help="Submit and observe durable local jobs")
+    job_commands = job.add_subparsers(dest="job_command", required=True)
+    submit = job_commands.add_parser("submit")
+    submit.add_argument("--kind", choices=("fetch", "ingest", "research"), required=True)
+    submit.add_argument("--input", required=True, help="Payload JSON file, or - for stdin")
+    submit.add_argument("--idempotency-key")
+    submit.add_argument("--priority", type=int, default=0)
+    listing = job_commands.add_parser("list")
+    listing.add_argument("--state", choices=("queued", "running", "succeeded", "failed", "cancelled"))
+    listing.add_argument("--kind", choices=("fetch", "ingest", "research"))
+    listing.add_argument("--limit", type=int, default=20)
+    listing.add_argument("--offset", type=int, default=0)
+    status = job_commands.add_parser("status")
+    status.add_argument("job_id")
+    result = job_commands.add_parser("result")
+    result.add_argument("job_id")
+    cancel = job_commands.add_parser("cancel")
+    cancel.add_argument("job_id")
+    worker = job_commands.add_parser("worker", help="Run the singleton job worker")
+    worker.add_argument("--once", action="store_true", help="Claim and run at most one job")
+    worker.add_argument("--max-jobs", type=int, default=None)
+    worker.add_argument("--concurrency", type=int, default=2)
+    worker.add_argument("--poll-seconds", type=float, default=0.5)
+    worker.add_argument("--lease-seconds", type=float, default=120.0)
     commands.add_parser("serve", help="Run the stdio MCP tool server")
     bench = commands.add_parser("bench", help="Prepare reproducible host comparison artifacts")
     bench_commands = bench.add_subparsers(dest="bench_command", required=True)
@@ -441,7 +472,7 @@ def main(argv=None):
             from bench_tools_list import LEGACY_TOOLS
             from mcp_server import _legacy_compatibility_expired, release_version
             if args.preset == "legacy" and _legacy_compatibility_expired(release_version()):
-                raise ValueError("The legacy ladder preset ended at 0.7.0")
+                raise ValueError("The legacy ladder preset ended at 0.8.0")
             surface = "legacy-25" if args.preset == "legacy" else "quick-10"
             artifact = ladder_template()
             artifact["baseline_id"] = "2026-11-" + args.preset
@@ -584,6 +615,48 @@ def main(argv=None):
                 result = store.search(args.query, args.offset, args.limit)
             else:
                 result = store.lint(args.page_id)
+        elif args.command == "job":
+            from jobs import JobStore, JobWorker, default_handlers
+            store = JobStore()
+            try:
+                if args.job_command == "submit":
+                    raw = sys.stdin.read() if args.input == "-" else Path(args.input).expanduser().read_text(encoding="utf-8")
+                    payload = json.loads(raw)
+                    job = store.submit(args.kind, payload, idempotency_key=args.idempotency_key,
+                                       priority=args.priority)
+                    _emit_result({"job": job}, args)
+                elif args.job_command == "list":
+                    _emit_result({"jobs": store.list(state=args.state, kind=args.kind,
+                                                     limit=args.limit, offset=args.offset)}, args)
+                elif args.job_command == "status":
+                    job = store.get(args.job_id)
+                    if job is None:
+                        raise ValueError("Unknown job: " + args.job_id)
+                    _emit_result({"job": job}, args)
+                elif args.job_command == "result":
+                    job = store.get(args.job_id)
+                    if job is None:
+                        raise ValueError("Unknown job: " + args.job_id)
+                    if job["result"] is None:
+                        _emit_result({"job_id": job["job_id"], "state": job["state"],
+                                      "note": "no result yet"}, args)
+                    else:
+                        _emit_result(job["result"], args)
+                elif args.job_command == "cancel":
+                    _emit_result({"job": store.cancel(args.job_id)}, args)
+                elif args.job_command == "worker":
+                    worker = JobWorker(store, handlers=default_handlers(),
+                                       concurrency=args.concurrency,
+                                       lease_seconds=args.lease_seconds,
+                                       poll_seconds=args.poll_seconds)
+                    if args.once:
+                        _emit_result({"processed": worker.run_once()}, args)
+                    else:
+                        worker.serve(max_jobs=args.max_jobs)
+                        _emit_result({"worker": "stopped"}, args)
+            finally:
+                store.close()
+            return 0
         elif args.command == "config":
             if args.config_command == "show":
                 result = settings.describe()
@@ -650,7 +723,12 @@ def main(argv=None):
                 else:
                     if args.offset:
                         raise ValueError("offset requires capture_id so continued reads use the same saved evidence")
-                    result = engine.fetch(args.urls, args.provider, archive=args.archive, max_characters=args.max_characters)
+                    if args.raw:
+                        result = engine._fetch(args.urls, args.provider, archive=args.archive,
+                                               max_characters=args.max_characters)
+                    else:
+                        result = engine.fetch(args.urls, args.provider, archive=args.archive,
+                                              max_characters=args.max_characters)
                     if not args.raw:
                         result = SourceArchive.compact_fetch(
                             result, max_total_characters=total, fair_share_min=fair)
@@ -685,10 +763,18 @@ def main(argv=None):
             readonly = (args.command in ("status", "history", "lookup-url")
                         or (args.command == "locate" and locate_readonly)
                         or (args.command == "search" and args.no_refresh)
-                        or (args.command in ("traverse", "context") and args.no_refresh))
+                        or (args.command in ("traverse", "context") and args.no_refresh)
+                        or args.command == "dupes")
             with BookmarkIndex(str(_database(args.db)), readonly=readonly) as index:
                 sources = SourceManager(index)
-                if args.command == "sync":
+                if args.command == "dupes":
+                    source_ids = [args.source_id] if args.source_id else sources.live_sources()
+                    if len(source_ids) != 1:
+                        raise ValueError("source_required: dupes requires --source-id when the index has zero or multiple live sources")
+                    result = index.duplicate_urls(source_ids[0], min_count=args.min_count,
+                                                  limit=args.limit, offset=args.offset,
+                                                  include_search=args.include_search)
+                elif args.command == "sync":
                     result = sources.sync(args.package, args.source_id, mode=args.mode, completeness=args.completeness)
                 elif args.command == "status":
                     result = sources.status(args.source)

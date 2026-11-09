@@ -18,8 +18,8 @@ class BenchToolsListTests(unittest.TestCase):
         self.assertEqual(list(LEGACY_TOOLS), [tool["name"] for tool in tools])
 
     def test_legacy_preset_expires_at_070(self):
-        with mock.patch("mcp_server.release_version", return_value="0.7.0"):
-            with self.assertRaisesRegex(ValueError, "ended at 0.7.0"):
+        with mock.patch("mcp_server.release_version", return_value="0.8.0"):
+            with self.assertRaisesRegex(ValueError, "ended at 0.8.0"):
                 capture("legacy")
 
 
