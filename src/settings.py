@@ -84,8 +84,8 @@ class Settings:
                                    "api_mode": "chat_completions", "search_mode": "prompt"},
                 "browser": {"enabled": False, "driver": "auto", "cdp_url": "http://127.0.0.1:9222",
                             "headless": True, "timeout_seconds": 20, "max_concurrency": 2},
-                "wiki": {"directory": str(cls.data_directory() / "wiki"), "after_research": "auto",
-                         "max_source_age_days": 30, "aliases": []},
+                "wiki": {"enabled": True, "directory": str(cls.data_directory() / "wiki"),
+                         "after_research": "auto", "max_source_age_days": 30, "aliases": []},
                 "wiki_preflight": True,
                 "freshness_days": 30,
                 "plan": {"max_characters": 8000, "min_relevance": 0.05, "homepage_limit": 2},
@@ -252,6 +252,8 @@ class Settings:
                 ("browser.max_concurrency", browser["max_concurrency"], 1, 8)):
             if type(number) is not int or not minimum <= number <= maximum:
                 raise ValueError("%s must be an integer between %s and %s" % (label, minimum, maximum))
+        if type(value["wiki"]["enabled"]) is not bool:
+            raise ValueError("wiki.enabled must be a boolean")
         wiki_directory = value["wiki"]["directory"]
         if not isinstance(wiki_directory, str) or not wiki_directory.strip() or "\x00" in wiki_directory:
             raise ValueError("wiki.directory must be a nonempty path")

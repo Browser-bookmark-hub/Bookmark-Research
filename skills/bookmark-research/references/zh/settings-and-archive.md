@@ -66,7 +66,8 @@
     "parallel": {"processor": "pro"}},
   "custom_agentic": {"enabled": false, "base_url": "", "model": "",
     "api_mode": "chat_completions", "search_mode": "prompt"},
-  "wiki": {"directory": "/absolute/path/to/wiki", "after_research": "suggest", "max_source_age_days": 30},
+  "wiki": {"enabled": true, "directory": "/absolute/path/to/wiki", "after_research": "suggest",
+    "max_source_age_days": 30},
   "wiki_preflight": true,
   "freshness_days": 30,
   "plan": {"max_characters": 8000, "homepage_limit": 2},
@@ -76,7 +77,7 @@
 }
 ```
 
-优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch` 的 `archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；`max_total_characters` 默认 24000，超过 `fair_share_min`（默认 500）时按页分配。提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki_preflight`（默认 true）让 `plan_research` 检查 Wiki 与归档；`freshness_days`（默认 30）是本地过期阈值；`plan.max_characters`（默认 8000）与 `plan.homepage_limit` 控制输出大小和首页配额。旧 `plan.min_relevance` 配置继续兼容，不再过滤候选。`tool_scope` 是服务端 MCP 目录白名单：空列表沿用预设。`tool_scope_preset` 是预设：`quick`（默认，10 个原语）、`deep`／`all`（完整目录，57 个名字，含 deprecated 别名）。非空 `tool_scope` 覆盖预设；`BOOKMARK_RESEARCH_TOOL_SCOPE` 覆盖两者，空值恢复全部。被隐藏的工具会拒绝调用，需改设置或预设。DSH 插件只在环境变量存在时才转发。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
+优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch` 的 `archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；`max_total_characters` 默认 24000，超过 `fair_share_min`（默认 500）时按页分配。提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki_preflight`（默认 true）让 `plan_research` 检查 Wiki 与归档；`freshness_days`（默认 30）是本地过期阈值；`plan.max_characters`（默认 8000）与 `plan.homepage_limit` 控制输出大小和首页配额。旧 `plan.min_relevance` 配置继续兼容，不再过滤候选。`wiki.enabled`（默认 true）是 Wiki 总开关：设为 false 会隐藏 `save` 与 deep 档 Wiki 工具，Wiki 作用域的读写会被明确拒绝，`wiki.after_research` 也会跳过。安装向导会询问一次，之后可用 `update_settings` 修改。`tool_scope` 是服务端 MCP 目录白名单：空列表沿用预设。`tool_scope_preset` 是预设：`quick`（默认，10 个原语；关闭 Wiki 时为 9 个）、`deep`／`all`（完整目录，58 个名字，含 deprecated 别名）。非空 `tool_scope` 覆盖预设；`BOOKMARK_RESEARCH_TOOL_SCOPE` 覆盖两者，空值恢复全部。被隐藏的工具会拒绝调用，需改设置或预设。DSH 插件只在环境变量存在时才转发。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
 
 `search.cache_seconds`（0–3600，默认 0）让短时间内的相同搜索直接返回进程内缓存，不再调用提供商；这些批次标记 `cached:true`，保留原 `retrieved_at`，不消耗提供商额度。`fetch.reuse_seconds`（0–86400，默认 0）让 `research_fetch` 对窗口内已保存正文的 URL 直接返回 `reused_sources`（保留原 ID 与检索时间，不追加新快照），不再联网，也不占抓取预算。`server.network_workers`（1–16）与 `server.max_pending_calls`（1–64，且不小于 worker 数）设置 stdio 服务端并发，重启服务后生效。
 

@@ -19,7 +19,7 @@ The stable release includes bilingual Canvas package support, safer Exa batch re
 
 - **Local understanding.** A Bookmark Canvas package is read as structure, not a flat URL list: card and group layout, edges with their direction and labels, and the same bookmark appearing across cards (spatial context); dated fields, protocol-defined date segments in IDs, and Git commits that changed content (temporal context). These queries run offline.
 - **External research takes one of three routes.** Reading a known URL needs no reasoning; agentic search has the host model plan, search, read and follow the gaps; deep research can use the OpenAI or Parallel research API directly. `search_web` aggregates configured URL providers such as Perplexity Search; `agentic_search` can return a separate Grok or user-configured OpenAI-compatible model answer and citations. Custom model search depends on the selected upstream's web capability and is not URL-fused. Persistent inventories and coverage checks are available when you explicitly need a complete collection audit. Host browsers and crawlers can supply source text.
-- **Reviewed knowledge store.** Finished research can be compiled into a Wiki of reviewed pages with revisions and links, reused by later questions instead of searching the web again.
+- **Reviewed knowledge store.** Finished research can be compiled into a Wiki of reviewed pages with revisions and links, reused by later questions instead of searching the web again. Setup (or `update_settings`) can turn the whole Wiki off with `wiki.enabled`; `save` and the Wiki tools then disappear from the tool surface.
 
 ## Requirements
 

@@ -90,7 +90,8 @@ SETTINGS_SCHEMA = _object_schema({
         "headless": {"type": "boolean"},
         "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 60},
         "max_concurrency": {"type": "integer", "minimum": 1, "maximum": 8}}),
-    "wiki": _object_schema({"directory": _text_schema(4096),
+    "wiki": _object_schema({"enabled": {"type": "boolean", "default": True},
+        "directory": _text_schema(4096),
         "max_source_age_days": {"type": "integer", "minimum": 1, "maximum": 3650},
         "after_research": {"type": "string", "enum": ["suggest", "auto", "off"]},
         "aliases": _array_schema(_array_schema(_text_schema(100), 50, 1), 50)}),
@@ -875,6 +876,9 @@ class StdioMcpServer:
             return list(Settings.QUICK_TOOLS)
         return []
 
+    def _wiki_enabled(self):
+        return bool(self.settings.load().get("wiki", {}).get("enabled", True))
+
     def _tool_names(self):
         """The tool surface this profile exposes; empty scope means all tools.
 
@@ -886,10 +890,14 @@ class StdioMcpServer:
         expired = _legacy_compatibility_expired(release_version())
         available = [name for name in TOOL_SCHEMAS
                      if not expired or name not in DEPRECATED_TOOL_TARGETS]
-        if not scope:
-            return available
-        allowed = set(available)
-        return list(dict.fromkeys(name for name in scope if name in allowed))
+        if scope:
+            allowed = set(available)
+            names = list(dict.fromkeys(name for name in scope if name in allowed))
+        else:
+            names = list(available)
+        if not self._wiki_enabled():
+            names = [name for name in names if name not in WIKI_ONLY_TOOLS]
+        return names
 
     @staticmethod
     def _legacy_tool_removed(name):
@@ -1000,6 +1008,8 @@ class StdioMcpServer:
                                    "on a hit" % imported["source_id"])
                 return summary
         requested = arguments.get("in", ["canvas"])
+        if "wiki" in requested and not self._wiki_enabled():
+            raise ValueError("Wiki is disabled; enable wiki.enabled in settings to search Wiki pages")
         if arguments.get("handle"):
             requested = continuation_scope(arguments["handle"], self.db_path)
         wiki = self._wiki() if requested == ["wiki"] else None
@@ -1009,6 +1019,8 @@ class StdioMcpServer:
                            arguments, wiki=wiki, raw=raw)
 
     def _call(self, name, arguments):
+        if name in WIKI_ONLY_TOOLS and not self._wiki_enabled():
+            raise ValueError("Wiki is disabled; enable wiki.enabled in settings to use Wiki tools")
         # Explicit dispatch ensures input can never select a Python method,
         # executable, SQL statement, or unadvertised capability.
         research_methods = {"research_start": "start", "research_status": "status", "research_search": "search",
@@ -1182,6 +1194,8 @@ class StdioMcpServer:
                     return archived
                 else:
                     raise ValueError("Unsupported ref kind")
+            if options.get("page_id") and not self._wiki_enabled():
+                raise ValueError("Wiki is disabled; enable wiki.enabled in settings to read Wiki pages")
             if options.get("page_id"):
                 page_id = options.pop("page_id")
                 revision = options.pop("revision", None)
@@ -1271,6 +1285,8 @@ class StdioMcpServer:
             return self._call("traverse_graph", options)
         if name == "save":
             return self._call("wiki_write", dict(arguments))
+        if name == "plan_research" and not self._wiki_enabled():
+            arguments = {**arguments, "include_wiki": False}
         if name == "plan_research" and not arguments.get("source_id"):
             from research_plan import ResearchPlan
             options = dict(arguments)

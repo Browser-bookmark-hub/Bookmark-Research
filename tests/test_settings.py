@@ -109,7 +109,7 @@ Settings(config).update(json.loads(patch))
                    {"search": {"fallback_providers": ["tavily", "tavily"]}},
                    {"fetch": {"max_characters": True}}, {"fetch": {"max_characters": 100001}},
                    {"timeout_seconds": 0}, {"schema_version": 2}, {"archive": {"directory": "relative/path"}},
-                   {"wiki": {"enabled": True}}, {"search": []}]
+                   {"wiki": {"enabled": "true"}}, {"search": []}]
         for changes in invalid:
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.settings.update(changes)

@@ -156,7 +156,7 @@ Run `python3 src/cli.py setup` to revisit the terminal wizard. Use `research_rea
 
 The default configuration file is `~/.config/bookmark-research/settings.json`, created on the first update. Page archives default to `~/.local/share/bookmark-research/knowledge/`; XDG and plugin data-directory environment variables are respected. You can choose your own absolute paths. These files live outside the plugin and canvas package, so plugin updates do not replace them.
 
-Research task folders go to `~/.local/share/bookmark-research/research/` by default (`output.mode: central`, path changeable) or, with `beside_input`, next to a single bookmark file or folder as `<name>.bookmark-research/`; URL lists, several sources, Git repositories, canvas packages and unwritable locations fall back to the central folder with a stated reason. Changes apply to new tasks only; `research-locations.json` keeps every task listed. `wiki.after_research` (`suggest` by default, `auto`, `off`) decides whether finished research proposes or writes Wiki updates. Each Wiki write also refreshes `wiki/index.md` and appends `wiki/log.md`.
+Research task folders go to `~/.local/share/bookmark-research/research/` by default (`output.mode: central`, path changeable) or, with `beside_input`, next to a single bookmark file or folder as `<name>.bookmark-research/`; URL lists, several sources, Git repositories, canvas packages and unwritable locations fall back to the central folder with a stated reason. Changes apply to new tasks only; `research-locations.json` keeps every task listed. `wiki.enabled` (default true) is the master switch: off hides `save` and the deep Wiki tools, rejects Wiki reads/writes, and skips the research follow-up. `wiki.after_research` (`suggest` by default, `auto`, `off`) decides whether finished research proposes or writes Wiki updates. Each Wiki write also refreshes `wiki/index.md` and appends `wiki/log.md`.
 
 With archiving enabled, received fetch responses create a snapshot directory: `response.json` stores the actual MCP response; `manifest.json` records URLs, provider, fetch time, response and text hashes, and status; successfully recognized text is stored once per distinct body in the archive's `pages/<SHA-256>.md`. `search_archive` searches that text and all research evidence without network access. Transport failures without a response return a classified error and no `result` or invented archive. Publication dates and authors are recorded separately. Conflicting responses for the same URL are retained and marked. Excerpts and unknown completeness are identified, and archive errors are returned with the fetch result. Later reads add snapshots without overwriting earlier ones.
 
@@ -174,7 +174,7 @@ The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's work
 
 ### MCP tools
 
-Default MCP surface (10 primitives, shared with the CLI):
+Default MCP surface (10 primitives, shared with the CLI; 9 when `wiki.enabled` is false):
 
 | Tool | Purpose |
 | --- | --- |

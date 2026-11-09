@@ -125,6 +125,60 @@ class McpServerTests(unittest.TestCase):
         self.assertLessEqual(len(json.dumps(health, ensure_ascii=False)), 200)
         self.assertIn("sources", health)
 
+    def test_health_reports_observed_host_search_only_when_asked(self):
+        self.ready()
+        bounded = decode_tool(self.call("health"))
+        self.assertNotIn("host_search", bounded)
+        self.assertLessEqual(len(json.dumps(bounded, ensure_ascii=False)), 200)
+        host_only = decode_tool(self.call("health", {"host": "codex"}))
+        self.assertNotIn("host_search", host_only)
+        report = decode_tool(self.call("health", {"host": "codex", "observed_tools": ["tools.web__run"]}))
+        self.assertEqual("tools.web__run", report["host_search"]["tool"])
+        self.assertEqual("ingest", report["host_search"]["backflow_tool"])
+        absent = decode_tool(self.call("health", {"host": "codex", "observed_tools": ["mcp__other__web_search"]}))
+        self.assertFalse(absent["host_search"]["available"])
+
+    def test_disabled_wiki_hides_tools_and_rejects_wiki_scope_calls(self):
+        self.ready()
+        changed = self.call("update_settings", {"changes": {"wiki": {"enabled": False}}})
+        self.assertFalse(changed["result"]["isError"], changed)
+        listing = {tool["name"] for tool in self.server.handle(request("tools/list"))["result"]["tools"]}
+        self.assertNotIn("save", listing)
+        for name in ("wiki_get", "wiki_lint", "wiki_compile"):
+            self.assertNotIn(name, listing)
+        self.assertIn("locate", listing)
+        self.assertIn("read", listing)
+        for name, arguments in (("read", {"page_id": "alpha"}),
+                                ("locate", {"in": ["wiki"], "text": "alpha"}),
+                                ("wiki_compile", {"action": "plan", "source_id": "fixture"})):
+            response = self.call(name, arguments)
+            self.assertTrue(response["result"]["isError"], response)
+            self.assertIn("Wiki is disabled", json.dumps(response, ensure_ascii=False))
+        self.sync()
+        planned = decode_tool(self.call("plan_research", {"question": "示例", "source_id": "fixture"}))
+        self.assertEqual([], planned.get("wiki", []))
+
+    def test_wiki_compile_plans_and_reports_status_without_writing_pages(self):
+        self.document["items"].append({"id": "gap-only", "sectionId": "temp-section-A-1",
+            "type": "bookmark", "title": "Gap fixture", "url": "https://mcp-gap.test/only"})
+        self.write_document()
+        self.ready()
+        self.sync()
+        plan = decode_tool(self.call("wiki_compile", {"action": "plan", "source_id": "fixture",
+            "max_pages": 4, "min_cluster_size": 1, "include_covered": True}))
+        self.assertTrue(plan["plan_id"])
+        self.assertEqual("fixture", plan["source_id"])
+        before = len(self.server._wiki().list(limit=100)["pages"])
+        url = next(item["url"] for cluster in plan["clusters"] for item in cluster["items"]
+                   if item["url"] == "https://mcp-gap.test/only")
+        gap = decode_tool(self.call("wiki_compile", {"action": "gap", "plan_id": plan["plan_id"],
+            "urls": [url], "reason": "provider returned no content"}))
+        self.assertEqual(1, gap["recorded"])
+        status = decode_tool(self.call("wiki_compile", {"action": "status", "plan_id": plan["plan_id"]}))
+        self.assertEqual(plan["plan_id"], status["plan_id"])
+        self.assertGreaterEqual(status["summary"]["gap_items"], 1)
+        self.assertEqual(before, len(self.server._wiki().list(limit=100)["pages"]))
+
     def test_ingest_alias_enforces_inline_batch_budget(self):
         self.ready()
         batches = [{"target": "q", "provider": "host", "query": "q", "status": "error", "error": "x"}

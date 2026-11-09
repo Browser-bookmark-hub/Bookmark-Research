@@ -69,7 +69,7 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 - `wiki/`：主题／实体页和不可变修订；每次写入更新 `index.md`（目录）并追加 `log.md`（时间线）。
 - `raw-library.sqlite3`：`search_archive` 的全文索引，覆盖 `knowledge/` 与所有研究证据，可重建。
 
-配置默认为 `~/.config/bookmark-research/settings.json`。`wiki.after_research` 决定研究结束后的 Wiki 整理：`suggest`（默认，遵循已有授权，否则先建议）、`auto`、`off`。支持 XDG 和显式路径覆盖，多宿主可共享数据。索引更新不会自动抓网页、运行 LLM 或改写 Wiki；来源变化时提示复核，旧研究与证据保留。
+配置默认为 `~/.config/bookmark-research/settings.json`。`wiki.enabled`（默认 true）是 Wiki 总开关：关闭后隐藏 `save` 与 deep 档 Wiki 工具、拒绝 Wiki 读写，并跳过研究结束后的整理。`wiki.after_research` 决定研究结束后的 Wiki 整理：`suggest`（默认，遵循已有授权，否则先建议）、`auto`、`off`。支持 XDG 和显式路径覆盖，多宿主可共享数据。索引更新不会自动抓网页、运行 LLM 或改写 Wiki；来源变化时提示复核，旧研究与证据保留。
 
 `research_record` 支持单条 `entry` 或每批至多 50 条的 `entries`，按顺序校验后一次保存，返回精简编号；稳定的 `batch_id` 可避免重试产生重复记录。依赖新 claim ID 的记录在读取返回值后另批提交。`resume` 和 `external_run` 仍需单条调用，详见 [证据记录](../skills/bookmark-research/references/zh/deep-research.md)。
 

@@ -339,6 +339,10 @@ class Onboarding:
     def _preferences(self):
         console, current = self.console, self.settings.load()
         console.step("Research preferences (Enter keeps the highlighted value)", "研究偏好（回车保留当前选项）")
+        wiki_enabled = console.confirm(
+            "Enable the Wiki knowledge store? (No hides save and the Wiki tools)",
+            "启用 Wiki 知识库？（选「否」会隐藏 save 与 Wiki 工具）",
+            current["wiki"].get("enabled", True))
         depth = console.select("Default research depth (optional; Auto is usually right)",
                                "默认研究深度（可选；通常保持「自动」即可）", [
             Option("auto", "Auto", "自动", "follow each request: lookup, investigation or batch", "按每次请求自动选择：查证、调查或整包"),
@@ -436,6 +440,8 @@ class Onboarding:
                   "search": {"providers": providers, "fallback_providers": fallbacks},
                   "fetch": {"provider": providers[0], "providers": providers},
                   "professional_research": services, "custom_agentic": custom_agentic}
+        if wiki_enabled != current["wiki"].get("enabled", True):
+            result["wiki"] = {"enabled": wiki_enabled}
         result.update(storage)
         return result
 

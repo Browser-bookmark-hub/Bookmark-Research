@@ -623,6 +623,7 @@ class WikiStore:
 
     def write(self, page_id, page, change_note, expected_revision=0, reviewed_input_version=None,
               acknowledge_all=False, sources=None, ignore_duplicate_warning=False):
+        self._require_enabled()
         if sources is None:
             return self._write_page(page_id, page, change_note, expected_revision,
                                     reviewed_input_version, acknowledge_all,
@@ -760,6 +761,7 @@ class WikiStore:
         holds: the page text is not edited, a new immutable revision records who
         reviewed which input version, and history is preserved.
         """
+        self._require_enabled()
         page_id = self._slug(page_id)
         note = self._text(note, "Acknowledge note")
         current = self.get(page_id)
@@ -845,6 +847,7 @@ class WikiStore:
                 "issues": issues, "semantic_review": "caller_declared; not evaluated by lint"}
 
     def get(self, page_id, revision=None):
+        self._require_enabled()
         page_id = self._slug(page_id)
         if revision is not None:
             ResearchSessions._integer(revision, "revision", 1, 10001)
@@ -944,11 +947,13 @@ class WikiStore:
                     "search_index": "unavailable; using revision scan"}
 
     def work(self, kind=None, status=None, research_id=None, page_id=None, capture_id=None, offset=0, limit=20):
+        self._require_enabled()
         from wiki_work import WikiWork
         return WikiWork(self).list(kind, status, research_id, page_id, capture_id, offset, limit)
 
     def refresh(self, page_id, provider=None, max_characters=None, offset=0, limit=8, expected_revision=None):
         """Capture cited pages for review; never rewrite claims or Wiki history."""
+        self._require_enabled()
         from archive import SourceArchive
         ResearchSessions._integer(offset, "offset", 0, 10000000)
         ResearchSessions._integer(limit, "limit", 1, ResearchSessions.FETCH_BATCH_SIZE)
@@ -1031,6 +1036,7 @@ class WikiStore:
         return result
 
     def list(self, offset=0, limit=20, source_url=None):
+        self._require_enabled()
         ResearchSessions._integer(offset, "offset", 0, 10000000)
         ResearchSessions._integer(limit, "limit", 1, 100)
         index = self._index()
@@ -1046,6 +1052,7 @@ class WikiStore:
                     "unreadable_page_ids": affected["unreadable_page_ids"][:100]} if affected is not None else {})}
 
     def lint(self, page_id=None):
+        self._require_enabled()
         index = self._index()
         ids = [self._slug(page_id)] if page_id is not None else sorted(index["pages"])
         issues, cache = [], {}
@@ -1072,6 +1079,7 @@ class WikiStore:
                 "boundary": "Checks current source reviews, active claims, saved quotes, hashes, links and revision history only."}
 
     def search(self, query, offset=0, limit=10):
+        self._require_enabled()
         query = self._text(query, "Wiki query", 500)
         ResearchSessions._integer(offset, "offset", 0, 10000000)
         ResearchSessions._integer(limit, "limit", 1, 100)

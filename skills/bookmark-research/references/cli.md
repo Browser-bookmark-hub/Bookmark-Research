@@ -17,7 +17,7 @@ Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<roo
 | `job` | `job submit|list|status|result|cancel|worker` |
 | `health` | `status` / `providers` |
 
-The default MCP surface is 10 primitives. The CLI keeps its historical command names (`context`, `traverse`, `search-web`, `fetch-web`) while sharing the same core, refs and result schema; `locate`, `dupes` and `job` use the same names on both entries. Every command accepts global `--json`, `--out FILE`, `--quiet` and `--fields`.
+The default MCP surface is 10 primitives (9 when `wiki.enabled` is false). The CLI keeps its historical command names (`context`, `traverse`, `search-web`, `fetch-web`) while sharing the same core, refs and result schema; `locate`, `dupes` and `job` use the same names on both entries. Every command accepts global `--json`, `--out FILE`, `--quiet` and `--fields`.
 
 ```sh
 python3 <root>/src/cli.py locate --source-id my-canvas --text 'Example Company A' --limit 5

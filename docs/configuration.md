@@ -16,7 +16,7 @@ bookmark-research config set --input /absolute/path/to/my-settings.json
 这份文件适合保存 Bookmark Research 自己读取的长期偏好和连接参数：
 
 - 搜索与读取来源：`search.providers`、`search.fallback_providers`、`fetch.provider`、`fetch.providers` 和并发策略。Perplexity 可用于结构化 URL 搜索，不能作为网页正文读取器。
-- 用户习惯：`research.depth`、`research.response_language`、`research.methods`、`archive.enabled`、`wiki.after_research`、`output.mode` 以及缓存、限额和可用性检查选项。
+- 用户习惯：`research.depth`、`research.response_language`、`research.methods`、`archive.enabled`、`wiki.enabled`、`wiki.after_research`、`output.mode` 以及缓存、限额和可用性检查选项。
 - 模型端点：`custom_agentic` 中的 Base URL、模型名、协议和搜索模式。它通过独立 `agentic_search` 返回模型回答，不参加 `search_web` 的 URL 聚合。
 - 插件直接调用的专业研究服务：`professional_research` 中的 OpenAI Deep Research 或 Parallel Task API 选择。
 

@@ -1820,6 +1820,13 @@ class ResearchSessions:
             policy = "suggest"
         if policy == "off":
             return {"policy": "off"}
+        try:
+            enabled = bool(self.settings.load().get("wiki", {}).get("enabled", True))
+        except (OSError, ValueError, KeyError):
+            enabled = True
+        if not enabled:
+            return {"policy": "disabled", "skip_reason": "wiki_disabled",
+                    "candidates": [], "draft": None}
         if state.get("topic", "").startswith("Wiki: ") or state.get("brief", "").startswith("Wiki: "):
             return {"policy": policy, "skip_reason": "internal_wiki_session", "candidates": [], "draft": None}
         eligible = [claim["id"] for claim in state["claims"] if claim.get("status", "active") == "active"

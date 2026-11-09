@@ -286,7 +286,7 @@ class OnboardingTests(SetupFixture):
         self.assertNotIn("hidden-key-in-store", output.getvalue() + json.dumps(result))
 
     def test_setup_configures_custom_agentic_endpoint_separately_from_its_key(self):
-        answers = "\n\n\n1\n\n2\nhttps://gateway.example/v1\nopenrouter/model:online\n2\n2\n"
+        answers = "\n\n\n\n1\n\n2\nhttps://gateway.example/v1\nopenrouter/model:online\n2\n2\n"
         prefs = Onboarding(self.settings, Console(io.StringIO(answers), io.StringIO()))._preferences()
         self.settings.update(prefs)
         self.assertEqual(self.settings.load()["custom_agentic"], {
@@ -298,27 +298,37 @@ class OnboardingTests(SetupFixture):
     def test_storage_question_sets_archive_and_output_together(self):
         default_output = self.settings.load()["output"]["directory"]
         # Prompts include the optional custom model endpoint after professional APIs.
-        defaults = Onboarding(self.settings, Console(io.StringIO("\n" * 6), io.StringIO()))._preferences()
+        defaults = Onboarding(self.settings, Console(io.StringIO("\n" * 7), io.StringIO()))._preferences()
         for section in ("archive", "output", "wiki", "readiness"):
             self.assertNotIn(section, defaults)
         root = self.base / "store"
         output = io.StringIO()
-        answers = "\n\n\n2\n" + str(root) + "\n\n\n"
+        answers = "\n\n\n\n2\n" + str(root) + "\n\n\n"
         chosen = Onboarding(self.settings, Console(io.StringIO(answers), output))._preferences()
         self.assertEqual(chosen["archive"], {"directory": str(root / "knowledge")})
         self.assertEqual(chosen["output"], {"mode": "central", "directory": str(root / "research")})
         self.assertIn(default_output, output.getvalue())
         self.assertIn("new research tasks only", output.getvalue())
-        beside = Onboarding(self.settings, Console(io.StringIO("\n\n\n3\n\n\n"), io.StringIO(), "zh"))._preferences()
+        beside = Onboarding(self.settings, Console(io.StringIO("\n\n\n\n3\n\n\n"), io.StringIO(), "zh"))._preferences()
         self.assertEqual(beside["output"], {"mode": "beside_input"})
         self.assertNotIn("archive", beside)
         # A saved custom location is reset only when the default folder is chosen.
         self.settings.update({"archive": {"directory": str(root / "knowledge")},
                               "output": {"mode": "beside_input", "directory": str(root / "research")}})
-        reset = Onboarding(self.settings, Console(io.StringIO("\n\n\n1\n\n\n"), io.StringIO()))._preferences()
+        reset = Onboarding(self.settings, Console(io.StringIO("\n\n\n\n1\n\n\n"), io.StringIO()))._preferences()
         defaults = Settings.defaults()
         self.assertEqual(reset["archive"], {"directory": defaults["archive"]["directory"]})
         self.assertEqual(reset["output"], {"mode": "central", "directory": defaults["output"]["directory"]})
+
+    def test_wiki_toggle_is_written_only_when_changed(self):
+        answers = "n\n" + "\n" * 20
+        prefs = Onboarding(self.settings, Console(io.StringIO(answers), io.StringIO()))._preferences()
+        self.assertEqual({"enabled": False}, prefs["wiki"])
+        self.settings.update(prefs)
+        self.assertFalse(self.settings.load()["wiki"]["enabled"])
+        again = Onboarding(self.settings, Console(io.StringIO("\n" * 20), io.StringIO()))._preferences()
+        self.assertNotIn("wiki", again)
+        self.assertTrue(self.settings.load()["wiki"]["enabled"] is False)
 
     def test_noninteractive_cli_applies_json_preferences_and_returns_missing_steps(self):
         preferences = self.base / "preferences.json"
@@ -588,8 +598,8 @@ class RecheckTests(SetupFixture):
         fixed = {"checks": [{"id": "retrieval:exa", "status": "retrieval_verified"}],
                  "host_integrations": {"host": "codex", "native_research_mcps": []}}
         output = io.StringIO()
-        # 7 preference prompts accept defaults, then re-enter yes, keep EXA preselected, secret, integrations.
-        console = Console(io.StringIO("\n" * 7 + "y\n\n\n"), output)
+        # 8 preference prompts accept defaults, then re-enter yes, keep EXA preselected, secret, integrations.
+        console = Console(io.StringIO("\n" * 8 + "y\n\n\n"), output)
         with mock.patch("onboarding.Readiness") as engine, mock.patch("getpass.getpass", return_value="new-exa-key"):
             engine.return_value.check.side_effect = [failed, fixed]
             result = Onboarding(self.settings, console).run()

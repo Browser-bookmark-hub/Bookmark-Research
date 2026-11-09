@@ -16,7 +16,7 @@ bookmark-research config set --input /absolute/path/to/my-settings.json
 Use this file for long-term preferences and connection parameters that Bookmark Research reads directly:
 
 - Search and reading sources: `search.providers`, `search.fallback_providers`, `fetch.provider`, `fetch.providers` and concurrency strategies. Perplexity provides structured URL search, not page extraction.
-- User preferences: `research.depth`, `research.response_language`, `research.methods`, `archive.enabled`, `wiki.after_research`, `output.mode`, cache and limit settings, and readiness checks.
+- User preferences: `research.depth`, `research.response_language`, `research.methods`, `archive.enabled`, `wiki.enabled`, `wiki.after_research`, `output.mode`, cache and limit settings, and readiness checks.
 - Model endpoints: Base URL, model ID, protocol and search mode under `custom_agentic`. It returns a separate model answer through `agentic_search` and is not fused into `search_web` URL results.
 - Professional research APIs called directly by this plugin: the OpenAI Deep Research or Parallel Task API selection under `professional_research`.
 
