@@ -18,6 +18,9 @@ backflow, plus two Wiki write fixes found in the B-1-1 pilot.
   through `get_settings`/`update_settings`. When false, `save` and the deep Wiki
   tools disappear from the catalog, Wiki-scope reads/writes and compile planning
   fail with a clear error, and `research_finish` skips the Wiki follow-up.
+- The 18 replaced MCP names are no longer advertised by `deep`/`all`; the
+  catalog shows 40 real tools. They remain callable (and can be named by an
+  explicit `tool_scope`) until the 0.8.0 cutoff.
 - `wiki_compile` (deep MCP) and `br wiki compile plan|status|gap`: deterministic
   incremental-compile planning over a bookmark scope. It clusters by folder,
   drops search pages, dividers and duplicate URLs, reports current-revision

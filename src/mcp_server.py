@@ -575,7 +575,7 @@ TOOL_DESCRIPTIONS.update({
     "wiki_search": "Find authored Wiki text using an incremental character index, literal/spacing matching and explicit aliases. Validates matching candidates; invalid/retracted evidence is excluded. Freshness warnings remain visible. No embeddings or network calls.",
     "wiki_lint": "Audit all selected Wiki evidence, hashes, source freshness, crosslinks and history. Mechanical integrity and declared semantic review are reported separately; no network.",
     "wiki_compile": "Plan and audit incremental Wiki compilation. action=plan clusters a bookmark scope by folder, drops junk/search/duplicate URLs, reports coverage by current revisions and the pages a cluster would touch; action=status recomputes coverage, gap and pending items from a stored plan (coverage_basis says which denominator); action=gap records planned URLs that were attempted but could not be read (urls, reason, provider). Planning and gaps write only plan/gap files; no fetch and no Wiki page. Deep preset only.",
-    "search": "Search public sources and return discovery results with provider failures and coverage visible. A host-native search is the default discovery channel; call this when it is unavailable, insufficient or provider diversity is requested. Results are not page正文; fetch known URLs before citing.",
+    "search": "Search public sources and return discovery results with provider failures and coverage visible. A host-native search is the default discovery channel; call this when it is unavailable, insufficient or provider diversity is requested. Primary search has a 10-second default search.deadline_seconds; quota_exhausted providers enter cooldown while other fallbacks are still attempted. Results are not page正文; fetch known URLs before citing.",
     "fetch": "Fetch known URLs with provider fallback, bounded text budgets, content_state and optional archived capture continuation. A returned body is not automatically a verified citation.",
     "ingest": "Fuse host or provider search batches by canonical URL and body SHA-256, preserving provider provenance, failures and coverage. Tag host batches with provider=host:<name> so the channel stays auditable. This is deterministic result ingestion, not Agentic Search planning.",
     "spawn": "Submit work that outlives one tool step. task=deep_research (default) starts a provider-managed Deep Research run and returns an external id; task=fetch/ingest/research enqueues a durable local job and returns job_id, processed by `br job worker`. The host owns iteration and decides when to observe it with job.",
@@ -888,13 +888,14 @@ class StdioMcpServer:
         """
         scope = self._tool_scope()
         expired = _legacy_compatibility_expired(release_version())
-        available = [name for name in TOOL_SCHEMAS
-                     if not expired or name not in DEPRECATED_TOOL_TARGETS]
         if scope:
-            allowed = set(available)
-            names = list(dict.fromkeys(name for name in scope if name in allowed))
+            names = list(dict.fromkeys(
+                name for name in scope
+                if name in TOOL_SCHEMAS and (not expired or name not in DEPRECATED_TOOL_TARGETS)))
         else:
-            names = list(available)
+            # Default deep/all advertises only real tools. Legacy names stay
+            # callable until 0.8.0, but presence alone steers mis-picks.
+            names = [name for name in TOOL_SCHEMAS if name not in DEPRECATED_TOOL_TARGETS]
         if not self._wiki_enabled():
             names = [name for name in names if name not in WIKI_ONLY_TOOLS]
         return names

@@ -189,7 +189,7 @@ Default MCP surface (10 primitives, shared with the CLI; 9 when `wiki.enabled` i
 | `job` | Observe or cancel a local job (`j-…`) or a provider run |
 | `health` | Bounded readiness summary with no network and no index write; optional `host`/`observed_tools` report host-native search |
 
-The `deep` preset additionally exposes the catalog below; the deprecated aliases (`search_bookmarks`, `get_context`, `fetch_web`, `wiki_write`, …) remain callable until 0.8.0 and are replaced by the primitives above.
+The `deep` preset additionally exposes the 30 maintenance tools below. The replaced names (`search_bookmarks`, `get_context`, `fetch_web`, `wiki_write`, …) are not listed; they remain callable until 0.8.0 and are replaced by the primitives above.
 
 | Tool | Purpose |
 | --- | --- |

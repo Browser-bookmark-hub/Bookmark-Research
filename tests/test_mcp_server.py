@@ -80,16 +80,14 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(response["result"]["capabilities"], {"tools": {}})
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
         self.assertEqual({tool["name"] for tool in listing}, {
-            "sync_package", "source_history", "locate", "search_bookmarks", "lookup_url", "traverse_graph", "get_context", "plan_research", "discovery_bundle", "index_status",
+            "sync_package", "source_history", "locate", "plan_research", "discovery_bundle", "index_status",
             "source_remove", "source_merge",
-            "search_web", "search", "agentic_search", "fetch_web", "fetch", "search_providers", "search_archive", "merge_search_results", "ingest", "get_settings", "update_settings", "research_readiness",
+            "search", "agentic_search", "fetch", "search_providers", "ingest", "get_settings", "update_settings", "research_readiness",
             "research_start", "research_status", "research_search", "research_fetch",
-            "research_source", "research_record", "research_finish", "research_inventory",
-            "research_coverage", "research_import_evidence", "research_route", "research_services",
-            "research_service_prepare", "research_service_start", "research_service_status",
-            "research_service_result", "research_service_cancel", "research_service_attach", "read", "walk", "save",
-            "research_service_import", "spawn", "job", "health", "wiki_write", "wiki_get", "wiki_list", "wiki_search",
-            "wiki_lint", "wiki_acknowledge", "wiki_refresh", "wiki_work", "wiki_compile"})
+            "research_record", "research_finish", "research_inventory", "research_coverage",
+            "research_import_evidence", "research_route", "research_services", "research_service_prepare",
+            "research_service_attach", "research_service_import", "read", "walk", "save", "spawn", "job", "health",
+            "wiki_lint", "wiki_refresh", "wiki_work", "wiki_compile"})
         self.assertTrue(all(tool["inputSchema"]["additionalProperties"] is False for tool in listing))
         tools = {tool["name"]: tool for tool in listing}
         plan = tools["plan_research"]
@@ -97,7 +95,7 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(plan["inputSchema"]["properties"]["max_urls"]["maximum"], 8)
         self.assertIn("max_cards accepts 1–3", plan["description"])
         self.assertIn("max_urls accepts 1–8", plan["description"])
-        search_description = tools["search_web"]["description"]
+        search_description = tools["search"]["description"]
         self.assertIn("10-second default search.deadline_seconds", search_description)
         self.assertIn("quota_exhausted providers enter cooldown", search_description)
         self.assertFalse(self.db_path.exists())
@@ -206,16 +204,17 @@ class McpServerTests(unittest.TestCase):
                                                 "refresh": False})
         self.assertFalse(compatible["result"]["isError"], compatible)
 
-    def test_replaced_legacy_tools_are_labeled_but_remain_in_all_catalog(self):
+    def test_legacy_names_are_not_advertised_but_remain_callable(self):
         self.ready()
-        listing = {tool["name"]: tool for tool in self.server.handle(request("tools/list"))["result"]["tools"]}
-        for old, replacement in (("search_bookmarks", "locate"), ("get_context", "read"),
-                                 ("traverse_graph", "walk"), ("search_web", "search"),
-                                 ("fetch_web", "fetch"), ("merge_search_results", "ingest"),
-                                 ("wiki_write", "save"), ("wiki_get", "read"),
-                                 ("research_source", "read"), ("research_service_start", "spawn")):
-            self.assertIn(old, listing)
-            self.assertTrue(listing[old]["description"].startswith("[deprecated→%s]" % replacement))
+        self.sync()
+        listing = {tool["name"] for tool in self.server.handle(request("tools/list"))["result"]["tools"]}
+        for old in ("search_bookmarks", "lookup_url", "get_context", "traverse_graph",
+                    "search_web", "fetch_web", "merge_search_results", "wiki_write",
+                    "wiki_get", "research_source", "research_service_start"):
+            self.assertNotIn(old, listing)
+        response = self.call("get_context", {"source_id": "fixture", "item_id": "temp-one",
+                                             "refresh": False})
+        self.assertFalse(response["result"]["isError"], response)
 
     def test_legacy_catalog_and_calls_expire_at_070(self):
         self.assertFalse(_legacy_compatibility_expired("0.8.0-rc.1"))

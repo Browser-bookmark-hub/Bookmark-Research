@@ -11,7 +11,7 @@
 
 ## 0.7.1 正式版
 
-0.7.1 保留 0.7.0 的 CLI 优先工具面——默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存——并新增可关闭的 Wiki 层（`wiki.enabled`）、确定性的编译计划器（`wiki_compile` 的 plan/status/gap）、宿主原生搜索报告与 discovery 回灌，以及两个 Wiki 写入修复。关闭 Wiki 时默认面为 9 个原语；全量目录保留 58 个名字，旧名标记 deprecated 并将在 0.8.0 拒绝。升级保留已有配置、密钥和研究数据。
+0.7.1 保留 0.7.0 的 CLI 优先工具面——默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存——并新增可关闭的 Wiki 层（`wiki.enabled`）、确定性的编译计划器（`wiki_compile` 的 plan/status/gap）、宿主原生搜索报告与 discovery 回灌，以及两个 Wiki 写入修复。关闭 Wiki 时默认面为 9 个原语；deep/all 只广告 40 个真实工具，18 个旧名不再列出（显式 tool_scope 仍可指定），并在 0.8.0 起拒绝。升级保留已有配置、密钥和研究数据。
 
 ## 它是怎么工作的
 
@@ -97,7 +97,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | 重复 URL 报告 | `bookmark-research dupes --source-id <id>` |
 | 本地作业队列 | `bookmark-research job submit --kind fetch --input job.json` · `bookmark-research job worker --concurrency 2` |
 
-没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。默认 `quick` 只暴露 CLI 与 MCP 共用的 10 个原语；`deep`（或 `all`）启用完整目录（58 个名字，含 deprecated 别名），供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
+没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。默认 `quick` 只暴露 CLI 与 MCP 共用的 10 个原语；`deep`（或 `all`）启用 40 个真实工具的目录，供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
 
 **更新。** 运行 `npx bookmark-research@latest install`，在向导中确认升级覆盖，即可为已安装宿主采用最新发布版。Codex 无交互升级可用 `npx bookmark-research@latest install codex --non-interactive --replace-source`。`bookmark-research update` 刷新的是已登记来源：Git／npm 选择器沿用所选 ref，随包保留的构建或固定版本仍留在该构建。两种方式均保留偏好、Key 和数据；完成后新建宿主会话。
 
@@ -169,7 +169,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 长任务或批量任务不会占住工具步：`spawn(task="fetch"|"ingest"|"research", args)` 入队，单例 `bookmark-research job worker` 用有界线程池执行，`job(job_id)` 查看状态与结果；队列由三个宿主与 CLI 共享。
 
-`deep` 预设额外提供 deprecated 别名（`search_bookmarks`、`get_context`、`fetch_web`、`wiki_write` 等）、来源维护、完整研究记录、选路诊断、Wiki 维护与 `wiki_compile` 增量编译计划。旧名从默认目录隐藏，0.8.0 起拒绝。Git 时间上下文由宿主 shell 查询。
+`deep` 预设额外提供 30 个维护工具：来源维护、完整研究记录、选路诊断、Wiki 维护与 `wiki_compile` 增量编译计划。18 个旧名不再出现在任何预设中；显式 `tool_scope` 仍可指定，0.8.0 起拒绝。Git 时间上下文由宿主 shell 查询。
 
 ## 更多
 
