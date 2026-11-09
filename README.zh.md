@@ -9,15 +9,15 @@
 
 [安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
-## 0.7.0 正式版
+## 0.7.1 正式版
 
-0.7.0 把 CLI 与 MCP 合并成同一套工具面：默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存。全量目录仍保留 58 个名字；旧名从默认目录隐藏并标记 deprecated，将在 0.8.0 拒绝。升级保留已有配置、密钥和研究数据。
+0.7.1 保留 0.7.0 的 CLI 优先工具面——默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存——并新增可关闭的 Wiki 层（`wiki.enabled`）、确定性的编译计划器（`wiki_compile` 的 plan/status/gap）、宿主原生搜索报告与 discovery 回灌，以及两个 Wiki 写入修复。关闭 Wiki 时默认面为 9 个原语；全量目录保留 58 个名字，旧名标记 deprecated 并将在 0.8.0 拒绝。升级保留已有配置、密钥和研究数据。
 
 ## 它是怎么工作的
 
 - **本地理解层。** 数据包按结构读，而不是一张平铺的 URL 清单：卡片与分组的位置、连线的方向与标签、同一书签在不同卡片的出现位置（空间上下文）；日期字段、ID 中协议定义的日期段，以及真正改过内容的 Git 提交（时间上下文）。这些都是离线查询。
-- **外部调研走三条路线。** 读取已知 URL 不需要推理；Agentic 搜索由宿主模型自己规划、搜索、阅读并追查缺口；Deep Research 可直接调用 OpenAI／Parallel 研究 API；完整清单与覆盖审计在明确需要时启用。`search_web` 聚合已配置的 URL 搜索来源（可选 Perplexity Search）；`agentic_search` 可按需返回 Grok 或用户自定义 OpenAI 兼容模型的回答与引用。自定义模型是否真正联网取决于上游能力，且不参加 URL 排名。
-- **可复核的知识存储。** 完成的研究可以沉淀成 Wiki：带历史版本和相互链接的已审核页面，之后提问直接复用，不必重新搜索网页。安装向导或 `update_settings` 可用 `wiki.enabled` 关闭整个 Wiki；关闭后 `save` 与 Wiki 工具会从工具面消失。
+- **外部调研走三条路线。** 读取已知 URL 不需要推理；Agentic 搜索由宿主模型自己规划、搜索、阅读并追查缺口；Deep Research 可直接调用 OpenAI／Parallel 研究 API；完整清单与覆盖审计在明确需要时启用。宿主原生搜索是默认发现通道，结果只算 discovery，必须经 `ingest` 回灌，再通过 `research_finish(discovery=…)` 报告。`search` 聚合已配置的 URL 搜索来源（可选 Perplexity Search）；`agentic_search` 可按需返回 Grok 或用户自定义 OpenAI 兼容模型的回答与引用。自定义模型是否真正联网取决于上游能力，且不参加 URL 排名。
+- **可复核的知识存储。** 完成的研究可以沉淀成 Wiki：带历史版本和相互链接的已审核页面，之后提问直接复用，不必重新搜索网页。`wiki_compile` 可按目录规划编译、审计 covered/gap/pending 并列出每簇会触及的页面；正文由宿主写入。安装向导或 `update_settings` 可用 `wiki.enabled` 关闭整个 Wiki；关闭后 `save` 与 Wiki 工具会从工具面消失。
 
 ## 环境要求
 
@@ -32,7 +32,7 @@
 npx bookmark-research@latest install
 ```
 
-默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.7.0 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
+默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.7.1 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash

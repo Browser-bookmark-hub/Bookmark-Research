@@ -9,17 +9,17 @@ Research with bookmark context and retain reusable knowledge. Read a [Bookmark C
 
 [Installation guide](docs/installation.en.md) · [User guide](docs/user-guide.en.md) · [Details](docs/details.en.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
-## Version 0.7.0
+## Version 0.7.1
 
-0.7.0 consolidates the CLI and MCP entries into one tool surface: 10 default primitives, a durable local job queue, card-export imports (JSON or Netscape HTML), search-result page skipping and a TTL fetch cache. The full catalog still lists 58 names; deprecated names stay callable until the 0.8.0 cutoff.
+0.7.1 keeps the 0.7.0 CLI-first surface — 10 default primitives, a durable local job queue, card-export imports (JSON or Netscape HTML), search-result page skipping and a TTL fetch cache — and adds a switchable Wiki layer (`wiki.enabled`), a deterministic compile planner (`wiki_compile` plan/status/gap), host-native search reporting with discovery backflow, and two Wiki write fixes. The default surface is 9 primitives when the Wiki is off; the full catalog lists 58 names, and deprecated names stay callable until the 0.8.0 cutoff.
 
 The stable release includes bilingual Canvas package support, safer Exa batch reading that isolates ambiguous pages, and concise installation/update summaries. Installation prints the version, actual paths, checks and any required action. Use `--json` for complete structured diagnostics; `--non-interactive` only disables prompts. Existing settings, credentials and research data are retained during upgrades.
 
 ## How it works
 
 - **Local understanding.** A Bookmark Canvas package is read as structure, not a flat URL list: card and group layout, edges with their direction and labels, and the same bookmark appearing across cards (spatial context); dated fields, protocol-defined date segments in IDs, and Git commits that changed content (temporal context). These queries run offline.
-- **External research takes one of three routes.** Reading a known URL needs no reasoning; agentic search has the host model plan, search, read and follow the gaps; deep research can use the OpenAI or Parallel research API directly. `search_web` aggregates configured URL providers such as Perplexity Search; `agentic_search` can return a separate Grok or user-configured OpenAI-compatible model answer and citations. Custom model search depends on the selected upstream's web capability and is not URL-fused. Persistent inventories and coverage checks are available when you explicitly need a complete collection audit. Host browsers and crawlers can supply source text.
-- **Reviewed knowledge store.** Finished research can be compiled into a Wiki of reviewed pages with revisions and links, reused by later questions instead of searching the web again. Setup (or `update_settings`) can turn the whole Wiki off with `wiki.enabled`; `save` and the Wiki tools then disappear from the tool surface.
+- **External research takes one of three routes.** Reading a known URL needs no reasoning; agentic search has the host model plan, search, read and follow the gaps; deep research can use the OpenAI or Parallel research API directly. Host-native search is the default discovery channel; its results are discovery only and must be merged with `ingest`, then reported through `research_finish(discovery=…)`. `search` aggregates configured URL providers such as Perplexity Search; `agentic_search` can return a separate Grok or user-configured OpenAI-compatible model answer and citations. Custom model search depends on the selected upstream's web capability and is not URL-fused. Persistent inventories and coverage checks are available when you explicitly need a complete collection audit. Host browsers and crawlers can supply source text.
+- **Reviewed knowledge store.** Finished research can be compiled into a Wiki of reviewed pages with revisions and links, reused by later questions instead of searching the web again. `wiki_compile` plans a folder-scoped compile, audits covered/gap/pending items and lists the pages a cluster would touch; the host writes the page. Setup (or `update_settings`) can turn the whole Wiki off with `wiki.enabled`; `save` and the Wiki tools then disappear from the tool surface.
 
 ## Requirements
 
@@ -34,7 +34,7 @@ The stable release includes bilingual Canvas package support, safer Exa batch re
 npx bookmark-research@latest install
 ```
 
-Installs the latest stable release directly. To pin this release, use `npx bookmark-research@0.7.0 install`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research@latest`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
+Installs the latest stable release directly. To pin this release, use `npx bookmark-research@0.7.1 install`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research@latest`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash

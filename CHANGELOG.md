@@ -1,6 +1,19 @@
-## Unreleased
+# Changelog
+
+## 0.7.1 — 2026-11-09
+
+0.7.1 keeps the 0.7.0 CLI-first surface and adds a switchable Wiki layer, a
+deterministic compile planner, host-native search reporting and discovery
+backflow, plus two Wiki write fixes found in the B-1-1 pilot.
 
 ### Added
+- CLI aliases: `read` (context), `walk` (traverse), `fetch` (fetch-web). `search`
+  stays the bookmark search command, so web search remains `search-web`.
+- `bookmark-research job prune --days 7 --keep-latest 200`; the worker prunes on
+  start and `spawn` reports `worker: running|not_running`.
+- `locate --exclude-junk` (MCP `exclude_junk`) drops divider/placeholder rows.
+- Fetch cache eviction: expired rows and anything beyond the newest 500.
+- Chinese `docs/details.md` lists the 10-primitive MCP surface.
 - `wiki.enabled` master switch (default true), asked once by setup and editable
   through `get_settings`/`update_settings`. When false, `save` and the deep Wiki
   tools disappear from the catalog, Wiki-scope reads/writes and compile planning
@@ -30,31 +43,16 @@
   research draft; the draft only appends sections and links.
 - Wiki writes accept canvas section/item IDs with non-ASCII names when bookmark
   references are derived from the index instead of rejecting them.
-- Added `planning/2026-11-wiki-compile.md` (design draft; the plan/status half
-  is now implemented).
+- Added `planning/2026-11-wiki-compile.md` (design draft; plan/status and gap
+  are implemented).
 
 ### Tests
+- Added coverage for job pruning/worker lock, cache eviction and the junk filter.
 - Routing, readiness and health coverage for namespaced host search names and
   MCP-prefixed rejection.
 - Wiki compile planning: noise filtering, coverage/gap status, folder scope,
   idempotency, plan-file containment and CJK title matching; auto-merge
   title/kind; research discovery reporting and backflow rejection.
-
-## 0.7.1 — 2026-11-09
-
-### Added
-- CLI aliases: `read` (context), `walk` (traverse), `fetch` (fetch-web). `search`
-  stays the bookmark search command, so web search remains `search-web`.
-- `bookmark-research job prune --days 7 --keep-latest 200`; the worker prunes on
-  start and `spawn` reports `worker: running|not_running`.
-- `locate --exclude-junk` (MCP `exclude_junk`) drops divider/placeholder rows.
-- Fetch cache eviction: expired rows and anything beyond the newest 500.
-- Chinese `docs/details.md` lists the 10-primitive MCP surface.
-
-### Tests
-- Added coverage for job pruning/worker lock, cache eviction and the junk filter.
-
-# Changelog
 
 ## 0.7.0 — 2026-11-09
 
