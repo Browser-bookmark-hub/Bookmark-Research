@@ -494,9 +494,10 @@ class WikiStore:
                 for ref in bookmark_refs:
                     if not isinstance(ref, dict) or set(ref) != {"source_id", "section_id", "item_id"}:
                         raise ValueError("Invalid bookmark_ref structure; needs source_id, section_id, item_id")
-                    ResearchSessions._identifier(ref["source_id"], "Bookmark ref source_id")
-                    ResearchSessions._identifier(ref["section_id"], "Bookmark ref section_id")
-                    ResearchSessions._identifier(ref["item_id"], "Bookmark ref item_id")
+                    # Canvas section/item IDs are opaque and may contain non-ASCII
+                    # names; existence is checked against the index below.
+                    for field in ("source_id", "section_id", "item_id"):
+                        self._text(ref[field], "Bookmark ref " + field, 300)
                 db_exists = (str(self.research.db_path) == ":memory:") or (
                     self.research.db_path and Path(self.research.db_path).is_file()
                 )

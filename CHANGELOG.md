@@ -1,3 +1,45 @@
+## Unreleased
+
+### Added
+- `wiki.enabled` master switch (default true), asked once by setup and editable
+  through `get_settings`/`update_settings`. When false, `save` and the deep Wiki
+  tools disappear from the catalog, Wiki-scope reads/writes and compile planning
+  fail with a clear error, and `research_finish` skips the Wiki follow-up.
+- `wiki_compile` (deep MCP) and `br wiki compile plan|status|gap`: deterministic
+  incremental-compile planning over a bookmark scope. It clusters by folder,
+  drops search pages, dividers and duplicate URLs, reports current-revision
+  coverage, existing/affected pages and a per-cluster item budget. Planning
+  writes only `compile/<plan_id>.json`; it starts no fetch and writes no page.
+- `wiki_compile(action:"gap")` / `br wiki compile gap`: record planned URLs that
+  were attempted but could not be read, so `status` separates covered, gap and
+  pending items and reports `coverage_basis`.
+- `research_finish(discovery={...})`: record the host/plugin search channel and
+  whether host results were ingested; declaring host search without backflow is
+  rejected, and an unreported channel is flagged in `discovery_audit`.
+- CJK bigrams in Wiki page-title matching, so Chinese cluster titles can match
+  existing pages instead of relying on URL overlap only.
+
+### Changed
+- Host-native search detection accepts namespaced tool names (`tools.web__run`,
+  `functions.web__run`) and ignores `mcp__...` plugin tools. `health` (optional
+  `host`/`observed_tools`) and `readiness` (`host_integrations.search`) report the
+  observed channel.
+- Skill and references require host search batches to be ingested with
+  `provider=host:<name>` before they support an answer or a Wiki page.
+- Auto-save now preserves an authored page title and kind when merging a
+  research draft; the draft only appends sections and links.
+- Wiki writes accept canvas section/item IDs with non-ASCII names when bookmark
+  references are derived from the index instead of rejecting them.
+- Added `planning/2026-11-wiki-compile.md` (design draft; the plan/status half
+  is now implemented).
+
+### Tests
+- Routing, readiness and health coverage for namespaced host search names and
+  MCP-prefixed rejection.
+- Wiki compile planning: noise filtering, coverage/gap status, folder scope,
+  idempotency, plan-file containment and CJK title matching; auto-merge
+  title/kind; research discovery reporting and backflow rejection.
+
 ## 0.7.1 — 2026-11-09
 
 ### Added

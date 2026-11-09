@@ -174,6 +174,21 @@ class TestHardeningBatch4(unittest.TestCase):
         self.assertEqual(result_dry_run["status"], "skipped")
         self.assertEqual(result_dry_run["skip_reason"], "dry_run")
 
+    def test_p3_1_auto_merge_preserves_the_authored_title_and_kind(self):
+        existing = {"title": "Aurora sessions", "kind": "entity",
+                    "sections": [{"heading": "Reuse", "text": "Authored.", "claims": []}],
+                    "links": [{"page_id": "overview", "relation": "Part of"}]}
+        draft = {"title": "What is supported?", "kind": "topic",
+                 "sections": [{"heading": "Reuse", "text": "Duplicate heading.", "claims": []},
+                              {"heading": "Pricing", "text": "New section.", "claims": []}],
+                 "links": [{"page_id": "pricing", "relation": "Cites"}]}
+        merged = ResearchSessions._merge_wiki_page(existing, draft, max_sections=16)
+        self.assertEqual("Aurora sessions", merged["title"])
+        self.assertEqual("entity", merged["kind"])
+        self.assertEqual(["Reuse", "Pricing"], [section["heading"] for section in merged["sections"]])
+        self.assertEqual("Authored.", merged["sections"][0]["text"])
+        self.assertEqual(["overview", "pricing"], [link["page_id"] for link in merged["links"]])
+
     # --- P3-5: Duplicate Concept Prompt on Wiki Write ---
 
     def test_p3_5_duplicate_concept_detection_and_ignore(self):

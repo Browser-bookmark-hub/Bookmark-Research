@@ -1813,6 +1813,37 @@ class ResearchSessions:
                 "instruction": "Review this page under wiki_follow_up.instruction and existing session authorization. "
                                "Add a truthful review block before wiki_write; place remaining_claim_ids in related pages."}
 
+    @staticmethod
+    def _merge_wiki_page(existing, draft, max_sections=16, max_links=32):
+        """Merge an auto-draft into an authored page without renaming it.
+
+        The authored title and kind identify the topic page; a later research
+        session must not replace them with its question. Sections and links are
+        only appended, and the page limits stay enforced.
+        """
+        page = copy.deepcopy(draft)
+        if not existing:
+            return page
+        page["title"] = existing.get("title") or page.get("title")
+        page["kind"] = existing.get("kind") or page.get("kind")
+        sections = copy.deepcopy(existing.get("sections", []))
+        headings = {section.get("heading") for section in sections}
+        for section in page.get("sections", []):
+            if section.get("heading") not in headings and len(sections) < max_sections:
+                sections.append(section)
+                headings.add(section.get("heading"))
+        page["sections"] = sections
+        links = copy.deepcopy(existing.get("links", []))
+        targets = {link.get("page_id") for link in links}
+        for link in page.get("links", []):
+            if link.get("page_id") not in targets and len(links) < max_links:
+                links.append(link)
+                targets.add(link.get("page_id"))
+        page["links"] = links
+        if existing.get("aliases"):
+            page["aliases"] = existing["aliases"]
+        return page
+
     def _wiki_follow_up(self, state):
         try:
             policy = self.settings.load()["wiki"]["after_research"]
@@ -1878,23 +1909,8 @@ class ResearchSessions:
                         existing = None
                     if existing and existing.get("page"):
                         expected_rev = existing.get("revision", 0)
-                        merged_sections = copy.deepcopy(existing["page"].get("sections", []))
-                        existing_headings = {s.get("heading") for s in merged_sections}
-                        for s in auto_page.get("sections", []):
-                            if s.get("heading") not in existing_headings and len(merged_sections) < WikiStore.MAX_SECTIONS:
-                                merged_sections.append(s)
-                                existing_headings.add(s.get("heading"))
-                        auto_page["sections"] = merged_sections
-                        existing_links = existing["page"].get("links", [])
-                        merged_links = copy.deepcopy(existing_links)
-                        existing_link_targets = {l.get("page_id") for l in merged_links}
-                        for l in auto_page.get("links", []):
-                            if l.get("page_id") not in existing_link_targets and len(merged_links) < 32:
-                                merged_links.append(l)
-                                existing_link_targets.add(l.get("page_id"))
-                        auto_page["links"] = merged_links
-                        if existing["page"].get("aliases"):
-                            auto_page["aliases"] = existing["page"]["aliases"]
+                        auto_page = self._merge_wiki_page(
+                            existing["page"], auto_page, max_sections=WikiStore.MAX_SECTIONS)
                     write_result = store.write(
                         candidate_page_id,
                         auto_page,

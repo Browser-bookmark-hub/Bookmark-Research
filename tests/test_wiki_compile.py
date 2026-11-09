@@ -144,6 +144,41 @@ class WikiCompileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.compiler.plan("fixture", include_covered="yes")
 
+    def test_wiki_write_accepts_a_canvas_section_id_with_non_ascii_names(self):
+        package = self.base / "package-zh"
+        shutil.copytree(self.base / "package", package)
+        document = read_json(package, TEMP)
+        document["id"] = "temp-section-存档"
+
+        def rename(items):
+            for item in items:
+                item["sectionId"] = "temp-section-存档"
+                rename(item.get("children") or [])
+
+        rename(document["items"])
+        write_json(package, TEMP, document)
+        database = self.base / "zh.sqlite3"
+        index = BookmarkIndex(str(database))
+        self.addCleanup(index.close)
+        index.sync(str(package), source_id="zh")
+        research = ResearchSessions(directory=self.base / "zh-research", settings=self.settings,
+                                    db_path=str(database))
+        wiki = WikiStore(directory=self.base / "zh-wiki", settings=self.settings,
+                         research_sessions=research)
+        receipt = wiki.write("alpha-zh", {
+            "title": "Alpha", "kind": "topic", "links": [],
+            "review": {"method": "model", "reviewer": "test", "note": "Checked"},
+            "sections": [{"heading": "What", "text": "Alpha is a company.",
+                          "citations": [{"source_id": "alpha", "quote": "Alpha is a company."}]}],
+        }, change_note="Non-ASCII section ref", sources=[{
+            "id": "alpha", "url": "https://example.test/alpha",
+            "text": "Alpha is a company. It builds things."}])
+        self.assertEqual("written", receipt["status"])
+        page = wiki.get("alpha-zh")
+        refs = [ref for evidence in page["evidence"] for citation in evidence["citations"]
+                for ref in citation.get("bookmark_refs", [])]
+        self.assertTrue(any(ref["section_id"] == "temp-section-存档" for ref in refs), refs)
+
     def test_plan_file_is_scoped_inside_the_wiki_directory(self):
         plan = self.compiler.plan("fixture", max_pages=1, min_cluster_size=1)
         stored = json.loads((self.base / "wiki" / "compile" / (plan["plan_id"] + ".json"))
