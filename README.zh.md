@@ -9,9 +9,9 @@
 
 [安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
-## 0.6.0 正式版
+## 0.7.0 正式版
 
-本版包含双语画布数据包支持、隔离歧义页面的 Exa 批量正文解析，以及精简后的安装／更新摘要。默认只显示版本、实际路径、检查结果和需处理事项；添加 `--json` 获取完整结构化诊断，`--non-interactive` 仅控制是否询问。升级保留已有配置、密钥和研究数据。
+0.7.0 把 CLI 与 MCP 合并成同一套工具面：默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存。全量目录仍保留 57 个名字；旧名从默认目录隐藏并标记 deprecated，将在 0.8.0 拒绝。升级保留已有配置、密钥和研究数据。
 
 ## 它是怎么工作的
 
@@ -32,7 +32,7 @@
 npx bookmark-research@latest install
 ```
 
-默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.6.0 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
+默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.7.0 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
@@ -95,7 +95,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | JSON 配置说明与示例 | [配置指南](docs/configuration.md) · [部分配置 JSON](config/settings.example.json) |
 | 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
 
-没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。工具面可用 `bookmark-research config set --tool-scope-preset quick` 使用默认 22 个日常工具；`deep`（或 `all`）启用完整 44 个工具，供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
+没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。默认 `quick` 只暴露 CLI 与 MCP 共用的 10 个原语；`deep`（或 `all`）启用完整目录（57 个名字，含 deprecated 别名），供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
 
 **更新。** 运行 `npx bookmark-research@latest install`，在向导中确认升级覆盖，即可为已安装宿主采用最新发布版。Codex 无交互升级可用 `npx bookmark-research@latest install codex --non-interactive --replace-source`。`bookmark-research update` 刷新的是已登记来源：Git／npm 选择器沿用所选 ref，随包保留的构建或固定版本仍留在该构建。两种方式均保留偏好、Key 和数据；完成后新建宿主会话。
 
@@ -113,7 +113,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | `CUSTOM_AGENTIC_API_KEY` | 可选的用户自定义 OpenAI 兼容端点 | 单独的 `agentic_search` 通道；在 setup 中配置 Base URL／模型／协议 |
 | `OPENAI_API_KEY` | 可选的 OpenAI Deep Research 任务 | 功能关闭；宿主自己的研究不受影响 |
 
-在 setup 的密钥步骤，用空格勾选已启用服务所需的 Key，再在隐藏输入框逐个输入；不选即可跳过。Key 保存在独立的私有 `credentials.json`，也可由环境变量提供，且环境变量优先。Key 不放进 `prefs.json` 或 `settings.json`；设置 JSON 导入会拒绝凭据字段。每个 Key 对应的服务见[配置指南](docs/configuration.md)。偏好也可以直接在宿主会话里让 agent 改（「显示 Bookmark Research 的配置」「以后只用 Exa 搜索」），它会调用 `update_settings` 工具。
+在 setup 的密钥步骤，用空格勾选已启用服务所需的 Key，再在隐藏输入框逐个输入；不选即可跳过。Key 保存在独立的私有 `credentials.json`，也可由环境变量提供，且环境变量优先。Key 不放进 `prefs.json` 或 `settings.json`；设置 JSON 导入会拒绝凭据字段。每个 Key 对应的服务见[配置指南](docs/configuration.md)。偏好也可以直接在宿主会话里让 agent 改（「显示 Bookmark Research 的配置」「以后只用 Exa 搜索」），它会调用 `update_settings` 工具（需 deep 目录）。
 
 ## 数据保存在哪里
 
@@ -126,7 +126,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | `knowledge/` | 保存的网页读取：`sources/` 按每次读取保存，`pages/` 中相同正文只存一份 |
 | `wiki/` | 审核后的知识页面与历史版本；`index.md` 目录、`log.md` 时间线 |
 | `index.sqlite3`、`index.sqlite3.sources/` | 书签检索索引，以及导入数据包的托管快照 |
-| `raw-library.sqlite3` | `search_archive` 使用的全文索引，可重建 |
+| `raw-library.sqlite3` | `locate(in=["archive"])` 背后的全文索引，可重建 |
 | `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/` | `settings.json` 和 `credentials.json`（仅当前用户可读） |
 
 位置设置只影响新的研究任务，已有任务留在原处。
@@ -146,7 +146,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | 层 | 组成 | 运行方式 | 需要配置 |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) 及 11 份方法参考，每份都有[中文版](skills/bookmark-research/references/zh/skill-guide.md) | 由宿主加载 | 不需要 |
-| 本地 MCP | `bookmark-research`，默认 22 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
+| 本地 MCP | `bookmark-research`，默认 10 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
 | 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取）、[Tavily](https://tavily.com)（备用搜索） | HTTPS，不启动本地进程 | 可选 API Key |
 | 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索）；[DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/)；[Perplexity Search](https://docs.perplexity.ai/api-reference/search-post)（结构化结果） | HTTPS | 可选 provider Key |
 | 模型搜索 API | [xAI Grok Responses](https://docs.x.ai/developers/tools/web-search)，可选网页与 X 搜索 | HTTPS | 可选 `XAI_API_KEY`；通过独立 `agentic_search` 调用 |
@@ -155,17 +155,19 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 本地 MCP 的工具：
 
-| 分类 | 工具 |
-| --- | --- |
-| 画布上下文 | `sync_package`、`index_status`、`search_bookmarks`、`get_context`、`plan_research` |
-| 联网与归档 | `search_web`、`agentic_search`、`fetch_web`、`search_archive` |
-| Wiki | `wiki_write`、`wiki_get`、`wiki_list`、`wiki_search` |
-| 研究 API | `research_services`、`research_service_prepare`、`_start`、`_status`、`_result`、`_cancel`、`_attach` |
-| 配置 | `get_settings`、`update_settings` |
+| 分类 | 工具 | 回答什么 |
+| --- | --- | --- |
+| 本地画布 | `locate`、`read`、`walk` | 按文本／URL／目录子项／纯元数据定位；打开卡片或目录子项；沿画布关系遍历 |
+| 诊断 | `health` | 有界的就绪摘要（不联网、不写索引） |
+| 联网 | `search`、`fetch`、`ingest` | 发现结果；带 `content_state`/`capture_id` 的有界正文；宿主结果确定性归并 |
+| 长任务 | `spawn`、`job` | 提交到本地持久化队列，观察或取消 |
+| 知识 | `save` | 通过校验的 Wiki 修订与逐字引用 |
 
-`plan_research` 返回本地候选，并独立检索 Wiki／归档；相关性和后续调查由宿主判断。没有画布来源也能使用。`wiki_write` 一次接收编写好的章节、精确引文与来源正文或 capture ID；研究 API 可直接接收问题，无需先创建本地研究会话。
+`locate(package_path=...)` 是“首次接触”：导入一个包、单卡或卡片导出（无 id 的 JSON，或 Netscape 书签 HTML），返回条目数、栏目（含 `source`/`temp_kind`）、Note、搜索引擎页、分隔符噪音行与重复组。`read` 打开命中，`walk` 沿画布边遍历，`save` 一次接收章节、精确引文与来源正文或 capture ID。
 
-`deep` 预设额外提供来源维护、完整研究记录、选路诊断与 Wiki 维护，用于明确要求的完整审计和断点续做。Git 时间上下文由宿主 shell 查询。
+长任务或批量任务不会占住工具步：`spawn(task="fetch"|"ingest"|"research", args)` 入队，单例 `bookmark-research job worker` 用有界线程池执行，`job(job_id)` 查看状态与结果；队列由三个宿主与 CLI 共享。
+
+`deep` 预设额外提供 deprecated 别名（`search_bookmarks`、`get_context`、`fetch_web`、`wiki_write` 等）、来源维护、完整研究记录、选路诊断与 Wiki 维护。旧名从默认目录隐藏，0.8.0 起拒绝。Git 时间上下文由宿主 shell 查询。
 
 ## 更多
 

@@ -106,7 +106,7 @@ See the [CLI reference](../skills/bookmark-research/references/cli.md) for comma
 
 Local search uses literal matching and SQL structure filters. It has no semantic retrieval or public BM25 ranking, although FTS5 tables are maintained. The model organizes company names and aliases into queries; bookmark counts are not company-entity counts.
 
-This version has no embeddings, vector database or background page monitoring. Research sessions can be reloaded by ID. `fetch_web` archives actual responses by default; `wiki_write` separately organizes reviewed findings into knowledge pages. Simple queries do not trigger a library crawl; an explicit whole-package investigation keeps the complete input scope across all groups and rounds.
+This version has no embeddings, vector database or background page monitoring. Research sessions can be reloaded by ID. `fetch` archives actual responses by default; `save` separately organizes reviewed findings into knowledge pages. Simple queries do not trigger a library crawl; an explicit whole-package investigation keeps the complete input scope across all groups and rounds.
 
 ## Three research modes
 
@@ -143,14 +143,14 @@ Active tasks can continue directly. After exporting an `incomplete` report, use 
 **The same URL or folder name can exist independently in different contexts.** The index identifies bookmarks and folders by `source_id + section_id + item_id`; it does not delete or merge them by title or URL. Distinct items in the same `.json` file remain separate, as do items in different sections or sources. A page stored under both "Learning / References" and "Work / References" remains two bookmarks with their own folder identities, paths, notes, and tags. Indexing does not modify the original JSON / `.canvas` files.
 
 - **Counts:** `bookmarks` counts bookmark instances. `unique_urls` counts distinct original URL strings; it is a statistic and does not reduce the stored records. Reports should state which count they use.
-- **Permanent copy cards:** a `copy-anchor` shares its main tree according to the data format. Adding a view does not double the global bookmark count. The copy card's description, position, groups, and connections remain available through `get_context`.
+- **Permanent copy cards:** a `copy-anchor` shares its main tree according to the data format. Adding a view does not double the global bookmark count. The copy card's description, position, groups, and connections remain available through `read`.
 - **Web results:** when Exa and Parallel find the same page for one research target, the results are combined while retaining each provider and query that found it. This reduces repeated display and repeated ranking contributions; search hits are not independent factual evidence. Different `target` labels are merged separately. Use labels such as "Learning / Product docs" and "Work / Product docs" to research contexts separately.
 
 Duplicate item IDs within one section are identity conflicts and cause import failure with rollback. Distinct items sharing a name or URL are valid.
 
 ## Settings and page archives
 
-Ask "Show the plugin settings," "Use only Exa for future searches," "Save page text to my knowledge directory," or "Read this page without archiving." The model uses `get_settings`, `update_settings`, or parameters for the current `fetch_web` call. There is no separate graphical settings page.
+Ask "Show the plugin settings," "Use only Exa for future searches," "Save page text to my knowledge directory," or "Read this page without archiving." The model uses parameters for the current `fetch` call, or `get_settings`/`update_settings` when the deep catalog is enabled. There is no separate graphical settings page.
 
 Run `python3 src/cli.py setup` to revisit the terminal wizard. Use `research_readiness` from the advanced catalog when diagnosing access; explicit checks refresh on first use, configuration/key changes, or after 15 minutes. Choose `always` or `manual` in setup. Local bookmark queries stay offline. Readiness separates missing keys, reachable catalogs, tested retrieval, and host-managed OAuth; it never starts a professional research job.
 
@@ -166,13 +166,30 @@ python3 src/cli.py config set --search-provider exa --archive true
 python3 src/cli.py fetch-web https://example.com --no-archive
 ```
 
-See [settings and archives](../skills/bookmark-research/references/settings-and-archive.md) for options, precedence, and archive structure. Automatic archiving applies to this plugin's `fetch_web` responses; it does not intercept other MCP tools in the host.
+See [settings and archives](../skills/bookmark-research/references/settings-and-archive.md) for options, precedence, and archive structure. Automatic archiving applies to this plugin's `fetch` responses; it does not intercept other MCP tools in the host.
 
 ## Skill, MCP, and data rules
 
 The [shared Skill](../skills/bookmark-research/SKILL.md) guides the agent's workflow. The local **`bookmark-research` MCP server** executes queries and web operations. When a client uses the CLI, it runs the same underlying implementation.
 
 ### MCP tools
+
+Default MCP surface (10 primitives, shared with the CLI):
+
+| Tool | Purpose |
+| --- | --- |
+| `locate` | Find items by text, URL, folder children or metadata only; import a package or a card export with `package_path` |
+| `read` | Open a card, a folder's children, a pinned Wiki revision, an archived capture or saved research evidence |
+| `walk` | Follow Canvas edges and memberships with direction, depth and pagination |
+| `search` | Query configured providers; return discovery results with coverage and failures |
+| `fetch` | Read known URLs under a per-page and batch budget, optionally archive text, and continue a saved extract with `capture_id`/`offset` |
+| `ingest` | Fuse host or provider result batches by canonical URL and body hash, preserving provenance |
+| `save` | Save a reviewed Wiki revision with exact citations and `expected_revision` |
+| `spawn` | Start a provider research run or enqueue a local fetch/ingest/research job |
+| `job` | Observe or cancel a local job (`j-…`) or a provider run |
+| `health` | Bounded readiness summary with no network and no index write |
+
+The `deep` preset additionally exposes the catalog below; the deprecated aliases (`search_bookmarks`, `get_context`, `fetch_web`, `wiki_write`, …) remain callable until 0.8.0 and are replaced by the primitives above.
 
 | Tool | Purpose |
 | --- | --- |

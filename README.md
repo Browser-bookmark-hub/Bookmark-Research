@@ -9,7 +9,9 @@ Research with bookmark context and retain reusable knowledge. Read a [Bookmark C
 
 [Installation guide](docs/installation.en.md) · [User guide](docs/user-guide.en.md) · [Details](docs/details.en.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
-## Version 0.6.0
+## Version 0.7.0
+
+0.7.0 consolidates the CLI and MCP entries into one tool surface: 10 default primitives, a durable local job queue, card-export imports (JSON or Netscape HTML), search-result page skipping and a TTL fetch cache. The full catalog still lists 57 names; deprecated names stay callable until the 0.8.0 cutoff.
 
 The stable release includes bilingual Canvas package support, safer Exa batch reading that isolates ambiguous pages, and concise installation/update summaries. Installation prints the version, actual paths, checks and any required action. Use `--json` for complete structured diagnostics; `--non-interactive` only disables prompts. Existing settings, credentials and research data are retained during upgrades.
 
@@ -32,7 +34,7 @@ The stable release includes bilingual Canvas package support, safer Exa batch re
 npx bookmark-research@latest install
 ```
 
-Installs the latest stable release directly. To pin this release, use `npx bookmark-research@0.6.0 install`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research@latest`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
+Installs the latest stable release directly. To pin this release, use `npx bookmark-research@0.7.0 install`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research@latest`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
@@ -95,8 +97,10 @@ Install notes:
 | Scripted preferences | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | Configuration JSON guide and example | [Guide](docs/configuration.en.md) · [Partial JSON](config/settings.example.json) |
 | Update or verify all clients | `bookmark-research update` · `bookmark-research verify` |
+| Duplicate URL report | `bookmark-research dupes --source-id <id>` |
+| Local job queue | `bookmark-research job submit --kind fetch --input job.json` · `bookmark-research job worker --concurrency 2` |
 
-Use `npx bookmark-research@latest …` if the command is not installed globally. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards. `--lang zh` shows the wizard and menu in Chinese. The default `quick` preset exposes 22 everyday tools. Use `bookmark-research config set --tool-scope-preset deep` for the full 44-tool catalog when a persistent collection audit is needed. An explicit `tool_scope` list still overrides the preset.
+Use `npx bookmark-research@latest …` if the command is not installed globally. Preferences and keys are user-wide, so one change applies to every installed client; start a new client session afterwards. `--lang zh` shows the wizard and menu in Chinese. The default `quick` preset exposes 10 primitives shared by the CLI and MCP. Use `bookmark-research config set --tool-scope-preset deep` for the full catalog (57 names, including deprecated aliases) when a persistent collection audit is needed. An explicit `tool_scope` list still overrides the preset.
 
 **Update.** Run `npx bookmark-research@latest install` and confirm the upgrade/overwrite plan to adopt the latest release for your installed clients. For Codex without prompts, use `npx bookmark-research@latest install codex --non-interactive --replace-source`. `bookmark-research update` refreshes the recorded source: Git/npm selectors follow their selected ref, while a bundled build or pinned release stays on that build. Both paths preserve preferences, keys and data. Start a new host session afterwards.
 
@@ -114,7 +118,7 @@ Use `npx bookmark-research@latest …` if the command is not installed globally.
 | `CUSTOM_AGENTIC_API_KEY` | Optional user-configured OpenAI-compatible endpoint | Separate `agentic_search` channel; set Base URL/model/protocol in setup |
 | `OPENAI_API_KEY` | Optional OpenAI Deep Research runs | Feature off; host-led research still works |
 
-At the setup key step, select the keys for enabled services with Space, then enter each key at the hidden prompt; leave the selection empty to skip. Keys go to the separate private `credentials.json` or can come from environment variables, which take precedence. They are not part of `prefs.json` or `settings.json`; the settings JSON import rejects credential fields. Preferences can also be changed by asking the agent in a client session ("Show Bookmark Research settings", "Use only Exa for future searches"); it uses the `update_settings` tool. See the [configuration guide](docs/configuration.en.md) for every key and service.
+At the setup key step, select the keys for enabled services with Space, then enter each key at the hidden prompt; leave the selection empty to skip. Keys go to the separate private `credentials.json` or can come from environment variables, which take precedence. They are not part of `prefs.json` or `settings.json`; the settings JSON import rejects credential fields. Preferences can also be changed by asking the agent in a client session ("Show Bookmark Research settings", "Use only Exa for future searches"); it uses the `update_settings` tool when the deep catalog is enabled. See the [configuration guide](docs/configuration.en.md) for every key and service.
 
 ## Where data is stored
 
@@ -127,14 +131,16 @@ Nothing is written into your bookmark files or the plugin. The data directory is
 | `knowledge/` | Saved page reads: `sources/` per fetch, `pages/` with each distinct text stored once |
 | `wiki/` | Reviewed knowledge pages and revisions; `index.md` catalog and `log.md` timeline |
 | `index.sqlite3`, `index.sqlite3.sources/` | Bookmark search index and managed snapshots of imported packages |
-| `raw-library.sqlite3` | Rebuildable full-text index for `search_archive` |
+| `jobs.sqlite3` | Durable local job queue read by every host and the CLI worker |
+| `fetch-cache.sqlite3` | TTL cache for identical fetch batches (only when `fetch.reuse_seconds` > 0) |
+| `raw-library.sqlite3` | Rebuildable full-text index behind `locate(in=["archive"])` |
 | `${XDG_CONFIG_HOME:-~/.config}/bookmark-research/` | `settings.json` and `credentials.json` (private, owner-only) |
 
 Changing the location affects new research only; existing tasks stay where they are.
 
 ## Research loops and delegation
 
-The host model plans the research, searches or reads pages, evaluates the evidence and follows unresolved questions. The Skill guides this loop; MCP stores inputs, evidence, budgets and progress. Saving a research task does not start a background agent.
+The host model plans the research, searches or reads pages, evaluates the evidence and follows unresolved questions. Batch work goes through the local job queue instead of blocking the tool step. The Skill guides this loop; MCP stores inputs, evidence, budgets and progress. Saving a research task does not start a background agent.
 
 For a grouped report, the plugin supplies a reader → fresh verifier → coverage check → follow-up → report workflow. Codex uses its native subagent tools and the bundled delegation guide; Claude Code and DeepSeek Harness (dsh) use available host workflow hooks. The host owns concurrency, cancellation and agent lifetime. All children must receive the relevant instructions and access the same research store.
 
@@ -147,7 +153,7 @@ A bundle of one Skill, one local MCP server, and the remote MCPs and services th
 | Layer | Component | Runs as | Setup |
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) and method references, each with a [Chinese copy](skills/bookmark-research/references/zh/skill-guide.md) | Loaded by the client | None |
-| Local MCP | `bookmark-research`, 22 default tools (below) | Python process started by the client | Installed for you |
+| Local MCP | `bookmark-research`, 10 default tools (below) | Python process started by the client | Installed for you |
 | Remote MCPs, called by the local MCP | [Exa](https://exa.ai) (search, page reading), [Parallel](https://parallel.ai) (search, fallback reading), [Tavily](https://tavily.com) (search fallback) | HTTPS, no local process | Optional API keys |
 | HTTP services, called by the local MCP | [Jina Reader](https://jina.ai/reader) (fallback reading; search with a key); [DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/); [Perplexity Search](https://docs.perplexity.ai/api-reference/search-post) (structured results only) | HTTPS | Optional provider keys |
 | Model search API | [xAI Grok Responses](https://docs.x.ai/developers/tools/web-search) with optional Web Search and X Search | HTTPS | Optional `XAI_API_KEY`; invoked separately via `agentic_search` |
@@ -155,17 +161,19 @@ A bundle of one Skill, one local MCP server, and the remote MCPs and services th
 
 Default MCP tools:
 
-| Group | Tools |
-| --- | --- |
-| Canvas context | `sync_package`, `index_status`, `search_bookmarks`, `get_context`, `plan_research` |
-| Web and archives | `search_web`, `agentic_search`, `fetch_web`, `search_archive` |
-| Wiki | `wiki_write`, `wiki_get`, `wiki_list`, `wiki_search` |
-| Research API | `research_services`, `research_service_prepare`, `_start`, `_status`, `_result`, `_cancel`, `_attach` |
-| Settings | `get_settings`, `update_settings` |
+| Group | Tools | What they answer |
+| --- | --- | --- |
+| Local Canvas | `locate`, `read`, `walk` | Find an item (text, URL, folder children or metadata only), open its card or a folder's children, follow edges |
+| Diagnostics | `health` | Bounded readiness summary (no network, no index write) |
+| Web | `search`, `fetch`, `ingest` | Discovery results, bounded page text with `content_state`/`capture_id`, deterministic host-result fusion |
+| Long-running | `spawn`, `job` | Submit fetch/ingest/research work to the durable local queue and observe or cancel it |
+| Knowledge | `save` | Reviewed Wiki revisions with exact citations |
 
-`plan_research` retrieves local candidates and independently checks the Wiki/archive; the host assesses relevance and follows gaps. It also works without a Canvas source. `wiki_write` accepts authored sections, exact citations and source text or capture IDs in one call. Research APIs accept a question without a local research session.
+`locate(package_path=...)` is the first contact: it imports a package, a single card or a card export (JSON without ids, or Netscape bookmark HTML) and returns counts, sections with `source`/`temp_kind`, notes, search-result pages, divider rows and duplicate groups. `read` opens a hit; `walk` follows Canvas edges. `save` accepts authored sections, exact citations and source text or capture IDs in one call.
 
-The `deep` preset additionally exposes source maintenance, persistent research records, routing diagnostics and Wiki maintenance. These support explicit audits and resumption. Git history uses the host's shell.
+Long or batch work does not block a tool step: `spawn(task="fetch"|"ingest"|"research", args)` enqueues it, a singleton `bookmark-research job worker` executes it with a bounded pool, and `job(job_id)` reports state and result. The queue is shared by every host and the CLI.
+
+The `deep` preset additionally exposes the deprecated aliases (`search_bookmarks`, `get_context`, `fetch_web`, `wiki_write`, …), source maintenance, persistent research records, routing diagnostics and Wiki maintenance. Deprecated names are hidden from the default catalog and will be rejected at 0.8.0. Git history uses the host's shell.
 
 Tool descriptions: [details](docs/details.en.md#mcp-tools).
 
