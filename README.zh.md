@@ -94,6 +94,8 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | 用脚本改偏好 | `bookmark-research config show` · `bookmark-research config set --input prefs.json` |
 | JSON 配置说明与示例 | [配置指南](docs/configuration.md) · [部分配置 JSON](config/settings.example.json) |
 | 更新或验证所有宿主 | `bookmark-research update` · `bookmark-research verify` |
+| 重复 URL 报告 | `bookmark-research dupes --source-id <id>` |
+| 本地作业队列 | `bookmark-research job submit --kind fetch --input job.json` · `bookmark-research job worker --concurrency 2` |
 
 没有全局安装时，在前面加 `npx bookmark-research@latest`。偏好和 Key 是用户级的，改一次就对所有已安装宿主生效；改完新建宿主会话即可。加 `--lang zh` 可让向导和菜单显示中文。默认 `quick` 只暴露 CLI 与 MCP 共用的 10 个原语；`deep`（或 `all`）启用完整目录（57 个名字，含 deprecated 别名），供明确需要的完整资料审计使用。显式 `tool_scope` 仍优先于预设。
 
