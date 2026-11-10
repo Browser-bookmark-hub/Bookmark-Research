@@ -13,6 +13,7 @@ import warnings
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+import codex_client
 import dsh_client
 from cli import main
 from credentials import Credentials
@@ -367,6 +368,13 @@ class InstallTargetTests(SetupFixture):
         self.addCleanup(path.stop)
         # Host detection must not depend on whether this machine has the app.
         self.discover_desktop()
+        self.discover_codex()
+
+    def discover_codex(self, *paths):
+        """Point Codex discovery at given CLIs, empty by default."""
+        patcher = mock.patch.object(codex_client, "codex_candidates", lambda *arguments, **keywords: list(paths))
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tool(self, *names):
         for name in names:
@@ -461,6 +469,20 @@ class InstallTargetTests(SetupFixture):
         self.assertEqual(args.dsh, str(cli))
         self.assertIn(str(cli), output.getvalue())
         self.assertIn("DeepSeek Harness Desktop CLI", output.getvalue())
+
+    def test_codex_discovered_when_not_on_path(self):
+        self.tool("claude")
+        cli = self.base / "nvm-node" / "bin" / ("codex.cmd" if os.name == "nt" else "codex")
+        cli.parent.mkdir(parents=True)
+        cli.write_text("#!/bin/sh\n")
+        cli.chmod(0o755)
+        self.discover_codex(cli)
+        output = io.StringIO()
+        args = self.args()
+        targets = Console(io.StringIO("\n\n\n"), output).install_targets(args)
+        self.assertEqual([row["host"] for row in targets], ["codex", "claude"])
+        self.assertEqual(args.codex, str(cli))
+        self.assertIn("Codex CLI", output.getvalue())
 
     def test_desktop_only_installation_is_detected_without_a_path_cli(self):
         self.desktop()

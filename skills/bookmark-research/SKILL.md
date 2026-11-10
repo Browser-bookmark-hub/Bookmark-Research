@@ -1,6 +1,6 @@
 ---
 name: bookmark-research
-description: "Read Bookmark Canvas relationships and Git history, research saved links with host search or web providers, and retain reusable Wiki knowledge. Supports Codex, Claude Code and DeepSeek Harness (dsh)."
+description: "Use for research or analysis when saved bookmarks, Bookmark Canvas, local archives or Wiki may add relevant context, and for direct work with those records."
 ---
 
 # Bookmark Research
@@ -19,12 +19,15 @@ Never `cat`, `json.load`, `jq` or regex the artifact instead: raw parsing loses 
 
 ## One ordinary workflow
 
-1. **Locate local evidence.** Use `locate(text=..., in=["canvas"])` for bookmark instances and filters; use `locate(in=["wiki"])` for authored Wiki revisions or `locate(in=["archive"])` for saved captures. Pass the returned short `ref` to `read`; use `walk` only when the Canvas item has graph nodes to traverse. If `more` is present, continue with its handle and offset. Use `plan_research(question, source_id?)` for a bounded cross-scope overview when local evidence spans Canvas, Wiki and archive.
+1. **Locate local evidence.** For research or analysis, make one bounded local preflight when the topic plausibly overlaps saved material, even if the user did not mention bookmarks; skip it when local context is unlikely to change the answer. Use `plan_research` only if listed, and pass a known Canvas `source_id` when Canvas context matters (`plan_research` without one searches Wiki/archive but skips Canvas). Otherwise query one relevant scope with `locate`. Canvas `locate` needs a `source_id` unless there is exactly one live source; never guess when several are available. Pass returned short refs to `read`; use `walk` only when a Canvas item has graph nodes. Continue pagination only when needed.
 2. **Search and read the web.** Host-native search is the default discovery channel; use plugin `search(query, providers?)` when host results are missing, insufficient or provider diversity is requested. Search results are discovery summaries, never evidence. If it is unclear whether the host has its own search, call `health(host=..., observed_tools=[...])`; tools under an `mcp__` prefix are plugin tools, not host search.
    For a known URL, prefer the host's own reader (`web_fetch`/WebFetch) when you only need the page text and give it a short timeout; fall back to plugin `fetch(urls)` when the host has no reader, the read fails or times out, or the page needs provider fallback.
    Use plugin `fetch` directly when you need `content_state`, a `capture_id`, verbatim citation, 1–16 URLs in one call, or archived evidence; say which channel produced the text (host or plugin) and inspect `content_state` before citing. Use saved capture IDs for continuation. The host chooses follow-up queries and stops when the requested scope is supported.
-3. **Ingest host results before relying on them.** Pass normalized host/provider batches to `ingest` for deterministic URL and content-hash deduplication, RRF ranking and provider/failure provenance. Tag host batches with `provider:"host:<name>"` and keep the actual query and rank. A host channel that never reaches `ingest` is unauditable: its results are missing from coverage and any claim built on them lacks provenance. Inline payloads are limited to 16 batches and 8,000 characters; use `br ingest --input <file>` for larger batches. Ingestion does not decide what to search or whether claims are true.
+
+3. **Consolidate research results when needed.** When combining host/provider results or when coverage and provenance matter, pass normalized batches to `ingest` for deterministic URL and content-hash deduplication, RRF ranking and provider/failure provenance. Tag host batches with `provider:"host:<name>"` and keep the actual query and rank. Results that bypass `ingest` are not represented in its coverage or provenance. Inline payloads are limited to 16 batches and 8,000 characters; use `br ingest --input <file>` for larger batches. Ingestion does not decide what to search or whether claims are true.
 4. **Answer and retain knowledge.** Cite source URLs and disclose unavailable pages or material gaps. When Wiki storage is authorized, use `save` with authored sections, exact quotes and text/captures already read; pass the expected revision and truthful review. Search snippets do not establish page claims, provider overlap is not independent factual confirmation, and model answers with unverified citations remain secondary evidence.
+
+Do not preflight unrelated questions merely because the plugin is installed. Read only the most relevant one or two hits, then stop when the evidence is sufficient.
 
 Use `locate` as a bounded evidence loop. Pick the shape that matches the question instead of hunting synonyms:
 - text or url for a remembered word;

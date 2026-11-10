@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.2 — 2026-11-10
+
+0.7.2 adds cross-platform Codex CLI auto-discovery across Node version managers
+and system locations, refactors the `deep`/`all` tool surface to advertise 40
+real tools without replaced aliases, and tightens skill preflight workflows.
+
+### Added
+- Cross-platform Codex auto-discovery (`src/codex_client.py`): probes `$PATH`
+  first, then scans NVM/fnm/Volta/asdf version pools, persistent user bins
+  (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, Windows `%APPDATA%\npm`),
+  and official Codex runtime releases (`~/.codex/packages/app-server-daemon`).
+  Solves `◯ Codex (CLI not found)` when switching Node versions or in hermetic
+  terminal sessions.
+- Interactive wizard and installer transparency: automatically resolves Codex
+  binaries and displays the discovered executable path in upgrade/install plans.
+- Test coverage in `tests/test_codex_client.py` and `tests/test_onboarding.py`
+  for multi-platform discovery and PATH-absent resolution.
+
+### Changed
+- The 18 replaced MCP names are no longer advertised by `deep`/`all`; the
+  catalog shows 40 real tools. Replaced names remain callable (and can be named
+  by an explicit `tool_scope`) until the 0.8.0 cutoff.
+- Skill instructions and Chinese reference guide: bounded preflight guidance
+  for local evidence when relevant, bounded `plan_research` usage with Canvas
+  `source_id`, clarified `ingest` provenance requirements, and explicit note
+  when `wiki.enabled` is false.
+- Added planning documents for evidence impact and tool surface cleanup.
+
 ## 0.7.1 — 2026-11-09
 
 0.7.1 keeps the 0.7.0 CLI-first surface and adds a switchable Wiki layer, a
@@ -18,9 +46,6 @@ backflow, plus two Wiki write fixes found in the B-1-1 pilot.
   through `get_settings`/`update_settings`. When false, `save` and the deep Wiki
   tools disappear from the catalog, Wiki-scope reads/writes and compile planning
   fail with a clear error, and `research_finish` skips the Wiki follow-up.
-- The 18 replaced MCP names are no longer advertised by `deep`/`all`; the
-  catalog shows 40 real tools. They remain callable (and can be named by an
-  explicit `tool_scope`) until the 0.8.0 cutoff.
 - `wiki_compile` (deep MCP) and `br wiki compile plan|status|gap`: deterministic
   incremental-compile planning over a bookmark scope. It clusters by folder,
   drops search pages, dividers and duplicate URLs, reports current-revision

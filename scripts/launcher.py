@@ -51,9 +51,11 @@ def installed_targets(codex="codex"):
                      "profile": target.get("profile"), "version": value.get("version"), "state": value.get("state")})
     try:
         from install import CodexCli, _installed
-        import shutil
-        if shutil.which(codex):
-            plugin = _installed(CodexCli(codex, 30))
+        from codex_client import resolve as resolve_codex
+        resolved = resolve_codex(codex)
+        binary = resolved["binary"]
+        if binary and resolved["usable"]:
+            plugin = _installed(CodexCli(binary, 30))
             if plugin:
                 rows.insert(0, {"host": "codex", "scope": None, "project": None, "profile": None,
                                 "version": plugin.get("version"), "state": "installed"})

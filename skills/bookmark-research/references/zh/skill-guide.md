@@ -12,14 +12,16 @@
 
 ## 日常流程
 
-1. **定位本地证据。** Canvas 书签用 `locate(text=..., in=["canvas"])` 和元数据过滤；Wiki 修订用 `locate(in=["wiki"])`；归档捕获用 `locate(in=["archive"])`。把返回的短 `ref` 传给 `read`；仅当 Canvas 条目有图节点时调用 `walk`。出现 `more` 时用其 handle/offset 续读。Canvas、Wiki、归档跨域问题可用 `plan_research(question, source_id?)` 获取有界总览。
+1. **定位本地证据。** 做调研或分析时，如果主题可能与已保存材料相关，即使用户没提书签，也做一次有界本地预检；如果本地上下文不太可能改变答案，就跳过。仅当工具目录列出 `plan_research` 时才调用；涉及 Canvas 上下文时传入已知的 Canvas `source_id`（不传时它只查 Wiki/归档，不查 Canvas）。否则用 `locate` 查询一个相关范围。Canvas `locate` 必须提供 `source_id`，除非当前只有一个 live source；有多个来源时不要猜。把返回的短 `ref` 传给 `read`；仅当 Canvas 条目有图节点时调用 `walk`。只在有需要时继续分页。
 2. **搜索并读取网页。** 优先使用宿主实际提供的搜索工具；宿主结果不足或需要 provider 多样性时用插件 `search(query, providers?)`。搜索结果是发现摘要。
    已知 URL：只需要正文时先试宿主自己的读页工具（`web_fetch` / WebFetch），并设一个短超时；宿主没有该工具、读取失败或超时、或需要 provider 回退时，改用插件 `fetch(urls)`。
    需要 `content_state`、`capture_id`、逐字引用、一次 1–16 个 URL 或归档证据时直接用插件 `fetch`，并说明正文来自哪个通道（宿主或插件）；引用前先看 `content_state`。续读用保存的 capture ID。后续查询由宿主决定，在支持用户所问范围后停止。
-3. **需要时归并宿主结果。** 将规范化的宿主/provider 批次传给 `ingest`，执行确定性 URL 与内容哈希去重、RRF 排序，并保留 provider/失败来源。内联最多 16 批、8,000 字符；更大批次用 `br ingest --input <file>`。归并不负责决定下一轮搜索或判断事实真伪。
+3. **按需归并调研结果。** 合并宿主/provider 结果，或需要覆盖度与来源溯源时，将规范化批次传给 `ingest`，执行确定性 URL 与内容哈希去重、RRF 排序，并保留 provider/失败来源。宿主批次标注 `provider:"host:<name>"`，保留实际 query 和 rank；未经过 `ingest` 的结果不会计入它的覆盖度和溯源记录。内联最多 16 批、8,000 字符；更大批次用 `br ingest --input <file>`。归并不负责决定下一轮搜索或判断事实真伪。
 4. **回答与留存知识。** 引用实际来源 URL，说明不可读取页面和重要缺口。获准存入 Wiki 时用 `save` 写整理后的章节、精确引用与已读正文/捕获，传入 expected_revision 和真实 review。搜索摘要不能证明页面事实；provider 命中重合不等于独立事实确认；引用未经核验的模型回答仍属二手证据。
 
 将 `locate` 用作有界证据循环，先选对形状：想起某个词用 text/url；要列目录用 `folder_id` + `source_id` 且不带 text/url（一次调用即可，不要用 `read` 扫 section）；只想按元数据枚举（“哪些书签带 Note”“打了某标签的有哪些”）直接 `has_note`/`has_tags`/`tags`，不带 text/url，结果按加入时间倒序。若 `coverage` 和 `next` 表明标题/URL/Note/Tag 有直接命中，读取排序最高且匹配问题的条目；证据足够就停止。若只有继承命中，列出返回的 `folder_id`；若无命中，按数据生成的 `hints` 调整查询，最多调用三次 locate。严禁用递归 `/**/` glob 扫全包。不要用 Bash 解析原始 JSON 反推 locate 结果；Bash 检查超过约 5 秒时改用 `locate`/`read`。
+
+不要因为安装了本插件就给明显无关的一般问题预检；只读取最相关的一到两个命中，证据足够后停止。
 
 已知 URL 不需要预先路由、服务检查或证据包。搜索摘要不能证明页面事实。复用已读材料，只为缺失上下文、输入变化或必要时效核验重新获取。优先使用现有宿主能力，遵守用户指定 provider；插件可作为另一检索渠道。provider 回退/并发在 search/fetch 内处理。已授权的浏览器或爬虫取得的正文也可走同一个 Wiki 来源输入。
 
@@ -35,7 +37,7 @@
 
 ## Wiki
 
-`save` 的 sources/citations 格式见 [Wiki](wiki.md)。review 如实标明审阅者；引用须来自实际读过的正文。更新前读取当前 revision 并传 expected_revision。遵守既有授权及 wiki.after_research，报告实际写入的页面和版本。保存一个回答不会扩成整库审查。
+`save` 的 sources/citations 格式见 [Wiki](wiki.md)。若 `wiki.enabled` 为 false，`save` 和 Wiki 工具不可用；说明这一点，不要反复重试或另找写入路径。review 如实标明审阅者；引用须来自实际读过的正文。更新前读取当前 revision 并传 expected_revision。遵守既有授权及 wiki.after_research，报告实际写入的页面和版本。保存一个回答不会扩成整库审查。
 
 ## 持续调研
 

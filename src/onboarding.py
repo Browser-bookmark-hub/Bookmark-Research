@@ -9,6 +9,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from codex_client import resolve as resolve_codex
 from credentials import Credentials
 from dsh_client import profiles as dsh_profiles
 from dsh_client import resolve as resolve_dsh
@@ -120,13 +121,16 @@ class Console(Prompter):
         client = resolve_dsh(getattr(args, "dsh", None))
         if client["source"] == "desktop":
             args.dsh = client["binary"]
+        codex_cli = resolve_codex(getattr(args, "codex", None))
+        if codex_cli["source"] == "discovered" and getattr(args, "codex", None) in (None, "codex"):
+            args.codex = codex_cli["binary"]
         if existing_targets is None and not requested:
             try:
                 scripts_dir = Path(__file__).resolve().parents[1] / "scripts"
                 if str(scripts_dir) not in sys.path:
                     sys.path.insert(0, str(scripts_dir))
                 from launcher import installed_targets
-                existing_targets = installed_targets(codex=getattr(args, "codex", "codex"))
+                existing_targets = installed_targets(codex=getattr(args, "codex", None) or codex_cli["binary"] or "codex")
             except Exception:
                 existing_targets = []
         if existing_targets and not requested:
@@ -211,6 +215,8 @@ class Console(Prompter):
                 self.note("Upgrade plan", "升级覆盖计划", lines)
                 if client["source"] == "desktop" and any(target["host"] == "dsh" for target in targets):
                     self.note("DeepSeek Harness (dsh) CLI", "DeepSeek Harness (dsh) CLI", [(client["binary"], client["binary"])])
+                if codex_cli["source"] == "discovered" and any(target["host"] == "codex" for target in targets):
+                    self.note("Codex CLI", "Codex CLI", [(codex_cli["binary"], codex_cli["binary"])])
                 if not self.confirm("Upgrade now?", "现在升级覆盖？", True):
                     if not self.confirm("Re-select hosts and options?", "重新选择宿主与选项？", True):
                         raise KeyboardInterrupt
@@ -225,6 +231,8 @@ class Console(Prompter):
             else:
                 found = {name: bool(shutil.which(getattr(args, name, None) or name)) for name, _, _ in HOSTS}
                 hints = {name: ("", None) if found[name] else ("CLI not found", "未找到 CLI") for name in found}
+                found["codex"] = codex_cli["usable"]
+                hints["codex"] = ("", None) if codex_cli["usable"] else ("CLI not found", "未找到 CLI")
                 found["dsh"], hints["dsh"] = client["usable"], _dsh_hint(client)
                 if not any(found.values()):
                     self.warn("No supported host CLI (codex, claude, dsh) was found on PATH.",
@@ -277,6 +285,8 @@ class Console(Prompter):
             self.note("Installation plan", "安装计划", lines)
             if client["source"] == "desktop" and any(target["host"] == "dsh" for target in targets):
                 self.note("DeepSeek Harness (dsh) CLI", "DeepSeek Harness (dsh) CLI", [(client["binary"], client["binary"])])
+            if codex_cli["source"] == "discovered" and any(target["host"] == "codex" for target in targets):
+                self.note("Codex CLI", "Codex CLI", [(codex_cli["binary"], codex_cli["binary"])])
             if not self.confirm("Install now?", "现在安装？", True):
                 if not requested and self.confirm("Re-select hosts and options?", "重新选择宿主与选项？", True):
                     continue

@@ -48,7 +48,12 @@ def _message(language, english, chinese):
 
 class CodexCli:
     def __init__(self, binary="codex", timeout=60):
-        self.binary = binary
+        src_path = str(SOURCE_ROOT / "src")
+        if src_path not in sys.path:
+            sys.path.insert(0, src_path)
+        from codex_client import resolve as resolve_codex
+        resolved = resolve_codex(binary)
+        self.binary = resolved["binary"] or binary or "codex"
         self.timeout = timeout
 
     def run(self, arguments):
