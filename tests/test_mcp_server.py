@@ -39,6 +39,9 @@ class McpServerTests(unittest.TestCase):
         self.addCleanup(self.release_patch.stop)
         self.temp = tempfile.TemporaryDirectory(prefix="bookmark-mcp-test-")
         self.base = Path(self.temp.name)
+        self.env_patch = mock.patch.dict(os.environ, {"BOOKMARK_RESEARCH_DATA_DIR": str(self.base / "data")})
+        self.env_patch.start()
+        self.addCleanup(self.env_patch.stop)
         self.db_path = self.base / "index.sqlite3"
         self.stderr = io.StringIO()
         self.settings = Settings(self.base / "settings.json")

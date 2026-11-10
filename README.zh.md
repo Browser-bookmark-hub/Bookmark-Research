@@ -9,9 +9,9 @@
 
 [安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
-## 0.7.2 正式版
+## 0.7.3 正式版
 
-0.7.2 新增跨平台 Codex CLI 智能候选目录自动探测（覆盖多 Node 版本管理器与系统级目录），收敛 `deep`/`all` 工具面为 40 个真实工具（旧名称不再通告），并强化了 Skill 预检与证据链规范。本版保留 0.7.0 的 CLI 优先工具面——默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存——以及可关闭的 Wiki 层（`wiki.enabled`）与确定性编译计划器（`wiki_compile`）。关闭 Wiki 时默认面为 9 个原语；旧名在 0.8.0 之前仍可直接调用或通过显式 tool_scope 指定。升级保留已有配置、密钥和研究数据。
+0.7.3 修复了 Codex 在自定义向导模式与非交互式启动器安装下的市场来源替换逻辑，确保从不同构建快照覆盖安装或升级时不再因来源哈希差异而报错。本版保留 0.7.0 的 CLI 优先工具面——默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存——以及跨平台 Codex 智能候选目录自动探测、收敛的 40 个真实工具面（`deep`/`all`）、可关闭的 Wiki 层（`wiki.enabled`）与确定性编译计划器（`wiki_compile`）。升级保留已有配置、密钥和研究数据。
 
 ## 它是怎么工作的
 
@@ -32,7 +32,7 @@
 npx bookmark-research@latest install
 ```
 
-默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.7.2 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
+默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.7.3 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash

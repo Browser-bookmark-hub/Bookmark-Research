@@ -9,9 +9,9 @@ Research with bookmark context and retain reusable knowledge. Read a [Bookmark C
 
 [Installation guide](docs/installation.en.md) · [User guide](docs/user-guide.en.md) · [Details](docs/details.en.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
-## Version 0.7.2
+## Version 0.7.3
 
-0.7.2 adds cross-platform Codex CLI auto-discovery across Node version managers and system locations, refactors the `deep`/`all` tool surface to advertise 40 real tools without replaced aliases, and tightens skill preflight workflows. It retains the 0.7.0 CLI-first surface — 10 default primitives, a durable local job queue, card-export imports (JSON or Netscape HTML), search-result page skipping, a TTL fetch cache, the switchable Wiki layer (`wiki.enabled`), and deterministic compile planning (`wiki_compile` plan/status/gap).
+0.7.3 resolves Codex marketplace source replacement during custom wizard installations and non-interactive launcher installs, ensuring that reinstalling or upgrading from another build snapshot never errors with a conflicting marketplace source. It retains the 0.7.0 CLI-first surface — 10 default primitives, a durable local job queue, card-export imports (JSON or Netscape HTML), search-result page skipping, a TTL fetch cache, the switchable Wiki layer (`wiki.enabled`), and deterministic compile planning (`wiki_compile` plan/status/gap).
 
 The stable release includes bilingual Canvas package support, safer Exa batch reading that isolates ambiguous pages, and concise installation/update summaries. Installation prints the version, actual paths, checks and any required action. Use `--json` for complete structured diagnostics; `--non-interactive` only disables prompts. Existing settings, credentials and research data are retained during upgrades.
 
@@ -34,7 +34,7 @@ The stable release includes bilingual Canvas package support, safer Exa batch re
 npx bookmark-research@latest install
 ```
 
-Installs the latest stable release directly. To pin this release, use `npx bookmark-research@0.7.2 install`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research@latest`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
+Installs the latest stable release directly. To pin this release, use `npx bookmark-research@0.7.3 install`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research@latest`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash

@@ -160,6 +160,18 @@ def _check_source(marketplace, requested):
     current = _configured_source(marketplace)
     if current["sourceType"] == requested["sourceType"] == "local":
         equal = Path(current["source"]).resolve() == Path(requested["source"]).resolve()
+        if not equal:
+            sources_dir = _pinned_home().parent / "sources"
+            curr_path = Path(current["source"]).resolve()
+            req_path = Path(requested["source"]).resolve()
+            def _is_managed(p):
+                try:
+                    p.relative_to(sources_dir)
+                    return True
+                except ValueError:
+                    return p == SOURCE_ROOT or SOURCE_ROOT in p.parents
+            if _is_managed(curr_path) and _is_managed(req_path):
+                equal = True
     elif current["sourceType"] == requested["sourceType"] == "git":
         equal = _repository(current["source"]) == requested["source"]
     elif current["sourceType"] == requested["sourceType"] == "npm":

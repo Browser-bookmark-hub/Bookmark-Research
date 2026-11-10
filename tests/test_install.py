@@ -603,6 +603,25 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue((self.bundle / "src/cli.py").exists())
         self.assertFalse(Path(registry.calls[0][-1]).exists())
 
+    def test_managed_local_sources_are_compatible_for_reinstall(self):
+        sources_dir = install._pinned_home().parent / "sources"
+        source_a = sources_dir / "test_hash_a"
+        source_b = sources_dir / "test_hash_b"
+        source_a.mkdir(parents=True, exist_ok=True)
+        source_b.mkdir(parents=True, exist_ok=True)
+        try:
+            # Both under sources_dir are compatible managed release snapshots
+            install._check_source({"marketplaceSource": {"sourceType": "local", "source": str(source_a)}},
+                                  {"sourceType": "local", "source": str(source_b)})
+            # Unrelated directory raises
+            with tempfile.TemporaryDirectory() as unrelated:
+                with self.assertRaisesRegex(ValueError, "different source"):
+                    install._check_source({"marketplaceSource": {"sourceType": "local", "source": str(source_a)}},
+                                          {"sourceType": "local", "source": unrelated})
+        finally:
+            shutil.rmtree(source_a, ignore_errors=True)
+            shutil.rmtree(source_b, ignore_errors=True)
+
     def test_native_release_update_keeps_the_catalog_package_instead_of_exporting_source(self):
         catalog = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
         (self.source / ".agents/plugins/marketplace.json").write_text(json.dumps(catalog))

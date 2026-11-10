@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.3 — 2026-11-10
+
+0.7.3 resolves Codex marketplace source replacement during custom wizard
+installations and non-interactive launcher installs, ensuring that reinstalling
+or upgrading from another build snapshot never errors with a conflicting
+marketplace source.
+
+### Fixed
+- Wizard custom mode: correctly passes `replace_source = True` when confirming
+  an installation plan, matching the behavior of upgrade mode.
+- Launcher install: automatically sets `--replace-source` when preparing bundled
+  sources so that running `install` on a previously registered Codex host cleanly
+  overwrites the old snapshot without source mismatch errors.
+- Managed sources check: `_check_source` recognizes bundled snapshots inside the
+  managed `installations/sources/` directory as compatible snapshots, allowing
+  seamless upgrades across release digests.
+
 ## 0.7.2 — 2026-11-10
 
 0.7.2 adds cross-platform Codex CLI auto-discovery across Node version managers
