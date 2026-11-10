@@ -291,6 +291,7 @@ class Console(Prompter):
                 if not requested and self.confirm("Re-select hosts and options?", "重新选择宿主与选项？", True):
                     continue
                 raise KeyboardInterrupt
+            args.replace_source = True
             first = targets[0]
             args.host, args.scope, args.project, args.profile = first["host"], first["scope"], first["project"], first["profile"]
             return targets
