@@ -24,7 +24,7 @@
 | 栏目说明与空白卡片 | `descriptionMd` 描述当前栏目；`.canvas` 的 `type:text` 节点保存 Markdown／安全 HTML 文本；都是上下文，不算书签 item |
 | 卡片组 | `.canvas` 的 group 节点；完整几何包含关系确定组成员，不把视觉重叠自动认作成员 |
 | 连线 | `.canvas.edges` 的端点与箭头定义方向，`edges[].label` 是关系文字；不要与栏目的 `label`、组的 `label` 混用 |
-| 原始属性 | `raw_json` 保留未识别字段；`get_context` 的 section 头省略整棵树以限制重复输出 |
+| 原始属性 | `raw_json` 保留未识别字段；`read` 的 section 头省略整棵树以限制重复输出 |
 
 `tags` 是 `{color,text}` 数组，按颜色与文字的组合区分标签；`note` 是单条纯文本，`noteColor` 是它的并列字段。只有 note 而没有 tags 的元数据仍然有效。旧数据有 note 而无 noteColor 时显示颜色默认 `orange`。tag/note 的七种色名（red、orange、yellow、green、blue、purple、gray）与 `.canvas` 颜色是两套字段；颜色本身不能证明业务分类。
 
@@ -40,7 +40,7 @@
 
 - **单卡**：按节点 ID 与解析后的文件引用定位，读取所需栏目说明与 `tree` / `items`，或 text 卡正文；副本沿 `inheritFrom` 找主树。单卡 JSON 本身仅包含节点内容，不含 `.canvas` 画布坐标与连线；在只有单卡 JSON 缺少 `.canvas` 拓扑文件时，不要凭空臆测或虚构其空间几何位置与布局关系。
 - **多卡**：先提取精简布局映射，再按下文方法展开目标卡片、相关关系与文本。只返回命中记录及覆盖范围，不将大文件全文倾倒进上下文。
-- **复用查询**：大包、跨卡或反复查询时，能复用来源索引就复用；否则建立脚本内存映射或包外 SQLite 等派生索引。一次性小文件读取不强制建库。保留来源、section ID、item ID、父路径与同级顺序，不按 URL 合并实例。使用插件时以 `get_context` 读布局、`search_bookmarks` 读条目，并遵守范围与分页；局部输入不是完整镜像。
+- **复用查询**：大包、跨卡或反复查询时，能复用来源索引就复用；否则建立脚本内存映射或包外 SQLite 等派生索引。一次性小文件读取不强制建库。保留来源、section ID、item ID、父路径与同级顺序，不按 URL 合并实例。使用插件时以 `read` 读布局、`locate` 读条目，并遵守范围与分页；局部输入不是完整镜像。
 
 索引/搜索结果是投影，不能作为完整源对象覆盖文件：item `raw_json` 省略 `children`，folder 行省略空 `url`；原始源快照保留这些字段。通过 `folder_id` 查询并分页读取子树，扁平结果用 parent ID、路径和顺序表达层级，避免修改一个子书签时把所有祖先都算作更新；compact 还会省略其他字段。用户授权编辑时，宿主须回读当前原节点，检查文件是否被其他操作修改，并按包内指南保留未改值、后代、元数据与未知字段。写后校验文件，再刷新同一 `source_id` 后查询。读取或建索引不要求清理原包。
 
@@ -48,7 +48,7 @@
 
 ### 先取布局，再展开内容
 
-小型已索引画布先调用 `get_context({source_id})`，获得完整已存布局，包括没有连线的文本卡片，再限定栏目／组／条目。局部上下文会主动筛选节点；其中没出现文字，不证明画布周围没有笔记。按返回的文件映射关联文件节点和栏目 ID，不能假设节点 ID 就是栏目 ID。
+小型已索引画布先调用 `read({source_id})`，获得完整已存布局，包括没有连线的文本卡片，再限定栏目／组／条目。局部上下文会主动筛选节点；其中没出现文字，不证明画布周围没有笔记。按返回的文件映射关联文件节点和栏目 ID，不能假设节点 ID 就是栏目 ID。
 
 大型画布用 Python 标准库 `json` 在本地解析 `.canvas`，完整对象保留在本地进程，仅向模型输出相关记录：
 
@@ -58,7 +58,7 @@
 
 矩形为 `[x, y, x+width, y+height]`，x 向右增大，y 向下增大；组成员要求完整包含。回答最近邻时使用矩形间距（重叠时为零），并保留方向，不能排序 JSON 数组或只比较中心点。没有连接的邻近笔记仍是未明确归属的上下文线索，除非其文字或其他已存关系说明了对象。副本卡片使用自己的矩形和连接。
 
-`get_context` 支持栏目／组／条目限定，并支持集合级分页（`collection`、`offset`、`limit`、`compact`）。每个集合默认最多返回 200 行；完整读取须在保持相同 `source_id` 与限定范围下跟随各集合的 `total` 与 `next_offset` 翻页。`compact=true` 会省略原始 JSON、description_md 与 revision。当前没有区域或最近邻参数，如需空间邻近提取请改用本地解析。只有栏目 JSON 时有内容但缺外围布局；只有 `.canvas` 而缺少引用栏目时有布局但书签内容不完整。这两种情况都不能靠虚构关系或改写原包补齐。
+`read` 支持栏目／组／条目限定，并支持集合级分页（`collection`、`offset`、`limit`、`compact`）。每个集合默认最多返回 200 行；完整读取须在保持相同 `source_id` 与限定范围下跟随各集合的 `total` 与 `next_offset` 翻页。`compact=true` 会省略原始 JSON、description_md 与 revision。当前没有区域或最近邻参数，如需空间邻近提取请改用本地解析。只有栏目 JSON 时有内容但缺外围布局；只有 `.canvas` 而缺少引用栏目时有布局但书签内容不完整。这两种情况都不能靠虚构关系或改写原包补齐。
 
 - 普通链式标号 `A-1 → A-1-1` 是派生关系线索；子链可能承接大部分内容，也可能只保留子集。A/B 来源族只反映创建时线索，不能推断临时树与永久树一直同步，或凭标号虚构持久关联。结合说明、标题、URL 和实际 item 核对。
 - 卡片组没有显式 `children` 清单，嵌套关系来自 `x/y/width/height` 的完整包含。组中放的是画布节点；书签通过所属栏目获得组上下文，不代表每个书签都有单独的画布节点。
@@ -67,7 +67,7 @@
 
 ### 跨卡片的相同与相关书签
 
-同一书签出现在不同卡片，也是空间上下文，即使这些卡片相距较远或没有连线。在请求的来源内搜索 URL，按需完整分页，再检查返回 `url` 是否完全相等，因为公开搜索是子串匹配。保留每个 `source_id + section_id + item_id`、目录路径、同级顺序、note 和 tag；用 `get_context` 关联每处出现位置所在卡片的矩形、分组、邻居和连线。条目的 `position` 是树内顺序，不是画布坐标；书签通过所属卡片获得画布位置。
+同一书签出现在不同卡片，也是空间上下文，即使这些卡片相距较远或没有连线。在请求的来源内搜索 URL，按需完整分页，再检查返回 `url` 是否完全相等，因为公开搜索是子串匹配。保留每个 `source_id + section_id + item_id`、目录路径、同级顺序、note 和 tag；用 `read` 关联每处出现位置所在卡片的矩形、分组、邻居和连线。条目的 `position` 是树内顺序，不是画布坐标；书签通过所属卡片获得画布位置。
 
 `shown_in_anchors` 表示还在哪些副本卡片展示同一主树条目；需要时纳入各副本自己的布局和说明，不能虚增书签实例。相同 URL 只能确定共享链接，摆放原因还要结合上下文。同类主题或相似书签需核对标题、目录、tag 和 note，并标注关系推断；SQLite 检索本身不能证明语义相似。为了计数而去重 URL 时，仍保留各处出现的上下文。
 
@@ -79,19 +79,19 @@
 
 同时限定 `section` 与 `group_id` 时，先取实际卡片的交集，再解析副本所用的主树。只有 B 在组内时，指定 A 与该组的查询不会命中；指定 B 则返回其共享的书签。
 
-`search_bookmarks` 对所选条目类型的标题、URL、note、tag 文字、文件夹路径做字面子串匹配，加上栏目／组／文件夹／tag 过滤。`canvas_matches` 单独返回整个来源内匹配的文字卡、分组标签和连线标签，不计入条目总数与分页。`descriptionMd` 和完整布局用 `get_context` 读取。短词会误匹配，例如 Exa 也会命中 URL 中的 examples，应检查结果字段并按上下文筛选。
+`locate` 对所选条目类型的标题、URL、note、tag 文字、文件夹路径做字面子串匹配，加上栏目／组／文件夹／tag 过滤。`canvas_matches` 单独返回整个来源内匹配的文字卡、分组标签和连线标签，不计入条目总数与分页。`descriptionMd` 和完整布局用 `read` 读取。短词会误匹配，例如 Exa 也会命中 URL 中的 examples，应检查结果字段并按上下文筛选。
 
 `plan_research` 把一个问题变成有边界的本地范围：把问题拆成字面词（问题里的 URL 单列进 `question_urls` 并从词表剔除），按词长 ÷ 命中卡片数为每个词加权，再按“词权和 × 密度（hits ÷ bookmarks）”排序卡片——具体名字压过常见词，1,053 条的大树也不能只靠体量取胜。返回每张卡的 `score`、`density`、`file_path` 与命中的词，以及该卡按 URL 去重后的匹配书签（按每条 URL 自身命中过的最重词排序）；`term_cards` 记录每个词指向的卡树数（只指向一棵 = 问题点名了它）。每棵主树只保留一张卡片，副本锚点不会占用三个卡片名额中的两个；并把 `source_instances` 与所选范围的 `instances` 分开报告。文档／仓库书签只有在问题点名它时才把路线判成 lookup。它不联网、也不扩大范围：`cards` 为空且问题不带 URL 表示包里没有这些词，此时 `route` 为 `null`；返回的 `terms` 说明实际搜了什么。其 `task_shape` 与 `route` 复用 `research_route` 的词表，只是建议（`depth` 读已存的 `research.depth`）；执行前仍在那里确认路线。
 
 `tags` 过滤器仅匹配文字；颜色保存在返回的 `tags[].color` 中。按颜色与文字组合统计时，需完整分页读取候选后按同一个 tag 对象筛选，不能把第一页的筛选数当作总数。
 
-`section` 可以匹配 ID、slot、label 或文件路径；同一个 label 可能选中多张卡片，要唯一定位时用 section ID。`get_context` 不传 `item_id` 时返回栏目头、节点、组和边，`items` 为空不代表空树，此时 `pagination.items` 会带 `scope_note` 说明缺哪个参数；读某张卡的书签用 `search_bookmarks(section:…)` 或 `plan_research`。其 counts 是返回栏目的总数，不是某个条目的子树计数。用 `search_bookmarks(item_types:["folder"])` 找文件夹，再传 `folder_id` 和所需条目类型读取子树。完整列表需分页，并区分 `synthetic:true` 根容器与用户文件夹。需要额外祖先元数据或布局时才读条目 context。
+`section` 可以匹配 ID、slot、label 或文件路径；同一个 label 可能选中多张卡片，要唯一定位时用 section ID。`read` 不传 `item_id` 时返回栏目头、节点、组和边，`items` 为空不代表空树，此时 `pagination.items` 会带 `scope_note` 说明缺哪个参数；读某张卡的书签用 `locate(section:…)` 或 `plan_research`。其 counts 是返回栏目的总数，不是某个条目的子树计数。用 `locate(item_types:["folder"])` 找文件夹，再传 `folder_id` 和所需条目类型读取子树。完整列表需分页，并区分 `synthetic:true` 根容器与用户文件夹。需要额外祖先元数据或布局时才读条目 context。
 
 树状定点读取的标准流程（将 ID 替换为当前来源查询得到的值）：
 
 ```json
 {
-  "tool": "get_context",
+  "tool": "read",
   "arguments": {
     "source_id": "<当前来源 ID>",
     "section": "<栏目 ID>",
@@ -103,11 +103,11 @@
 }
 ```
 
-目标条目结果包含 `ancestors`，可用它还原精确父路径，不必加载整张卡的树。要检查选中文件夹的子树，改用 `search_bookmarks`，传 `folder_id`、`item_types:["folder","bookmark"]` 与有限的 `limit`；按返回的 `next_offset` 继续读取，直到为 `null`。结果页包含目标文件夹及其后代，`total` 是该范围的总数；`next_offset` 非空时不能把当前页当作完整结果。
+目标条目结果包含 `ancestors`，可用它还原精确父路径，不必加载整张卡的树。要检查选中文件夹的子树，改用 `locate`，传 `folder_id`、`item_types:["folder","bookmark"]` 与有限的 `limit`；按返回的 `next_offset` 继续读取，直到为 `null`。结果页包含目标文件夹及其后代，`total` 是该范围的总数；`next_offset` 非空时不能把当前页当作完整结果。
 
 ```json
 {
-  "tool": "search_bookmarks",
+  "tool": "locate",
   "arguments": {
     "source_id": "<当前来源 ID>",
     "section": "<栏目 ID>",
@@ -121,9 +121,9 @@
 ```
 
 各存储层中存在 FTS5 派生表，但排序口径各不相同：
-- **书签条目（`search_bookmarks`）**：严格字面子串匹配（3 字符以上走 FTS5 trigram，短词回退 `LIKE`）；无 BM25 排名、无 embedding、不支持任意 SQL。
-- **存档正文（`search_archive`）**：保存的网页正文全文检索，按 SQLite FTS5 的 `bm25(page_text)` 排序（同分按 `d.id DESC` 决胜）。
-- **Wiki 知识页（`wiki_search`）**：基于字符 gram 索引与显式别名展开，按 `Σ ((min(词频, 20) + (标题命中 ? 15 : 0) + (章节 heading 命中 ? 8 : 0)) * len(term) / max(1, doc_freq[term]))` 计算排名（同分按 `updated_at DESC, page_id` 决胜）；不使用 embedding 语义排名。
+- **书签条目（`locate`）**：严格字面子串匹配（3 字符以上走 FTS5 trigram，短词回退 `LIKE`）；无 BM25 排名、无 embedding、不支持任意 SQL。
+- **存档正文（`locate(in=["archive"])`）**：保存的网页正文全文检索，按 SQLite FTS5 的 `bm25(page_text)` 排序（同分按 `d.id DESC` 决胜）。
+- **Wiki 知识页（`locate(in=["wiki"])`）**：基于字符 gram 索引与显式别名展开，按 `Σ ((min(词频, 20) + (标题命中 ? 15 : 0) + (章节 heading 命中 ? 8 : 0)) * len(term) / max(1, doc_freq[term]))` 计算排名（同分按 `updated_at DESC, page_id` 决胜）；不使用 embedding 语义排名。
 
 未知字段保存在原始对象中，不意味着已有对应过滤器或模型理解规则。
 
@@ -133,7 +133,7 @@
 
 - 按已知含义读取显式日期字段，以及卡片标题、说明、笔记或文件名中的日期。保留来源、时区和精度；未知时区保持未知。原始字段可从 context/search 或原 JSON 读取，不表示已有专用时间过滤器。
 - 包协议定义了 `syncId_YYYYMMDD_hash_<token7>`、`tempId_YYYYMMDD_hash_<token7>` 等书签／文件夹 ID；有效日期段是身份生成的时间线索。导入、复制或迁移可能为旧内容产生新 ID，父文件夹日期不代表所有子项日期。没有生成规则时，不把任意 ID、链式序号或数字串解释为时间戳，也不从只有日期的 ID 推算具体时刻。
-- 索引把上述证据按条目落成 `added_at`，并给出 `added_at_source`、`added_at_precision`、`added_at_confidence`：`dateAdded`（书签自身的收藏时间，毫秒精度，高置信）优先于 ID 日期段（生成线索，日精度，低置信）；连线用其 id 末尾的毫秒（中置信），id 中间那个数是计数器而不是时间。没有信号时保持 `null`，绝不回落到抓取时间或文件修改时间。`search_bookmarks` 与 `get_context` 的条目都带这些字段；`plan_research` 在词权与命中数相同时，按卡片最新的 `added_at` 排序。
+- 索引把上述证据按条目落成 `added_at`，并给出 `added_at_source`、`added_at_precision`、`added_at_confidence`：`dateAdded`（书签自身的收藏时间，毫秒精度，高置信）优先于 ID 日期段（生成线索，日精度，低置信）；连线用其 id 末尾的毫秒（中置信），id 中间那个数是计数器而不是时间。没有信号时保持 `null`，绝不回落到抓取时间或文件修改时间。`locate` 与 `read` 的条目都带这些字段；`plan_research` 在词权与命中数相同时，按卡片最新的 `added_at` 排序。
 - Git 同步包按[阶段学习回顾](github-and-sync.md#回顾阶段学习)使用限定路径的 `git log`、`git show` 和内容 diff，同时比较对应版本的布局与书签出现位置。提交时间表示记录这次变化的时间；现有历史中首次出现某文件，只能确定首次观察到的版本。
 - 区分身份生成、字段记录的创建／修改、导出／导入、Git 提交、收藏与阅读时间。收藏或学习结论需要笔记等明确证据；没有 Git 时，日期内容和已有快照只能支撑有限沿革，缺失日期保持缺失。
 

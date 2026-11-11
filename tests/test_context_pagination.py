@@ -13,6 +13,7 @@ from context_output import compact_context
 from mcp_server import MAX_RESULT_CHARS, StdioMcpServer
 from settings import Settings
 from source_manager import SourceManager
+from mcp_helpers import call_internal, is_internal  # noqa: F401
 
 
 class ContextPaginationTests(unittest.TestCase):
@@ -42,8 +43,7 @@ class ContextPaginationTests(unittest.TestCase):
                                   "clientInfo": {"name": "fixture", "version": "1"}}})
         server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"})
         def context(**arguments):
-            response = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": {"name": "get_context", "arguments": {"source_id": sid, "refresh": False, **arguments}}})
+            response = call_internal(server, "get_context", {"source_id": sid, "refresh": False, **arguments})
             self.assertFalse(response["result"]["isError"], response)
             return response["result"]["structuredContent"]
         first = context()
@@ -82,8 +82,7 @@ class ContextPaginationTests(unittest.TestCase):
         server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
         def context(**arguments):
-            response = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": {"name": "get_context", "arguments": {"source_id": sid, "refresh": False, **arguments}}})
+            response = call_internal(server, "get_context", {"source_id": sid, "refresh": False, **arguments})
             self.assertFalse(response["result"]["isError"], response)
             return response["result"]["structuredContent"]
 
@@ -96,7 +95,7 @@ class ContextPaginationTests(unittest.TestCase):
         page = context(collection="items")
         self.assertEqual(0, page["pagination"]["items"]["total"])
         self.assertIn("item_id", page["pagination"]["items"]["scope_note"])
-        self.assertIn("search_bookmarks", page["pagination"]["items"]["scope_note"])
+        self.assertIn("locate(section=...)", page["pagination"]["items"]["scope_note"])
         self.assertIn("plan_research", page["pagination"]["items"]["scope_note"])
         scoped = context(collection="items", item_id=item_id)
         self.assertNotIn("scope_note", scoped["pagination"]["items"])

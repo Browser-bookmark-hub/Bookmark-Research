@@ -249,7 +249,7 @@ class InstallerTests(unittest.TestCase):
             "BOOKMARK_RESEARCH_INSTALL_DIR": str(self.base / "managed"),
             "BOOKMARK_RESEARCH_DATA_DIR": str(self.base / "user data"),
             "BOOKMARK_RESEARCH_CONFIG": str(self.base / "user settings.json"),
-            "EXA_API_KEY": "environment-secret-marker", "TAVILY_API_KEY": "environment-secret-marker"})
+            "EXA_API_KEY": "environment-secret-marker", "DEEPSEEK_API_KEY": "environment-secret-marker"})
         environment.start()
         self.addCleanup(environment.stop)
         self.bundle = install._local_home() / "bundle"
@@ -285,6 +285,12 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output.getvalue()), {"dry_run": True})
         manage.assert_called_once()
+
+    def test_other_and_devin_are_aliases_of_the_agent_plugins_host(self):
+        self.assertEqual(["agent", "codex"], install._normalize_hosts(["other,codex", "devin", "agent"]))
+        self.assertEqual("unknown", install._setup_host("agent"))
+        with self.assertRaisesRegex(ValueError, "agent \\(other\\)"):
+            install._normalize_hosts(["cursor"])
 
     def test_dry_run_validates_preferences_without_saving_them(self):
         path = self.base / "preferences.json"
@@ -402,12 +408,12 @@ class InstallerTests(unittest.TestCase):
 
     def test_onboarding_reads_actual_preferences_and_its_command_works_outside_source(self):
         settings_path = self.base / "user settings.json"
-        original = '{"search":{"providers":["tavily"],"limit_per_target":3},"archive":{"enabled":false}}'
+        original = '{"search":{"providers":["perplexity"],"limit_per_target":3},"archive":{"enabled":false}}'
         settings_path.write_text(original)
         guide = install._guide(self.source, "codex", 30, "en")
         self.assertIsNone(guide["configuration_error"])
         self.assertTrue(guide["configuration"]["config_exists"])
-        self.assertEqual(guide["configuration"]["settings"]["search"]["providers"], ["tavily"])
+        self.assertEqual(guide["configuration"]["settings"]["search"]["providers"], ["perplexity"])
         self.assertFalse(guide["configuration"]["settings"]["archive"]["enabled"])
         checked = subprocess.run(guide["settings_command"], cwd=self.base, text=True,
                                  capture_output=True, check=True, timeout=15)
@@ -420,7 +426,7 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("configuration.en.md", output.getvalue())
         self.assertIn("Change preferences later:", output.getvalue())
         self.assertIn(str(self.source / "src/cli.py"), output.getvalue())
-        self.assertNotIn("tavily", output.getvalue())
+        self.assertNotIn("perplexity", output.getvalue())
         self.assertNotIn("environment-secret-marker", output.getvalue() + json.dumps(guide))
         self.assertEqual(settings_path.read_text(), original)
         self.assertFalse((self.base / "user data").exists())
@@ -447,7 +453,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_onboarding_languages_preserve_identical_settings_and_commands(self):
         path = self.base / "user settings.json"
-        original = '{"search":{"providers":["tavily"]},"archive":{"enabled":false}}'
+        original = '{"search":{"providers":["perplexity"]},"archive":{"enabled":false}}'
         path.write_text(original)
         guides = []
         for language, expected in (("en", "Config file:"), ("zh", "配置文件：")):
@@ -457,7 +463,7 @@ class InstallerTests(unittest.TestCase):
                 install._print_getting_started(guide)
             self.assertIn(expected, output.getvalue())
             self.assertNotIn(guide["first_prompt"], output.getvalue())
-            self.assertNotIn("tavily", output.getvalue())
+            self.assertNotIn("perplexity", output.getvalue())
             self.assertIn(str(path), output.getvalue())
             self.assertEqual(guide["language"], language)
             self.assertEqual(path.read_text(), original)
@@ -782,7 +788,7 @@ class NativeCodexInstallerTests(unittest.TestCase):
         self.environment = dict(os.environ, CODEX_HOME=str(self.profile),
                                 BOOKMARK_RESEARCH_INSTALL_DIR=str(self.base / "managed"),
                                 BOOKMARK_RESEARCH_DATA_DIR=str(self.data), BOOKMARK_RESEARCH_CONFIG=str(self.settings),
-                                EXA_API_KEY="environment-secret-marker", TAVILY_API_KEY="environment-secret-marker",
+                                EXA_API_KEY="environment-secret-marker", DEEPSEEK_API_KEY="environment-secret-marker",
                                 PYTHONDONTWRITEBYTECODE="1")
         self.environment.pop("PYTHONPATH", None)
         self.environment.pop("PYTHONHOME", None)

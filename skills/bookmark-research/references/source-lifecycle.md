@@ -70,6 +70,6 @@ Git pull, push and login remain with the existing sync system or host; the plugi
 
 ## Research and Wiki
 
-Index updates do not fetch webpages, call LLMs or rewrite Wiki pages. Research inventories, text and conclusions retain their original versions. `research_status.source_freshness` compares frozen input against the current synchronized index and sets `requires_review=true` on changes. Wiki reads/lint mark `source_input_changed`; `wiki_get.validation.status` becomes `needs_review`. This requests review against new input without declaring the old conclusion false. Webpage changes are outside this check.
+Index updates do not fetch webpages, call LLMs or rewrite Wiki pages. Research inventories, text and conclusions retain their original versions. `research_status.source_freshness` compares frozen input against the current synchronized index and sets `requires_review=true` on changes. Wiki reads/lint mark `source_input_changed`; `read(page_id).validation.status` becomes `needs_review`. This requests review against new input without declaring the old conclusion false. Webpage changes are outside this check.
 
 References: [CodeGraph indexing](https://github.com/colbymchenry/codegraph/blob/main/site/src/content/docs/guides/indexing.md) and [watcher](https://github.com/colbymchenry/codegraph/blob/main/src/sync/watcher.ts). These are public documentation/code comparisons; CodeGraph's own tests are not acceptance tests for this plugin.

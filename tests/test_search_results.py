@@ -47,7 +47,7 @@ class FuseResultsTests(unittest.TestCase):
         results = output["targets"][0]["results"]
         self.assertEqual(len(results), 2)
         merged = results[0]
-        self.assertEqual(merged["canonical_url"], "https://example.com/doc?lang=zh&utm_source=one")
+        self.assertEqual(merged["canonical_url"], "https://example.com/doc?lang=zh")
         self.assertEqual(set(merged["raw_urls"]), {original, same_page})
         self.assertEqual(merged["provider_count"], 2)
         self.assertEqual(merged["evidence_count"], 2)
@@ -55,14 +55,25 @@ class FuseResultsTests(unittest.TestCase):
         self.assertAlmostEqual(merged["rrf_score"], 2 / (RRF_K + 1))
         self.assertFalse(output["ranking"]["independent_fact_confirmation"])
 
-    def test_does_not_merge_query_order_tracking_params_schemes_or_routes(self):
+    def test_does_not_merge_query_order_schemes_or_routes(self):
         urls = [
             "https://example.com/p?a=1&b=2", "https://example.com/p?b=2&a=1",
-            "https://example.com/p?a=1&b=2&utm_source=x", "http://example.com/p?a=1&b=2",
+            "http://example.com/p?a=1&b=2",
             "https://example.com/#/page-one", "https://example.com/#/page-two",
         ]
         output = fuse_results({"batches": [batch(results=[hit(url) for url in urls])]})
         self.assertEqual(len(output["targets"][0]["results"]), len(urls))
+
+    def test_tracking_parameters_never_split_one_page(self):
+        urls = ["https://example.com/p?a=1&b=2", "https://example.com/p?a=1&utm_source=x&b=2",
+                "https://example.com/p?a=1&b=2&gclid=abc&fbclid=def"]
+        output = fuse_results({"batches": [batch(provider=name, results=[hit(url)])
+                                           for name, url in zip(("exa", "parallel", "host:web"), urls)]})
+        results = output["targets"][0]["results"]
+        self.assertEqual(1, len(results))
+        self.assertEqual("https://example.com/p?a=1&b=2", results[0]["canonical_url"])
+        self.assertEqual(3, results[0]["provider_count"])
+        self.assertEqual(set(urls), set(results[0]["raw_urls"]))
 
     def test_duplicate_batches_and_urls_do_not_add_score_or_evidence(self):
         one = batch(results=[hit("https://example.com/p", snippet="evidence")])
@@ -80,15 +91,15 @@ class FuseResultsTests(unittest.TestCase):
         self.assertEqual(target["coverage"]["unique_queries"], 1)
         self.assertEqual(output["mode"], "single_provider_single_query")
 
-    def test_empty_http_path_is_the_root_without_merging_other_trailing_slashes(self):
+    def test_root_and_trailing_slash_variants_are_one_page(self):
         output = fuse_results({"batches": [
             batch(results=[hit("https://example.com"), hit("https://example.com/page")]),
             batch(provider="parallel", results=[hit("https://example.com/"), hit("https://example.com/page/")]),
         ]})
         results = output["targets"][0]["results"]
-        self.assertEqual(len(results), 3)
-        self.assertEqual(results[0]["canonical_url"], "https://example.com/")
-        self.assertEqual(results[0]["provider_count"], 2)
+        self.assertEqual(len(results), 2)
+        self.assertEqual([row["canonical_url"] for row in results], ["https://example.com/", "https://example.com/page"])
+        self.assertEqual([row["provider_count"] for row in results], [2, 2])
         self.assertAlmostEqual(results[0]["rrf_score"], 2 / (RRF_K + 1))
 
     def test_single_provider_many_queries_is_never_multi_provider(self):

@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from research import ResearchSessions
 from settings import Settings
+from data_isolation import setUpModule, tearDownModule  # noqa: F401
 
 
 class ResearchTests(unittest.TestCase):
@@ -142,32 +143,6 @@ class ResearchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.claim(research_id)
 
-    def test_jina_reserves_each_url_before_network_and_replays_without_resubmission(self):
-        urls = ["https://example.test/a", "https://example.test/b"]
-        limited = self.start(providers=["jina"], budget={"max_fetch_calls": 1})
-        with self.assertRaisesRegex(ValueError, "budget exhausted"):
-            self.sessions.fetch(limited, "too-many", "q1", urls)
-        self.engine.fetch.assert_not_called()
-
-        research_id = self.start(providers=["exa", "jina", "parallel"], budget={"max_fetch_calls": 3})
-        def fetch(urls, provider, archive, max_characters):
-            result = self.fetch_response(urls, provider, archive, max_characters)
-            if provider == "exa":
-                result["result"] = {"structuredContent": {"results": []}}
-            else:
-                self.assertEqual(provider, "jina")
-                state = self.sessions.status(research_id)
-                self.assertEqual(state["usage"]["fetch_calls"], 3)
-                result["usage"]["tool_calls"] = len(urls)
-            return result
-        self.engine.fetch.side_effect = fetch
-        result = self.sessions.fetch(research_id, "bounded", "q1", urls)
-        self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["usage"]["tool_calls"], 3)
-        self.assertEqual([call.kwargs["provider"] for call in self.engine.fetch.call_args_list], ["exa", "jina"])
-        self.assertTrue(self.sessions.fetch(research_id, "bounded", "q1", urls)["replayed"])
-        self.assertEqual(self.engine.fetch.call_count, 2)
-
     def test_fetch_reuses_saved_text_inside_the_window_without_a_request(self):
         from datetime import datetime, timezone
         research_id = self.start(budget={"max_fetch_calls": 1})
@@ -231,9 +206,9 @@ class ResearchTests(unittest.TestCase):
         research_id = self.start(providers=None)
         current = self.sessions.status(research_id)
         self.assertEqual(current["providers"], ["exa", "parallel"])
-        self.assertEqual(current["search_fallback_providers"], ["tavily", "jina"])
-        self.assertEqual(current["fetch_providers"], ["exa", "parallel", "jina"])
-        self.settings.update({"fetch": {"provider": "tavily", "providers": ["tavily"]}})
+        self.assertEqual(current["search_fallback_providers"], [])
+        self.assertEqual(current["fetch_providers"], ["exa", "parallel"])
+        self.settings.update({"fetch": {"provider": "parallel", "providers": ["parallel"]}})
         self.assertEqual(self.sessions.status(research_id)["fetch_providers"], current["fetch_providers"])
         path, state = self.sessions._load(research_id)
         state.pop("fetch_providers")  # An existing pre-upgrade session.
@@ -245,6 +220,7 @@ class ResearchTests(unittest.TestCase):
     def test_search_fallback_budget_is_durable_partial_and_replay_keeps_frozen_routes(self):
         from web_search import SearchProviders
         self.sessions.engine = SearchProviders(settings=self.settings)
+        self.settings.update({"search": {"fallback_providers": ["deepseek", "perplexity"]}})
         research_id = self.start(providers=None, budget={"max_search_calls": 5})
         queries = [{"question_id": "q1", "query": query} for query in ("first", "second")]
         calls = []
@@ -252,7 +228,7 @@ class ResearchTests(unittest.TestCase):
         def execute(provider, purpose, query, limit):
             calls.append((provider, query))
             rows = []
-            if provider == "tavily":
+            if provider == "deepseek":
                 saved = json.loads((self.sessions.directory / research_id / "state.json").read_text())
                 self.assertEqual(saved["usage"]["search_calls"], 5)
                 self.assertEqual(saved["operations"][0]["reserved"]["search_calls"], 5)
@@ -262,7 +238,7 @@ class ResearchTests(unittest.TestCase):
             return {"status": "ok", "result": {"structuredContent": {"results": rows}},
                     "usage": {**SearchProviders._empty_usage(), "tool_calls": 1}}
 
-        with patch.dict("os.environ", {"JINA_API_KEY": ""}), \
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "synthetic-presence", "PERPLEXITY_API_KEY": ""}), \
                 patch.object(self.sessions.engine, "_execute", side_effect=execute):
             first = self.sessions.search(research_id, "with-fallback", queries)
             self.settings.update({"search": {"fallback_providers": []}})
@@ -272,9 +248,9 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(first["result"], replay["result"])
         self.assertEqual(first["result"]["unresolved_queries"], [{"target": "q1", "query": "second"}])
         self.assertEqual(first["result"]["remaining_attempts"],
-                         [{"provider": "tavily", "target": "q1", "query": "second", "reason": "budget"}])
+                         [{"provider": "deepseek", "target": "q1", "query": "second", "reason": "budget"}])
         self.assertEqual(self.sessions.status(research_id)["usage"]["rounds"], 1)
-        self.assertEqual(self.sessions.status(research_id)["search_fallback_providers"], ["tavily", "jina"])
+        self.assertEqual(self.sessions.status(research_id)["search_fallback_providers"], ["deepseek", "perplexity"])
 
     def test_structured_transport_failure_and_archive_error_keep_receipts(self):
         research_id = self.start()
@@ -293,7 +269,7 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(self.engine.fetch.call_count, 2)
 
     def test_waterfall_reserves_only_available_budget_and_preserves_each_response(self):
-        research_id = self.start(providers=["exa", "parallel", "tavily"], budget={"max_fetch_calls": 2})
+        research_id = self.start(providers=["exa", "parallel", "deepseek"], budget={"max_fetch_calls": 2})
         urls = ["https://example.test/good", "https://example.test/failed"]
         raw_responses = {}
 
@@ -337,7 +313,7 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(self.sessions.status(research_id)["usage"]["fetch_calls"], 1)
 
     def test_waterfall_interruption_keeps_group_reservation_without_resubmitting(self):
-        research_id = self.start(providers=["exa", "parallel", "tavily"], budget={"max_fetch_calls": 3})
+        research_id = self.start(providers=["exa", "parallel", "deepseek"], budget={"max_fetch_calls": 3})
 
         def interrupted(urls, provider, archive, max_characters):
             if provider == "exa":
@@ -524,13 +500,13 @@ class ResearchTests(unittest.TestCase):
 
     def test_failed_fetch_and_snippets_cannot_be_cited_as_page_evidence(self):
         research_id = self.start()
-        result = self.fetch_response(["https://example.test/docs"], "tavily", False, 12000)
+        result = self.fetch_response(["https://example.test/docs"], "deepseek", False, 12000)
         result["result"] = {"structuredContent": {"results": [
             {"url": "https://example.test/docs", "snippet": "a search snippet"}],
             "failed_results": [{"url": "https://example.test/docs", "error": "Unavailable"}]}}
         self.engine.fetch.side_effect = None
         self.engine.fetch.return_value = result
-        fetched = self.fetch(research_id, provider="tavily")
+        fetched = self.fetch(research_id, provider="deepseek")
         self.assertEqual(fetched["status"], "error")
         self.assertEqual(fetched["sources"][0]["extraction_status"], "provider_error")
         with self.assertRaisesRegex(ValueError, "no extracted"):

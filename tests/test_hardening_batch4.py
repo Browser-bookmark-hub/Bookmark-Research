@@ -17,6 +17,7 @@ from readiness import Readiness
 from research import ResearchSessions
 from settings import Settings
 from wiki import WikiStore
+from data_isolation import setUpModule, tearDownModule  # noqa: F401
 
 
 class TestHardeningBatch4(unittest.TestCase):

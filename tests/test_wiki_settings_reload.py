@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from mcp_server import StdioMcpServer
 from settings import Settings
+from mcp_helpers import call_internal, is_internal  # noqa: F401
 
 
 class WikiSettingsReloadTests(unittest.TestCase):
@@ -30,8 +31,8 @@ class WikiSettingsReloadTests(unittest.TestCase):
         self.server.handle({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
 
     def call(self, name, arguments=None):
-        response = self.server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                                       "params": {"name": name, "arguments": arguments or {}}})
+        response = call_internal(self.server, name, arguments) if is_internal(name) else self.server.handle(
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": name, "arguments": arguments or {}}})
         self.assertFalse(response["result"].get("isError"), response)
         return json.loads(response["result"]["content"][0]["text"])
 

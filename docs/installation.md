@@ -92,7 +92,7 @@ Agent 可使用 `install --host claude --non-interactive --preferences FILE --sk
 
 需要诊断访问问题时，可调用高级 `research_readiness`，传入实际宿主和已观察到的工具。`cached` 在首次、密钥／配置变化或 15 分钟过期后刷新；`always` 每个新问题检查；`manual` 等待手动 `--refresh`。同一调查复用检查，本地书签查询不联网；CLI 搜索／读取可以直接使用，`readiness` 按需诊断。
 
-搜索／读取适配器已包含。可选 Exa Agent、Parallel Task、Tavily Research MCP 由宿主管理：向导展示对应的添加／授权步骤，检查结果也返回结构化指引。先检查已有登记并复用名称。Codex 用 `codex mcp list`，支持 OAuth 时用 `codex mcp login`；Claude 用 `claude mcp list` 和 `/mcp`。DSH 使用官方 MCP client 的 profile 配置和认证 header。工具可见不等于登录成功，插件保存的 Key 也不会自动授权另行登记的宿主 MCP。完整说明见[配置与排障](../skills/bookmark-research/references/zh/settings-and-archive.md)。
+搜索／读取适配器已包含。可选 Exa Agent、Parallel Task MCP 由宿主管理：向导展示对应的添加／授权步骤，检查结果也返回结构化指引。先检查已有登记并复用名称。Codex 用 `codex mcp list`，支持 OAuth 时用 `codex mcp login`；Claude 用 `claude mcp list` 和 `/mcp`。DSH 使用官方 MCP client 的 profile 配置和认证 header。工具可见不等于登录成功，插件保存的 Key 也不会自动授权另行登记的宿主 MCP。完整说明见[配置与排障](../skills/bookmark-research/references/zh/settings-and-archive.md)。
 
 可选服务故障显示在 `setup.needs_attention`，不阻塞本地查询或其他服务。原生安装或配置失败返回非零，JSON 分别报告安装与 setup 状态。未主动请求新版向导时，缺少 setup 的历史版本仍可正常安装。
 
@@ -240,6 +240,16 @@ python3 /absolute/path/to/bookmark-research-dsh/hosts/dsh/workflow-call.py --res
 结果由独立的 `meta`、无 export 的 `script`、对象 `args` 组成。DSH 等待完整流程后返回 `{runId,agentsStarted,result}`，取消是错误，渲染可能截断。报告子代理会通过共享研究工具保存完整分析附件并返回实际路径；不能假设宿主自动提供全文句柄。导出和生成参数均不启动宿主任务。
 
 安装与桥接检查不代表宿主模型的完整研究已通过；验证边界见[宿主兼容说明](harness-compatibility.md)。
+
+### 其他宿主（Agent Plugins 1.0.0，如 Devin）
+
+`bookmark-research install other`（等价 `--host agent`）在托管目录生成符合 [Agent Plugins 1.0.0](https://agent-plugins.org/specification) 的插件：根目录 `plugin.json`、`mcp.json`（stdio，`python3 ${PLUGIN_ROOT}/src/cli.py serve`）和 `skills/bookmark-research/SKILL.md`，不带 `AGENTS.md` 或其他宿主的清单。安装器只负责导出、记录与校验，JSON 结果的 `register` 给出登记命令，例如 Devin：
+
+```sh
+devin plugins install --local <installed_path>
+```
+
+`update other`、`verify other` 与其他宿主一样使用安装记录。数据、配置与密钥仍使用共享位置，不使用客户端的 `PLUGIN_DATA`，因此各宿主读同一份索引、归档和 Wiki。`python3` 需在 PATH 中（规范要求命令为单个可执行名）。也可用 `python3 scripts/export_bundle.py --format agent --output DIR` 只导出。
 
 ## 首次使用与数据位置
 

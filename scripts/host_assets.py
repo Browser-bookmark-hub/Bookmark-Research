@@ -50,6 +50,10 @@ def export_host_assets(source, stage, host):
         for name in ("delegate.md", "prepare.py"):
             relative = "hosts/codex/" + name
             files[relative] = read_asset(source, relative)
+    elif host == "agent":
+        # Agent Plugins clients define no workflow runtime; delegation uses the
+        # client's own subagents with the shared research bridge.
+        pass
     else:
         if host == "claude":
             command = read_asset(source, "hosts/claude/commands/research.md", default=b"")

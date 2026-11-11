@@ -70,6 +70,6 @@ Git 拉取、推送和登录仍由原有同步系统或宿主负责，插件只�
 
 ## 研究与 Wiki
 
-索引更新不触发网页抓取、LLM 调用或 Wiki 改写。研究 inventory、正文和结论保持原版本。`research_status.source_freshness` 比较冻结输入与当前已同步索引，变化时 `requires_review=true`。Wiki 读取／lint 标注 `source_input_changed`，`wiki_get.validation.status` 为 `needs_review`，表示需要结合新输入复核，不直接判定旧结论错误。网页本身是否更新不在此检查范围内。
+索引更新不触发网页抓取、LLM 调用或 Wiki 改写。研究 inventory、正文和结论保持原版本。`research_status.source_freshness` 比较冻结输入与当前已同步索引，变化时 `requires_review=true`。Wiki 读取／lint 标注 `source_input_changed`，`read(page_id).validation.status` 为 `needs_review`，表示需要结合新输入复核，不直接判定旧结论错误。网页本身是否更新不在此检查范围内。
 
 机制参考：[CodeGraph indexing](https://github.com/colbymchenry/codegraph/blob/main/site/src/content/docs/guides/indexing.md)、[watcher](https://github.com/colbymchenry/codegraph/blob/main/src/sync/watcher.ts)。这是公开文档与代码对照，未把 CodeGraph 运行测试当成本插件验收。

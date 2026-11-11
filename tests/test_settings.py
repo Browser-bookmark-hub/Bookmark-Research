@@ -105,8 +105,9 @@ Settings(config).update(json.loads(patch))
     def test_unknown_fields_bad_types_and_credentials_fail_without_writes(self):
         invalid = [{"api_key": "do-not-store"}, {"archive": {"enabled": "false"}},
                    {"search": {"providers": ["unknown"]}}, {"search": {"providers": ["exa", "exa"]}},
-                   {"search": {"fallback_providers": ["unknown"]}}, {"search": {"fallback_providers": "tavily"}},
-                   {"search": {"fallback_providers": ["tavily", "tavily"]}},
+                   {"search": {"fallback_providers": ["unknown"]}}, {"search": {"fallback_providers": "deepseek"}},
+                   {"search": {"fallback_providers": ["deepseek", "deepseek"]}},
+                   {"search": {"providers": ["tavily"]}}, {"fetch": {"provider": "jina"}},
                    {"fetch": {"max_characters": True}}, {"fetch": {"max_characters": 100001}},
                    {"timeout_seconds": 0}, {"schema_version": 2}, {"archive": {"directory": "relative/path"}},
                    {"wiki": {"enabled": "true"}}, {"search": []}]
@@ -115,17 +116,24 @@ Settings(config).update(json.loads(patch))
                 self.settings.update(changes)
         self.assertFalse(self.settings.path.exists())
 
-    def test_tavily_is_an_optional_search_and_fetch_provider(self):
-        self.settings.update({"search": {"providers": ["exa", "parallel", "tavily"]}, "fetch": {"provider": "tavily"}})
-        saved = self.settings.load()
-        self.assertEqual(saved["search"]["providers"], ["exa", "parallel", "tavily"])
-        self.assertEqual(saved["fetch"]["provider"], "tavily")
-        self.assertNotIn("TAVILY_API_KEY", self.settings.path.read_text())
+    def test_saved_choices_of_retired_providers_are_migrated(self):
+        self.settings.path.parent.mkdir(parents=True, exist_ok=True)
+        self.settings.path.write_text(json.dumps({
+            "search": {"providers": ["tavily", "jina"], "fallback_providers": ["tavily", "perplexity"]},
+            "fetch": {"provider": "jina", "providers": ["exa", "jina", "tavily"]}}), encoding="utf-8")
+        loaded = self.settings.load()
+        self.assertEqual(loaded["search"]["providers"], ["exa", "parallel"])
+        self.assertEqual(loaded["search"]["fallback_providers"], ["perplexity"])
+        self.assertEqual((loaded["fetch"]["provider"], loaded["fetch"]["providers"]), ("exa", ["exa"]))
+        self.settings.update({"timeout_seconds": 20})
+        stored = json.loads(self.settings.path.read_text(encoding="utf-8"))
+        self.assertNotIn("tavily", json.dumps(stored))
+        self.assertNotIn("jina", json.dumps(stored))
 
     def test_fetch_strategy_defaults_and_validation(self):
         defaults = self.settings.load()["fetch"]
         self.assertEqual((defaults["strategy"], defaults["grace_seconds"], defaults["deadline_seconds"]),
-                         ("staggered", 25, None))
+                         ("staggered", 12, 40))
         for changes in ({"fetch": {"strategy": "race"}}, {"fetch": {"grace_seconds": 61}},
                         {"fetch": {"deadline_seconds": "2"}}, {"fetch": {"grace_seconds": True}}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):

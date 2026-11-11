@@ -97,7 +97,7 @@ class ResearchRouting:
         candidates = []
         missing = []
         if selected_depth == "quick":
-            candidates.append({"route": "direct_retrieval", "entrypoint": "fetch_web / search_web",
+            candidates.append({"route": "direct_retrieval", "entrypoint": "fetch / search",
                                "available": True, "execution_owner": "host",
                                "reason": "Read known URLs directly; use search when sources must be discovered."})
         else:
@@ -151,12 +151,12 @@ class ResearchRouting:
                     key = ResearchHttp.PROVIDERS[name]["key_env"]
                     credential = bool(self.credentials.get(key))
                     candidates.append({"route": "professional_service", "provider": name,
-                        "entrypoint": "research_service_start", "execution_owner": name, "run_mode": "provider_background",
+                        "entrypoint": "spawn", "execution_owner": name, "run_mode": "provider_background",
                         "available": services["enabled"] and credential, "authentication_verified": False,
                         "missing": ([] if services["enabled"] else ["professional_research.enabled"])
                                    + ([] if credential else [key])})
             candidates.append({"route": "host_iterative_research",
-                "entrypoint": "search_web / fetch_web" if ordinary_agentic else "research_start / research_*",
+                "entrypoint": "search / fetch" if ordinary_agentic else "research_start / research_*",
                 "available": True, "execution_owner": "host", "run_mode": "host_defined",
                 "reason": "The current host model plans the inquiry, reads evidence, evaluates it and follows gaps; retrieval services support this loop."})
         for candidate in candidates:
@@ -189,34 +189,33 @@ class ResearchRouting:
                             "reason": "No untried applicable route remains. Inspect the existing evidence and report the unresolved gaps."})
             workflow = []
         elif selected_depth == "quick":
-            next_action = {"tools": ["fetch_web", host_search or "search_web"],
+            next_action = {"tools": ["fetch", host_search or "search"],
                            "reason": "Read known URLs; search only when a source must be discovered, then read it. " +
                                      ("Use the host's native search for that discovery. " if host_search else
-                                      "Use search_web when the host has no native search.")}
-            workflow = ["fetch_web", "answer_with_sources"]
+                                      "Use search when the host has no native search.")}
+            workflow = ["fetch", "answer_with_sources"]
         elif ordinary_agentic and selected["route"] == "host_iterative_research":
             if host_search:
-                selected["entrypoint"] = host_search + " / fetch_web"
-                next_action = {"tools": [host_search, "fetch_web"],
-                               "reason": "The current host model plans first, uses its native search for discovery, reads selected pages with fetch_web, assesses the evidence and follows gaps. search_web remains a second channel when native results are insufficient."}
-                workflow = [host_search, "fetch_web", "answer_with_sources"]
+                selected["entrypoint"] = host_search + " / fetch"
+                next_action = {"tools": [host_search, "fetch"],
+                               "reason": "The current host model plans first, uses its native search for discovery, reads selected pages with fetch, assesses the evidence and follows gaps. search remains a second channel when native results are insufficient."}
+                workflow = [host_search, "fetch", "answer_with_sources"]
             else:
-                next_action = {"tools": ["search_web", "fetch_web"],
+                next_action = {"tools": ["search", "fetch"],
                                "reason": "The current host model first plans from the question and available context. Read known sources or search for missing evidence, assess the pages, then target unresolved questions. Use persistent research records when the task needs a resumable report."}
-                workflow = ["search_web", "fetch_web", "answer_with_sources"]
+                workflow = ["search", "fetch", "answer_with_sources"]
         else:
             next_action = {"tool": "research_start",
                            "reason": "The current host model first defines the questions, evidence gaps and work assignments. Freeze the full scope for new research; reuse existing research_status and evidence before delegating or retrieving more."}
             workflow = ["research_start", "research_inventory"]
             if selected["route"] == "professional_service":
-                workflow += ["research_service_prepare", "research_service_start", "research_service_status",
-                             "research_service_result", "research_service_import", "research_fetch"]
+                workflow += ["research_service_prepare", "spawn", "job", "research_service_import", "research_fetch"]
             elif selected["route"] == "host_research_mcp":
                 workflow += selected["workflow_tools"] + ["research_record", "research_import_evidence", "research_fetch"]
             else:
                 workflow += [selected["entrypoint"]] if selected["route"] != "host_iterative_research" else []
                 workflow += ["research_search", "research_fetch"]
-            workflow += ["research_source", "research_record", "research_coverage", "research_finish"]
+            workflow += ["read", "research_record", "research_coverage", "research_finish"]
         process = {"owner": "current_host_model",
                    "steps": (["read_or_search", "answer_with_sources"] if selected_depth == "quick" else
                              ["plan", "search_or_read", "assess_evidence", "follow_evidence_gaps"] +
@@ -224,31 +223,31 @@ class ResearchRouting:
                               ["synthesize_answer"])),
                    "collaboration": "Delegate independent questions, sources or verification only through currently available and permitted host capabilities. The parent plans and reviews the result; no subagent is required for the basic loop.",
                    "external_research": "Optional scoped support after host assessment, or an explicit user-selected service. Tool presence and saved API credentials do not replace the host's first pass."}
-        discovery_channels = ([host_search, "search_web"] if host_search else ["search_web"])
+        discovery_channels = ([host_search, "search"] if host_search else ["search"])
         discovery = {"mode": "host_first" if host_search else "plugin_parallel",
-                     "primary": host_search or "search_web",
-                     "fallback": "search_web" if host_search else None,
+                     "primary": host_search or "search",
+                     "fallback": "search" if host_search else None,
                      "channels": discovery_channels,
                      "parallel_when": ("latency_sensitive_or_host_results_insufficient"
                                        if host_search else "always"),
                      "deadline_seconds": settings["search"]["deadline_seconds"],
                      "first_usable_result_wins": True,
-                     "backflow_tool": "merge_search_results",
-                     "note": ("Host-native search is the default discovery channel. Use search_web when it is "
+                     "backflow_tool": "ingest",
+                     "note": ("Host-native search is the default discovery channel. Use search when it is "
                               "unavailable, returns nothing or insufficient results, or the user asks for provider "
                               "diversity. For latency-sensitive work, issue both together and take the first "
                               "usable result; do not wait for a slow channel. Host search results can be merged and "
-                              "archived via merge_search_results."
+                              "archived via ingest."
                               if host_search else
-                              "The host has no observed native search; search_web runs its configured providers "
+                              "The host has no observed native search; search runs its configured providers "
                               "in parallel with fallbacks for unresolved queries.")}
         if host_search:
-            next_action["fallback_tool"] = "search_web"
+            next_action["fallback_tool"] = "search"
         return {"depth": selected_depth, "host": host, "task_shape": task_shape, "selected": selected,
                 "candidates": candidates, "missing_or_unconfirmed": missing,
                 "host_search": {"available": host_search is not None, "tool": host_search,
-                                "role": "discovery_only; fetch_web remains the evidence read",
-                                "backflow_tool": "merge_search_results"},
+                                "role": "discovery_only; fetch remains the evidence read",
+                                "backflow_tool": "ingest"},
                 "discovery": discovery,
                 "next_action": next_action, "workflow": workflow, "research_process": process,
                 "fallback": {"execution_owner": "host", "failed_routes": failed,

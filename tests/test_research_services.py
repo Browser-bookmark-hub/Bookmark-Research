@@ -17,6 +17,7 @@ from research import ResearchSessions
 from research_services import ResearchServices
 from service_http import ServiceError
 from settings import Settings
+from data_isolation import setUpModule, tearDownModule  # noqa: F401
 
 
 def openai_response(status="queued", run_id="resp_fixture", text=None, citations=None):
@@ -130,16 +131,18 @@ class ResearchServicesTests(unittest.TestCase):
         self.transport.request.assert_not_called()
         self.settings.update({"professional_research": {"enabled": True}})
         prepared = self.service.prepare(self.rid, "Public research question")
-        self.assertEqual(prepared["next_action"], "research_service_start")
+        self.assertEqual(prepared["next_action"], "spawn")
         self.assertEqual(prepared["payload"]["tools"], [{"type": "web_search"}])
         self.assertTrue(prepared["payload"]["background"])
         self.assertFalse(prepared["payload"]["store"])
         started = self.start()
-        self.assertEqual(started["next_action"]["tool"], "research_service_status")
+        self.assertEqual(started["next_action"]["tool"], "job")
+        self.assertEqual(started["next_action"]["arguments"]["action"], "status")
         self.assertTrue(started["next_action"]["arguments"]["refresh"])
         self.transport.request.return_value = openai_response("completed", text="A cited research report.")
         completed = self.service.status(started["external_id"], refresh=True)
-        self.assertEqual(completed["next_action"]["tool"], "research_service_result")
+        self.assertEqual(completed["next_action"]["tool"], "job")
+        self.assertEqual(completed["next_action"]["arguments"]["action"], "result")
         self.assertFalse(completed["next_action"]["arguments"]["refresh"])
 
     def test_replay_uses_original_intent_after_settings_credentials_and_session_change(self):

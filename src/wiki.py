@@ -1194,9 +1194,9 @@ class WikiStore:
                                              sum(1 for issue in issues
                                                  if issue.get("code") == "source_capture_expired"))
         for entry in merged.values():
-            actions = ["wiki_get"]
+            actions = ["read"]
             if entry.get("status") == "needs_review":
-                actions.append("wiki_acknowledge")
+                actions.append("wiki acknowledge (CLI)")
                 if entry.get("expired_count"):
                     actions.append("wiki_refresh")
             entry["actions"] = actions

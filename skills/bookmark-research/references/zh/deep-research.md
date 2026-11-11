@@ -28,7 +28,7 @@
 ## 证据循环
 
 1. 已知 URL 用 `research_fetch`，缺少来源用 `research_search`；query 对应已有 `question_id`。服从服务限制，检查未解决的调用。
-2. fetch 返回元数据；用 `research_source` 阅读正文（一次一个来源，或一次最多 8 个 `source_ids`），并按相关性继续分页。核对页面身份、日期／版本和适用性，拒绝登录壳或无关页面；摘录可能不完整。先保存 `source_review`，再写 claim。
+2. fetch 返回元数据；用 `read(research_id, evidence_source_id)` 阅读正文（一次一个来源，或一次最多 8 个 `source_ids`），并按相关性继续分页。核对页面身份、日期／版本和适用性，拒绝登录壳或无关页面；摘录可能不完整。先保存 `source_review`，再写 claim。
 3. claim 使用实际证据 ID 和已存正文的原句。原句／哈希只能验证存在，不能证明语义支持。推断标记 `inference:true`；综合答案保留条件和反证。多个服务返回同一页面不是独立来源。
 4. 原始输入用 `inventory_review` 关联同一原 URL 的已接受正文。替代页面或外部报告可支持回答，但不能算读过原始 URL；失败或合理排除保留具体理由。
 5. 已有充分依据时写 `answer` 并关联本题 claim ID。选择补查或结束时用 `research_coverage`，按相关差集继续，无需重复读取全部未变记录。解决矛盾或保留缺口。
@@ -73,12 +73,12 @@
 | 计数 | 单位 | 默认／上限 |
 | --- | --- | --- |
 | `search_calls` | 去重后的 provider + question + query 尝试 | 16／120 |
-| `fetch_calls` | 按服务尝试；Exa／Parallel／Tavily 每批最多 16 URL，Jina 每个 URL 一次 | 无输入时 12，否则首次容量加 12 次补查，硬上限 80 |
+| `fetch_calls` | 按服务尝试；Exa／Parallel／DeepSeek 每批最多 16 URL，浏览器渲染每个 URL 一次 | 无输入时 12，否则首次容量加 12 次补查，硬上限 80 |
 | `rounds` | 一批 `research_search` | 8／40 |
 
-搜索最多 12 query，每题最多返回 20 URL；2 query × 2 服务消耗 4 search calls 和 1 round。3 URL 的 Exa → Parallel + Jina 回退消耗 1 + 1 + 3 fetch calls。
+搜索最多 12 query，每题最多返回 20 URL；2 query × 2 服务消耗 4 search calls 和 1 round。3 URL 的 Exa → Parallel 回退消耗 1 + 1 fetch calls。
 
-未指定 `max_fetch_calls` 时默认 `min(80,max(12,ceil(URL数/16)+12))`，Jina 优先时把批次项换成 URL 数。`initial_fetch_plan` 给出容量和缺口；预算不足也保留原始范围，显式预算不扩大。读已存来源、写记录和报告不消耗检索额度，预算可为 0；宿主／服务之外的消耗另记。`research_fetch` 每次可批 16 个 URL、`research_source` 一次可读 8 个来源；宿主回合慢时，少一次往返收益最大。
+未指定 `max_fetch_calls` 时默认 `min(80,max(12,ceil(URL数/16)+12))`，浏览器渲染优先时把批次项换成 URL 数。`initial_fetch_plan` 给出容量和缺口；预算不足也保留原始范围，显式预算不扩大。读已存来源、写记录和报告不消耗检索额度，预算可为 0；宿主／服务之外的消耗另记。`research_fetch` 每次可批 16 个 URL、`read(research_id, evidence_source_id)` 一次可读 8 个来源；宿主回合慢时，少一次往返收益最大。
 
 聚焦的深度研究问题应在 `research_start` 显式传 `budget`，不要改默认值：子问题控制在 6 个以内，输入需要时只抬高抓取额度（约 24 次）；默认值本身已随输入规模伸缩，改 `DEFAULT_BUDGET` 会影响既有任务的恢复语义。
 
@@ -90,7 +90,7 @@
 
 `active` 直接继续；已导出的 `incomplete` 先记录 `{"kind":"resume","text":"继续的原因"}`。恢复保留报告快照和消耗，不扩大预算。`completed`、`cancelled` 为终态；额度耗尽仍可整理已存证据，继续检索需要另行确定新任务与预算。
 
-不带 ID 的 `research_status` 列出任务，带 ID 返回有界预览；完整记录选择所需 `section` 并跟随 `next_offset`，不能根据页长判断结束。超大条目用产物位置，正文用 `research_source`。
+不带 ID 的 `research_status` 列出任务，带 ID 返回有界预览；完整记录选择所需 `section` 并跟随 `next_offset`，不能根据页长判断结束。超大条目用产物位置，正文用 `read(research_id, evidence_source_id)`。
 
 覆盖分开统计 `accounted_for`、`usable_text`、`substantive_review`、`question_completion`。失败原因只增加逐项交代率；排除项保留在原始总数，不增加阅读／审阅覆盖。旧任务未冻结清单时，原始覆盖未知。
 

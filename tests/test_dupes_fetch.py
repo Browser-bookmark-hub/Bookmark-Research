@@ -13,6 +13,7 @@ from source_manager import SourceManager
 from url_classify import is_search_result_url
 from web_search import SearchProviders
 from test_bookmark_index import make_package
+from data_isolation import setUpModule, tearDownModule  # noqa: F401
 
 
 def index_rows(base):

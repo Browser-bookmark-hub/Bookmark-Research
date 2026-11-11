@@ -24,7 +24,7 @@ One source represents one logical canvas. Each supplied directory may contain at
 | Section descriptions and text cards | `descriptionMd` describes a section. A `.canvas` node with `type:text` contains Markdown/safe HTML. Both provide context and are not bookmark items. |
 | Card group | A `.canvas` group node. Full geometric containment determines membership; visual overlap alone does not. |
 | Edge | Endpoints and arrows in `.canvas.edges` determine direction. `edges[].label` is relationship text, distinct from section and group labels. |
-| Original properties | `raw_json` retains unknown fields. Section headers in `get_context` omit the full tree to avoid repeating it. |
+| Original properties | `raw_json` retains unknown fields. Section headers in `read` omit the full tree to avoid repeating it. |
 
 `tags` is an array of `{color,text}` objects; color and text together distinguish tags. `note` is one plain-text string, with `noteColor` as a sibling field. Metadata containing only a note remains valid. Legacy notes without `noteColor` default to `orange`. The seven tag/note colors (`red`, `orange`, `yellow`, `green`, `blue`, `purple`, `gray`) are separate from `.canvas` color fields. Color alone does not prove a business category.
 
@@ -40,7 +40,7 @@ Actually call available tools to read package data; examples are not evidence of
 
 - **One card:** locate its node ID and resolved file reference, then read the required section description and `tree` / `items`, or a text card's body. A copy follows `inheritFrom` to its main tree. A standalone section JSON contains only node items and metadata without `.canvas` coordinates or connections; when reading an isolated section JSON without canvas topology, never speculate on or hallucinate spatial positions or visual layouts.
 - **Multiple cards:** extract a compact layout map, then expand the requested cards and relevant relations/text as described below. Return selected records and coverage rather than dumping full large files into context.
-- **Reusable queries:** for large packages, cross-card work or repeated queries, reuse the existing source index when possible; otherwise build a local in-memory map or derived SQLite index outside the package. A small one-off read needs no database. Retain source, section ID, item ID, parent path and sibling order; do not collapse instances by URL. With the plugin, use `get_context` for layout and `search_bookmarks` for items, respecting scopes and pagination. Partial input is not a complete mirror.
+- **Reusable queries:** for large packages, cross-card work or repeated queries, reuse the existing source index when possible; otherwise build a local in-memory map or derived SQLite index outside the package. A small one-off read needs no database. Retain source, section ID, item ID, parent path and sibling order; do not collapse instances by URL. With the plugin, use `read` for layout and `locate` for items, respecting scopes and pagination. Partial input is not a complete mirror.
 
 Index/search results are projections, not replacement source objects: item `raw_json` omits `children`, and folder projections omit an empty `url`. The original source snapshot retains these fields. Search a folder with `folder_id` to read its descendants as paginated flat rows; parent IDs, paths and positions preserve tree structure without making an ancestor count as changed whenever a descendant changes. Compact responses omit additional fields. For a user-authorized edit, the host must reread the current original node, check for intervening file changes and preserve untouched values, descendants, metadata and unknown fields under the package guide. Validate the edited file and refresh the same `source_id` before querying again. Neither reading nor building an index calls for source cleanup.
 
@@ -48,7 +48,7 @@ Index/search results are projections, not replacement source objects: item `raw_
 
 ### Retrieve layout, then expand content
 
-For a small indexed canvas, start with `get_context({source_id})`: this includes the whole stored layout, even text cards without edges. Then select the requested section/group/item. Scoped context deliberately selects nodes; missing text in that selection does not prove that the canvas contains no nearby note. Match file nodes to section IDs through the returned file mapping, not by assuming node IDs and section IDs are interchangeable.
+For a small indexed canvas, start with `read({source_id})`: this includes the whole stored layout, even text cards without edges. Then select the requested section/group/item. Scoped context deliberately selects nodes; missing text in that selection does not prove that the canvas contains no nearby note. Match file nodes to section IDs through the returned file mapping, not by assuming node IDs and section IDs are interchangeable.
 
 For a large canvas, read `.canvas` locally with Python's standard-library `json` parser. Keep the full parsed object in the local process; send only relevant records to the model:
 
@@ -58,7 +58,7 @@ For a large canvas, read `.canvas` locally with Python's standard-library `json`
 
 The bounds are `[x, y, x+width, y+height]`; x increases rightward and y downward. Group membership requires full containment. For nearest-neighbor questions, use rectangle gaps (zero for overlapping rectangles) and retain direction, rather than sorting JSON array order or using centers alone. An unconnected nearby note remains an unassigned contextual clue unless its text or another stored relation establishes its subject. Copy cards use their own rectangles and links.
 
-`get_context` has section/group/item scopes and supports collection-level pagination (`collection`, `offset`, `limit`, `compact`). It defaults to 200 rows per collection; follow each collection's `next_offset` with the same `source_id` and scope until exhausted. `compact=true` omits raw JSON, descriptions, and revision. There are no region or nearest-neighbor parameters; use local extraction when its scopes cannot express the task. A section JSON by itself provides card content but no surrounding layout. A `.canvas` without its referenced section files provides layout but incomplete bookmark content. Neither case requires inventing missing relationships or changing the package.
+`read` has section/group/item scopes and supports collection-level pagination (`collection`, `offset`, `limit`, `compact`). It defaults to 200 rows per collection; follow each collection's `next_offset` with the same `source_id` and scope until exhausted. `compact=true` omits raw JSON, descriptions, and revision. There are no region or nearest-neighbor parameters; use local extraction when its scopes cannot express the task. A section JSON by itself provides card content but no surrounding layout. A `.canvas` without its referenced section files provides layout but incomplete bookmark content. Neither case requires inventing missing relationships or changing the package.
 
 - Chain labels such as `A-1 → A-1-1` suggest derivation. A child chain may retain most content or only a subset. A/B families describe creation clues; they do not prove ongoing synchronization with permanent trees or a persistent relationship. Check descriptions, titles, URLs and actual items.
 - Groups have no explicit `children` list. Nesting comes from full containment using `x/y/width/height`. Groups contain canvas nodes; bookmarks inherit group context through sections and need not have individual canvas nodes.
@@ -67,7 +67,7 @@ The bounds are `[x, y, x+width, y+height]`; x increases rightward and y downward
 
 ### Repeated and related bookmarks across cards
 
-The same bookmark appearing in different cards is spatial context even when those cards are distant or unconnected. Search for its URL within the requested source, follow pagination, then check exact returned `url` equality: public search is substring matching. Retain each `source_id + section_id + item_id`, folder path, sibling order, notes and tags. Use `get_context` to connect each appearance to its card rectangle, groups, neighbors and edges. An item's `position` is tree order, not a canvas coordinate; bookmarks obtain canvas position through their cards.
+The same bookmark appearing in different cards is spatial context even when those cards are distant or unconnected. Search for its URL within the requested source, follow pagination, then check exact returned `url` equality: public search is substring matching. Retain each `source_id + section_id + item_id`, folder path, sibling order, notes and tags. Use `read` to connect each appearance to its card rectangle, groups, neighbors and edges. An item's `position` is tree order, not a canvas coordinate; bookmarks obtain canvas position through their cards.
 
 `shown_in_anchors` identifies additional copy cards displaying the same main-tree item. Include each copy's own layout and description when relevant without inventing extra bookmark instances. An exact URL match establishes a shared link, not why it was placed there. For related topics or similar bookmarks, compare titles, folders, tags and notes and label the inferred relationship; SQLite lookup does not itself establish semantic similarity. Preserve distinct appearances and their contexts when deduplicating URLs for counts.
 
@@ -79,19 +79,19 @@ A permanent copy B queries the main tree A while keeping B's own description and
 
 With both `section` and `group_id`, intersect actual cards before resolving their shared main trees. If only B belongs to the group, A plus that group does not match; B plus the group returns its shared bookmarks.
 
-`search_bookmarks` matches literal substrings in selected item titles, URLs, notes, tag text and folder paths, with section/group/folder/tag filters. Separate source-wide `canvas_matches` report text cards, group labels and edge labels, outside item totals and pagination. Read `descriptionMd` and full layout through `get_context`. Short terms can produce incidental matches: `Exa` can match `examples` in a URL. Inspect matched fields and context.
+`locate` matches literal substrings in selected item titles, URLs, notes, tag text and folder paths, with section/group/folder/tag filters. Separate source-wide `canvas_matches` report text cards, group labels and edge labels, outside item totals and pagination. Read `descriptionMd` and full layout through `read`. Short terms can produce incidental matches: `Exa` can match `examples` in a URL. Inspect matched fields and context.
 
 `plan_research` turns one question into a bounded local scope: it splits the question into literal terms (a URL inside the question is returned separately in `question_urls` and removed from the terms), weights each term by its length over the number of cards it matches, and ranks cards by that weight scaled by the card's own density (hits ÷ bookmarks), so a specific name outranks a common word and a 1,053-bookmark tree cannot win on size alone. It returns each card's `score`, `density`, `file_path` and matched terms, plus that card's matching bookmarks deduplicated by URL and ordered by the most specific term each URL's own rows matched; `term_cards` counts the canonical trees each term points at (one tree means the question names it). It keeps one card per canonical tree, so a copy anchor cannot fill two of the three card slots, and reports `source_instances` separately from the selected scope's `instances`. A documentation or repository bookmark only makes the route a lookup when the question names it. It reads nothing from the web and never widens the scope: no cards with no question URL means the package has nothing on those terms and the route is `null`; the returned `terms` say what was searched. Its `task_shape` and `route` reuse the `research_route` vocabulary as a suggestion (depth follows the saved `research.depth`); confirm the route there before running it.
 
 The `tags` filter matches text only; returned `tags[].color` retains color. To count a color/text combination, paginate all candidates and match both fields on the same tag object. A filtered first page is not the total.
 
-`section` can match an ID, slot, label or file path. Repeated labels can select multiple cards; use a section ID for a unique card. Without `item_id`, `get_context` returns section headers, nodes, groups and edges; empty `items` does not mean an empty tree. The empty `items` page carries a `scope_note` in `pagination.items` naming the parameter it needs; read a card's bookmarks with `search_bookmarks(section:…)` or `plan_research`. Its counts cover returned sections, not an item's subtree. Find folders with `search_bookmarks(item_types:["folder"])`, then pass `folder_id` and the desired item types to read the subtree. Paginate complete listings and distinguish `synthetic:true` roots from user folders. Use item context only for additional ancestor metadata or layout.
+`section` can match an ID, slot, label or file path. Repeated labels can select multiple cards; use a section ID for a unique card. Without `item_id`, `read` returns section headers, nodes, groups and edges; empty `items` does not mean an empty tree. The empty `items` page carries a `scope_note` in `pagination.items` naming the parameter it needs; read a card's bookmarks with `locate(section:…)` or `plan_research`. Its counts cover returned sections, not an item's subtree. Find folders with `locate(item_types:["folder"])`, then pass `folder_id` and the desired item types to read the subtree. Paginate complete listings and distinguish `synthetic:true` roots from user folders. Use item context only for additional ancestor metadata or layout.
 
 Standard targeted tree read (replace IDs with values returned by the current source):
 
 ```json
 {
-  "tool": "get_context",
+  "tool": "read",
   "arguments": {
     "source_id": "<current source ID>",
     "section": "<section ID>",
@@ -103,11 +103,11 @@ Standard targeted tree read (replace IDs with values returned by the current sou
 }
 ```
 
-The selected item result includes its `ancestors`; use this for the exact folder path without loading the card's full tree. To inspect a selected folder's subtree, call `search_bookmarks` with `folder_id`, `item_types:["folder","bookmark"]`, and a bounded `limit`; continue at each returned `next_offset` until `null`. The page includes the selected folder and descendants, while `total` describes the full scoped result. Do not treat a page as complete when `next_offset` is non-null.
+The selected item result includes its `ancestors`; use this for the exact folder path without loading the card's full tree. To inspect a selected folder's subtree, call `locate` with `folder_id`, `item_types:["folder","bookmark"]`, and a bounded `limit`; continue at each returned `next_offset` until `null`. The page includes the selected folder and descendants, while `total` describes the full scoped result. Do not treat a page as complete when `next_offset` is non-null.
 
 ```json
 {
-  "tool": "search_bookmarks",
+  "tool": "locate",
   "arguments": {
     "source_id": "<current source ID>",
     "section": "<section ID>",
@@ -121,9 +121,9 @@ The selected item result includes its `ancestors`; use this for the exact folder
 ```
 
 Derived FTS5 tables exist across storage layers, with distinct ranking behaviors:
-- **Bookmark items (`search_bookmarks`)**: Strict literal substring matching (FTS5 trigram for 3+ characters or `LIKE` fallback); no BM25 ranking, no embeddings, and no arbitrary SQL.
-- **Archive page text (`search_archive`)**: Full-text search over saved webpage bodies ranked by SQLite FTS5 `bm25(page_text)` (with `d.id DESC` tie-break).
-- **Wiki knowledge (`wiki_search`)**: Indexed character grams with alias expansion, scored by `Σ ((min(term_count, 20) + (15 if title_hit else 0) + (8 if heading_hit else 0)) * len(term) / max(1, doc_freq[term]))` (with `updated_at DESC, page_id` tie-break).
+- **Bookmark items (`locate`)**: Strict literal substring matching (FTS5 trigram for 3+ characters or `LIKE` fallback); no BM25 ranking, no embeddings, and no arbitrary SQL.
+- **Archive page text (`locate(in=["archive"])`)**: Full-text search over saved webpage bodies ranked by SQLite FTS5 `bm25(page_text)` (with `d.id DESC` tie-break).
+- **Wiki knowledge (`locate(in=["wiki"])`)**: Indexed character grams with alias expansion, scored by `Σ ((min(term_count, 20) + (15 if title_hit else 0) + (8 if heading_hit else 0)) * len(term) / max(1, doc_freq[term]))` (with `updated_at DESC, page_id` tie-break).
 
 Retaining an unknown field does not provide a filter or an interpretation rule for it.
 
@@ -133,7 +133,7 @@ Use the available time evidence alongside spatial context when explaining a card
 
 - Read explicit date fields and dates in card titles, descriptions, notes or filenames under their documented meaning. Retain source, timezone and precision; unknown timezone stays unknown. Raw fields remain available through context/search or the original JSON, without implying a dedicated time filter.
 - The package protocol defines bookmark/folder IDs such as `syncId_YYYYMMDD_hash_<token7>` and `tempId_YYYYMMDD_hash_<token7>`. Their valid date segment is an identity-generation clue. Import, copying or migration may create new IDs for older content. A parent folder's date does not date its descendants. Do not decode arbitrary IDs, chain counters or digit strings as timestamps without a generation rule, or infer exact time from a day-only ID.
-- The index surfaces that evidence per item as `added_at` with `added_at_source`, `added_at_precision` and `added_at_confidence`. `dateAdded` (the bookmark's own add time, millisecond, high confidence) wins over an ID date segment (generation clue, day, low confidence); edges use the millisecond at the end of their id (medium confidence), and their id's middle number is a counter, not a time. A missing signal stays `null`: nothing falls back to retrieval time or file modification time. Items from `search_bookmarks` and `get_context` carry these fields, and `plan_research` breaks an equal-score, equal-hit tie by each card's newest `added_at`.
+- The index surfaces that evidence per item as `added_at` with `added_at_source`, `added_at_precision` and `added_at_confidence`. `dateAdded` (the bookmark's own add time, millisecond, high confidence) wins over an ID date segment (generation clue, day, low confidence); edges use the millisecond at the end of their id (medium confidence), and their id's middle number is a counter, not a time. A missing signal stays `null`: nothing falls back to retrieval time or file modification time. Items from `locate` and `read` carry these fields, and `plan_research` breaks an equal-score, equal-hit tie by each card's newest `added_at`.
 - For a Git-backed package, use scoped `git log`, `git show` and content diffs as described in [learning retrospectives](github-and-sync.md#review-learning-stages). Compare the corresponding layouts and bookmark appearances as well as text. A commit dates the recorded change; a file's first appearance in available history is only its first observed version.
 - Keep identity generation, recorded creation/modification, export/import, commit, collection and reading dates distinct. Use notes or other explicit evidence for collecting/learning claims. Without Git, dated content and available snapshots support only a bounded account; missing dates remain missing.
 

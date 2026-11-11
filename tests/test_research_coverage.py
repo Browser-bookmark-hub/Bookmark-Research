@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from bookmark_index import BookmarkIndex
 from research import ResearchSessions
 from settings import Settings
+from data_isolation import setUpModule, tearDownModule  # noqa: F401
 
 
 class ResearchCoverageTests(unittest.TestCase):

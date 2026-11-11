@@ -125,8 +125,7 @@ class SearchProviders:
                         from browser_client import BrowserClient
                         state.client = BrowserClient(settings=self.settings, timeout=timeout)
                     else:
-                        from jina import JinaClient
-                        state.client = JinaClient(headers=headers, timeout=timeout)
+                        raise McpError("Unknown HTTP provider client", "unsupported_capability")
                 else:
                     state.client = McpHttpClient(info["url"], headers=headers, timeout=timeout)
                 state.identity = identity
@@ -258,7 +257,7 @@ class SearchProviders:
         # Preserve the old helper for callers/tests; runtime routing always
         # selects the provider explicitly, never by overlapping field names.
         name = tool.get("name", "")
-        provider = "tavily" if name.startswith("tavily") else ("parallel" if name in ("web_search", "web_fetch") else "exa")
+        provider = "parallel" if name in ("web_search", "web_fetch") else "exa"
         return ProviderAdapter(provider, {}).arguments(tool, purpose, query, urls, limit, max_characters)
 
     @staticmethod

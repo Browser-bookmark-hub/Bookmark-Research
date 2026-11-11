@@ -11,7 +11,7 @@ Reference material moved from the README: components, data model, research modes
 | **Skill** | [`skills/bookmark-research/SKILL.md`](../skills/bookmark-research/SKILL.md) | Guides package reading, local queries, source verification, and research reports |
 | **MCP server** | [`src/mcp_server.py`](../src/mcp_server.py), started with `python3 src/cli.py serve` | One local `bookmark-research` server with the [shared tool catalog](#mcp-tools) |
 | **Python CLI** | [`src/cli.py`](../src/cli.py) | Runs the same queries and research workflows directly, including from a host without MCP |
-| **Web providers** | [`config/providers.json`](../config/providers.json), [`src/provider_adapters.py`](../src/provider_adapters.py), [`src/jina.py`](../src/jina.py) | Exa, Parallel, Jina HTTP, DeepSeek Search/Fetch, Perplexity structured Search and Tavily behind one MCP; Grok and custom OpenAI-compatible model answers are exposed separately |
+| **Web providers** | [`config/providers.json`](../config/providers.json), [`src/provider_adapters.py`](../src/provider_adapters.py) | Exa, Parallel, DeepSeek Search/Fetch and Perplexity structured Search behind one MCP; Grok and custom OpenAI-compatible model answers are exposed separately |
 | **Research and coverage** | [`src/research.py`](../src/research.py), [`src/research_coverage.py`](../src/research_coverage.py) | Complete source inventory, all bookmark instances, budgets, evidence, substantive review and reports |
 | **Host workflows** | [`hosts/`](../hosts/) and [`src/routing.py`](../src/routing.py) | Native Codex delegation, Claude workflow and DSH workflow adapter |
 | **Professional research** | [`src/research_services.py`](../src/research_services.py) | Optional provider-owned background tasks, saved run IDs and secondary-report import |
@@ -46,8 +46,6 @@ flowchart LR
   J[JSON and .canvas] -->|Initial import, then incremental sync| Q
   M --> E[Exa MCP]
   M --> P[Parallel MCP]
-  M --> T[Optional Tavily MCP]
-  M --> JR[Jina Reader / Search HTTP]
   E --> R[Merge per target and retain sources]
   P --> R
   T --> R
@@ -118,7 +116,7 @@ This version has no embeddings, vector database or background page monitoring. R
 
 These modes follow [OpenAI's web search guide](https://developers.openai.com/api/docs/guides/tools-web-search). Having a URL does not determine whether a model reasons. `research_route` recommends an entrypoint from reported current tools and commands without launching it. Professional APIs have separate authentication and lifecycle contracts; anonymous Search MCP access does not authorize a Task API.
 
-One MCP entry point aggregates several backend services, and one Skill executes all three workflows. Reading starts with Exa under `fetch.strategy` (staggered by default: the next provider joins once the current one stalls past `fetch.grace_seconds`; hedged and sequential are the alternatives; abandoned providers are listed in `abandoned_providers`), then concurrent Parallel + Jina Reader fallback for unresolved URLs; Tavily extraction can be added to `fetch.providers`. `fetch.reuse_seconds` can return text saved within that window as `reused_sources` without a new request, and `search.cache_seconds` serves a repeated identical search from a short-lived cache. Search starts with Exa + Parallel under `search.strategy` (hedged by default, with staggered, sequential and wait_all alternatives) and the `search.grace_seconds` / `search.deadline_seconds` bounds; dropped or uncalled providers are listed in `routing`. Then `search.fallback_providers` (Tavily + keyed Jina) run concurrently only for queries with no usable URL. Missing fallback credentials are skipped; successful results stay intact. Set the search fallback list to `[]` to disable it. An existing saved search provider list without a fallback field retains its original service scope.
+One MCP entry point aggregates several backend services, and one Skill executes all three workflows. Reading starts with Exa under `fetch.strategy` (staggered by default: the next provider joins once the current one stalls past `fetch.grace_seconds`; hedged and sequential are the alternatives; abandoned providers are listed in `abandoned_providers`), then Parallel for unresolved URLs; DeepSeek Fetch can be added to `fetch.providers`. `fetch.reuse_seconds` can return text saved within that window as `reused_sources` without a new request, and `search.cache_seconds` serves a repeated identical search from a short-lived cache. Search starts with Exa + Parallel under `search.strategy` (hedged by default, with staggered, sequential and wait_all alternatives) and the `search.grace_seconds` / `search.deadline_seconds` bounds; dropped or uncalled providers are listed in `routing`. Then `search.fallback_providers` (empty by default; keyed DeepSeek or Perplexity can be added) run concurrently only for queries with no usable URL. Missing fallback credentials are skipped; successful results stay intact. Set the search fallback list to `[]` to disable it. An existing saved search provider list without a fallback field retains its original service scope.
 
 The host model leads both research modes. Codex native subagents, Claude ordinary subagents or enabled teams, and configured DSH subagents/workflows supply collaboration; see [host capabilities](harness-compatibility.md). The grouped package scripts are optional for batch research. Exa `agent_run`, complete Parallel Task MCP tools and enabled OpenAI/Parallel APIs can handle scoped external work after host assessment. A saved API preference orders these optional services; an explicit provider selects it exclusively. On confirmed failure, use cumulative `failed_routes` to continue the same investigation, preserving running/unknown/cancelled jobs. API execution follows prepare → start → status → result → import and requires separate credentials. Scrapling, Firecrawl and MarkItDown remain researched projects. A public GitHub README fetch does not inspect the whole repository.
 
@@ -126,7 +124,7 @@ Read the [deep research guide](../skills/bookmark-research/references/deep-resea
 
 `research_search` and `research_fetch` reserve retrieval attempts; repeating the same `operation_id` returns its recorded outcome. The default fetch budget accounts for the selected input size: 207 URLs require at least 13 full batches and receive 25 calls, within an 80-call limit. Explicit budgets are retained; insufficient capacity is reported without removing URLs. These controls do not measure or limit invisible host/model calls.
 
-`research_source` reads saved text. Record content acceptance, quoted claims and each original URL's substantive judgment. A rejected source or retracted claim reopens affected questions. `research_coverage` reports gaps; `research_finish` refuses completion while original-source reviews, questions, conflicts or active/unknown external runs remain unresolved. Blocked and excluded sources remain visible in the original denominator. An `incomplete` report preserves the remaining work.
+`read(research_id, evidence_source_id)` reads saved text. Record content acceptance, quoted claims and each original URL's substantive judgment. A rejected source or retracted claim reopens affected questions. `research_coverage` reports gaps; `research_finish` refuses completion while original-source reviews, questions, conflicts or active/unknown external runs remain unresolved. Blocked and excluded sources remain visible in the original denominator. An `incomplete` report preserves the remaining work.
 
 Quotations and hashes prove what text was saved. The model must still check that the provider returned the right page and that its content supports the claim. A successful fetch may contain excerpts, stale text, or a mismatched page. Source review and retrieval failures remain visible in the report.
 
@@ -158,7 +156,7 @@ The default configuration file is `~/.config/bookmark-research/settings.json`, c
 
 Research task folders go to `~/.local/share/bookmark-research/research/` by default (`output.mode: central`, path changeable) or, with `beside_input`, next to a single bookmark file or folder as `<name>.bookmark-research/`; URL lists, several sources, Git repositories, canvas packages and unwritable locations fall back to the central folder with a stated reason. Changes apply to new tasks only; `research-locations.json` keeps every task listed. `wiki.enabled` (default true) is the master switch: off hides `save` and the deep Wiki tools, rejects Wiki reads/writes, and skips the research follow-up. `wiki.after_research` (`suggest` by default, `auto`, `off`) decides whether finished research proposes or writes Wiki updates. Each Wiki write also refreshes `wiki/index.md` and appends `wiki/log.md`.
 
-With archiving enabled, received fetch responses create a snapshot directory: `response.json` stores the actual MCP response; `manifest.json` records URLs, provider, fetch time, response and text hashes, and status; successfully recognized text is stored once per distinct body in the archive's `pages/<SHA-256>.md`. `search_archive` searches that text and all research evidence without network access. Transport failures without a response return a classified error and no `result` or invented archive. Publication dates and authors are recorded separately. Conflicting responses for the same URL are retained and marked. Excerpts and unknown completeness are identified, and archive errors are returned with the fetch result. Later reads add snapshots without overwriting earlier ones.
+With archiving enabled, received fetch responses create a snapshot directory: `response.json` stores the actual MCP response; `manifest.json` records URLs, provider, fetch time, response and text hashes, and status; successfully recognized text is stored once per distinct body in the archive's `pages/<SHA-256>.md`. `locate(in=["archive"])` searches that text and all research evidence without network access. Transport failures without a response return a classified error and no `result` or invented archive. Publication dates and authors are recorded separately. Conflicting responses for the same URL are retained and marked. Excerpts and unknown completeness are identified, and archive errors are returned with the fetch result. Later reads add snapshots without overwriting earlier ones.
 
 ```sh
 python3 src/cli.py config show
@@ -189,7 +187,7 @@ Default MCP surface (10 primitives, shared with the CLI; 9 when `wiki.enabled` i
 | `job` | Observe or cancel a local job (`j-…`) or a provider run |
 | `health` | Bounded readiness summary with no network and no index write; optional `host`/`observed_tools` report host-native search |
 
-The `deep` preset additionally exposes the 30 maintenance tools below. The replaced names (`search_bookmarks`, `get_context`, `fetch_web`, `wiki_write`, …) are not listed; they remain callable until 0.8.0 and are replaced by the primitives above.
+The `deep` preset additionally exposes the 30 maintenance tools below. The 18 old names (`search_web`, `fetch_web`, `get_context`, …) were removed in favor of the primitives above.
 
 | Tool | Purpose |
 | --- | --- |
@@ -197,14 +195,14 @@ The `deep` preset additionally exposes the 30 maintenance tools below. The repla
 | `sync_package` | Import a package or synchronize changes |
 | `source_history` | List reusable source snapshots and recovery paths |
 | `source_remove` / `source_merge` | Preview or confirm removal and merging of registered sources |
-| `search_bookmarks` | Query bookmarks for multiple targets while retaining item context |
-| `get_context` | Read section, card, group, connection, and item-ancestor context; `compact:true` drops raw JSON, descriptions and revisions |
+| `locate` | Query bookmarks for multiple targets while retaining item context |
+| `read` | Read section, card, group, connection, and item-ancestor context; `compact:true` drops raw JSON, descriptions and revisions |
 | `plan_research` | Local preflight for one question: ranked cards and bookmarks, Wiki and archive pointers, relevance, freshness, fetch ownership, and a route; missing-file cards are flagged and their URLs are kept |
 | `search_providers` | List configured web providers and per-operation authentication requirements |
-| `search_web` | Search through configured Exa / Parallel / Tavily / Jina / DeepSeek / Perplexity providers and merge results per target |
+| `search` | Search through configured Exa / Parallel / DeepSeek / Perplexity providers and merge results per target |
 | `agentic_search` | Optional Grok or configured custom-model answer/search channel with citations; not URL-fused |
-| `fetch_web` | Read known URLs under a per-page and batch budget, optionally archive text, and continue a saved extract with `capture_id`/`offset` |
-| `search_archive` | Literal full-text search over saved page text in the knowledge archive and all research evidence, merged by content hash |
+| `fetch` | Read known URLs under a per-page and batch budget, optionally archive text, and continue a saved extract with `capture_id`/`offset` |
+| `locate(in=["archive"])` | Literal full-text search over saved page text in the knowledge archive and all research evidence, merged by content hash |
 | `get_settings` | Read current settings and storage paths |
 | `update_settings` | Update persistent settings |
 | `research_readiness` | Check credentials, selected services and observed host tools; return setup/login guidance |
@@ -212,7 +210,7 @@ The `deep` preset additionally exposes the 30 maintenance tools below. The repla
 | `research_status` | List saved tasks, inspect bounded progress and paginate full records |
 | `research_search` | Run and record a bounded search round with an idempotency key |
 | `research_fetch` | Fetch selected URLs into the task's evidence archive |
-| `research_source` | Read saved source text with hash verification and pagination |
+| `read(research_id, evidence_source_id)` | Read saved source text with hash verification and pagination |
 | `research_record` | Save evidence and corrections singly or in atomic batches; resume incomplete reports |
 | `research_finish` | Validate coverage and write a completed, incomplete or cancelled report |
 | `research_inventory` / `research_coverage` | Paginate original sources and compare actual review against the complete frozen scope |
@@ -220,7 +218,7 @@ The `deep` preset additionally exposes the 30 maintenance tools below. The repla
 | `research_route` | Recommend a route using current host observations and saved preferences |
 | `discovery_bundle` | Own the route-② budget check and assemble the citable evidence bundle (excerpts, then digest, then a URL list) from the sources the host read; only usable pages become evidence |
 | `research_services` / `research_service_*` | Describe, prepare, start, observe, read, cancel, attach and import optional professional runs |
-| `wiki_write` / `wiki_get` / `wiki_list` / `wiki_search` / `wiki_lint` / `wiki_acknowledge` | Maintain reviewed knowledge, immutable evidence-linked revisions and input review acknowledgements |
+| `save` / `read(page_id)` / `br wiki list` / `locate(in=["wiki"])` / `wiki_lint` / `br wiki acknowledge` | Maintain reviewed knowledge, immutable evidence-linked revisions and input review acknowledgements |
 | `wiki_refresh` | Fetch cited URLs, record source observations and identify pages that need review |
 | `wiki_work` | Resume compilation and review using saved work states and committed publication receipts |
 | `wiki_compile` | Plan an incremental compile from a bookmark scope and audit coverage against current revisions; planning writes a plan file only |
@@ -231,17 +229,15 @@ The `deep` preset additionally exposes the 30 maintenance tools below. The repla
 | --- | --- |
 | **Exa** | Built into the MCP server and CLI for search and URL reading |
 | **Parallel** | Built into the MCP server and CLI for search and URL reading |
-| **Jina** | HTTP Reader supports anonymous webpage/PDF reading; Search requires `JINA_API_KEY`. The hosted Jina MCP is not used. |
-| **Tavily** | Built-in search fallback and selectable extraction; `TAVILY_API_KEY` uses Bearer, otherwise explicit keyless mode |
 | **DeepSeek Search / Fetch** | Optional raw JSON tools API (`/v1/tools/search`, `/v1/tools/fetch`); requires `DEEPSEEK_API_KEY`; OpenAI-compatible error shape, not a Chat Completions tool |
 | **Perplexity Search** | Optional structured Search API provider; requires `PERPLEXITY_API_KEY`; returns sources only and does not read pages |
 | **xAI Grok** | Optional Responses API tool `agentic_search`; requires `XAI_API_KEY`; returns a model answer and citations outside URL fusion |
 | **Custom model endpoint** | Optional OpenAI-compatible Chat Completions or Responses endpoint; configured Base URL/model/protocol and `CUSTOM_AGENTIC_API_KEY`; separate answer channel, upstream search support is not inferred |
 | **GitHub** | Use the host's existing GitHub MCP or `gh` for repository-specific tasks. No GitHub MCP is bundled; public pages can also be read through Exa / Parallel. |
 
-Bookmark Research aggregates only its configured providers; the host model may call other visible host/MCP search tools and compare their evidence. Search starts with Exa + Parallel under a selectable strategy (hedged by default) with a grace window and total deadline, and uses configured fallbacks for unresolved queries; Perplexity can be added to either search tier. Reading falls back to Parallel + Jina after Exa. Grok and the custom OpenAI-compatible endpoint are separate answer channels; custom search behavior depends on the configured upstream. Anonymous/keyless access and quotas depend on each service's policy; optional credentials use `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY`, `DEEPSEEK_API_KEY` or `PERPLEXITY_API_KEY` for retrieval, `XAI_API_KEY` for Grok, and `CUSTOM_AGENTIC_API_KEY` for the custom model. Local queries work offline.
+Bookmark Research aggregates only its configured providers; the host model may call other visible host/MCP search tools and compare their evidence. Search starts with Exa + Parallel under a selectable strategy (hedged by default) with a grace window and total deadline, and uses configured fallbacks for unresolved queries; Perplexity can be added to either search tier. Reading falls back to Parallel after Exa. Grok and the custom OpenAI-compatible endpoint are separate answer channels; custom search behavior depends on the configured upstream. Anonymous/keyless access and quotas depend on each service's policy; optional credentials use `EXA_API_KEY`, `PARALLEL_API_KEY`, `DEEPSEEK_API_KEY` or `PERPLEXITY_API_KEY` for retrieval, `XAI_API_KEY` for Grok, and `CUSTOM_AGENTIC_API_KEY` for the custom model. Local queries work offline.
 
-`search_providers` describes configuration without network access; `probe:true` discovers remote MCP tools, while Jina, DeepSeek and Perplexity HTTP mappings remain explicitly `not_probed`. Discovery does not prove successful retrieval. Each MCP process reuses remote sessions and a bounded tool catalog. Calls are not automatically replayed after errors. Historical implementation notes remain available in Git history.
+`search_providers` describes configuration without network access; `probe:true` discovers remote MCP tools, while DeepSeek and Perplexity HTTP mappings remain explicitly `not_probed`. Discovery does not prove successful retrieval. Each MCP process reuses remote sessions and a bounded tool catalog. Calls are not automatically replayed after errors. Historical implementation notes remain available in Git history.
 
 ### Package rules and AGENTS.md
 
@@ -259,7 +255,7 @@ The Skill currently produces answers and research reports. It does not generate 
 
 This directory is the **Codex native plugin**, with its manifest at `.codex-plugin/plugin.json`. In Codex 0.153.4, the MCP configuration explicitly uses `cwd: "."` and runs `python3 src/cli.py serve` from the installed plugin directory. That native entry does not expand `${PLUGIN_ROOT}`; the Claude export uses its own path convention.
 
-The Codex manifest and DSH adapter forward provider credentials including `EXA_API_KEY`, `PARALLEL_API_KEY`, `TAVILY_API_KEY`, `JINA_API_KEY`, `DEEPSEEK_API_KEY`, `PERPLEXITY_API_KEY`, `XAI_API_KEY` and `CUSTOM_AGENTIC_API_KEY`, along with the configured data/config paths. Actual paths and credentials come from the user's runtime environment.
+The Codex manifest and DSH adapter forward provider credentials including `EXA_API_KEY`, `PARALLEL_API_KEY`, `DEEPSEEK_API_KEY`, `PERPLEXITY_API_KEY`, `XAI_API_KEY` and `CUSTOM_AGENTIC_API_KEY`, along with the configured data/config paths. Actual paths and credentials come from the user's runtime environment.
 
 Run the relevant command **from this directory** to generate another format:
 

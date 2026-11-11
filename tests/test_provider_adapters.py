@@ -19,7 +19,7 @@ class ProviderSchemaTests(unittest.TestCase):
         cls.registry = json.loads((ROOT / "config/providers.json").read_text())["providers"]
 
     def test_recorded_schemas_accept_search_and_extraction_arguments(self):
-        self.assertEqual({row["provider"] for row in self.fixture["providers"]}, {"exa", "parallel", "tavily"})
+        self.assertEqual({row["provider"] for row in self.fixture["providers"]}, {"exa", "parallel"})
         for row in self.fixture["providers"]:
             adapter = ProviderAdapter(row["provider"], self.registry[row["provider"]])
             for purpose in ("search", "fetch"):
@@ -73,10 +73,9 @@ class ProviderSchemaTests(unittest.TestCase):
         ProviderAdapter._validate({"anyOf": [{"type": "string"}, {"type": "null"}]}, "valid")
 
     def test_advertised_native_research_tools_are_never_selected_for_retrieval(self):
-        row = next(row for row in self.fixture["providers"] if row["provider"] == "tavily")
-        self.assertIn("tavily_research", row["advertised_tool_names"])
-        adapter = ProviderAdapter("tavily", self.registry["tavily"])
-        research_only = [{"name": "tavily_research", "inputSchema": {"type": "object", "properties": {}}}]
+        self.assertEqual(["agent_run"], self.registry["exa"]["native_research"]["tools"])
+        adapter = ProviderAdapter("exa", self.registry["exa"])
+        research_only = [{"name": "agent_run", "inputSchema": {"type": "object", "properties": {}}}]
         for purpose in ("search", "fetch"):
             with self.subTest(purpose=purpose), self.assertRaises(McpError) as caught:
                 adapter.select(purpose, research_only)

@@ -28,7 +28,7 @@ Create answerable questions, scope, language and retrieval budgets with `researc
 ## Evidence cycle
 
 1. Fetch known URLs with `research_fetch`; discover missing sources with `research_search`, mapping queries to existing `question_id` values. Honor provider restrictions and inspect unresolved attempts.
-2. Fetch returns metadata. Read saved text through `research_source` (one source, or up to eight `source_ids` per call), continuing pagination for relevant passages. Check page identity, date/version and applicability; reject login shells or unrelated pages. An extract may be partial. Save `source_review` before claims.
+2. Fetch returns metadata. Read saved text through `read(research_id, evidence_source_id)` (one source, or up to eight `source_ids` per call), continuing pagination for relevant passages. Check page identity, date/version and applicability; reject login shells or unrelated pages. An extract may be partial. Save `source_review` before claims.
 3. Record claims with exact saved quotations and actual evidence IDs. Quote/hash checks establish presence, not semantic support. Mark inferences with `inference:true`; preserve conditions and counterevidence in the final answer. Multiple providers returning one page are not independent sources.
 4. For original input, record `inventory_review` against accepted text from the matching original URL. A replacement page or external report may answer a question without satisfying original-URL coverage. Record specific blocks or justified exclusions when necessary.
 5. Record supported `answer` entries using that question's claim IDs. Check `research_coverage` when choosing follow-up work or finishing; fetch the relevant differences rather than rereading every unchanged record. Resolve conflicts or retain gaps.
@@ -73,12 +73,12 @@ Budgets bound plugin retrieval attempts, not money or model tokens:
 | Counter | Unit | Default / maximum |
 | --- | --- | --- |
 | `search_calls` | A deduplicated provider + question + query attempt | 16 / 120 |
-| `fetch_calls` | Provider attempt: Exa/Parallel/Tavily batch up to 16 URLs; Jina counts each URL | 12 without input; otherwise initial capacity plus 12 follow-ups, capped at 80 |
+| `fetch_calls` | Provider attempt: Exa/Parallel/DeepSeek batch up to 16 URLs; the browser renderer counts each URL | 12 without input; otherwise initial capacity plus 12 follow-ups, capped at 80 |
 | `rounds` | One `research_search` batch | 8 / 40 |
 
-Search accepts at most 12 queries and returns at most 20 URLs per question. Two queries across two providers cost four search calls and one round. A three-URL Exa → Parallel + Jina fallback costs 1 + 1 + 3 fetch calls.
+Search accepts at most 12 queries and returns at most 20 URLs per question. Two queries across two providers cost four search calls and one round. A three-URL Exa → Parallel fallback costs 1 + 1 fetch calls.
 
-Without explicit `max_fetch_calls`, the default is `min(80,max(12,ceil(URL_count/16)+12))`; replace the batch term with `URL_count` when Jina is first. `initial_fetch_plan` reports capacity and shortfall. Preserve explicit budgets and full scope even when capacity is insufficient. Saved-source reads, records and reports use no retrieval allowance; budgets may be zero. Host/provider usage outside these calls must be recorded separately. Batch `research_fetch` up to 16 URLs and `research_source` up to eight `source_ids` per call: fewer round trips matter most when host turns are slow.
+Without explicit `max_fetch_calls`, the default is `min(80,max(12,ceil(URL_count/16)+12))`; replace the batch term with `URL_count` when the browser renderer is first. `initial_fetch_plan` reports capacity and shortfall. Preserve explicit budgets and full scope even when capacity is insufficient. Saved-source reads, records and reports use no retrieval allowance; budgets may be zero. Host/provider usage outside these calls must be recorded separately. Batch `research_fetch` up to 16 URLs and `read(research_id, evidence_source_id)` up to eight `source_ids` per call: fewer round trips matter most when host turns are slow.
 
 For a focused deep-research question, pass an explicit `budget` at `research_start` instead of changing defaults: keep the sub-questions few (six or fewer), and raise only the fetch allowance when the input needs it (around 24 calls); the default above already scales with input size. Changing `DEFAULT_BUDGET` itself would alter resume semantics for existing tasks.
 
@@ -90,7 +90,7 @@ Pending intent is saved before access and a completion receipt before state comm
 
 Continue `active` tasks directly. For an exported `incomplete` report, first record `{"kind":"resume","text":"Reason for continuing"}`. Resume retains prior report snapshots and usage; it does not expand budgets. `completed` and `cancelled` are terminal. Exhausted tasks can still organize existing evidence; more retrieval needs a separately established task and budget.
 
-`research_status` without an ID lists saved tasks. With an ID it returns bounded previews; use the needed `section` and follow `next_offset` for complete records. Page length alone does not signal the end. Use returned artifact locations for oversized entries, and `research_source` for page text.
+`research_status` without an ID lists saved tasks. With an ID it returns bounded previews; use the needed `section` and follow `next_offset` for complete records. Page length alone does not signal the end. Use returned artifact locations for oversized entries, and `read(research_id, evidence_source_id)` for page text.
 
 Coverage separates `accounted_for`, `usable_text`, `substantive_review` and `question_completion`. Failure notes increase accounting only. Exclusions stay in the original denominator without increasing reading/review coverage; legacy tasks without frozen inventories have unknown original coverage.
 

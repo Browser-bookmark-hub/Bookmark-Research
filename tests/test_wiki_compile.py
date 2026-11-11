@@ -15,6 +15,7 @@ from settings import Settings
 from test_bookmark_index import TEMP, make_package, read_json, write_json
 from wiki import WikiStore
 from wiki_compile import WikiCompile
+from data_isolation import setUpModule, tearDownModule  # noqa: F401
 
 
 class WikiCompileTests(unittest.TestCase):

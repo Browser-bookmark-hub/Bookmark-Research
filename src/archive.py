@@ -854,7 +854,7 @@ class SourceArchive:
             "source_attribution_version": self.ATTRIBUTION_VERSION,
             "archived_at": archived_at.isoformat(),
             "provider": primary_provider,
-            "tool": "merge_search_results",
+            "tool": "ingest",
             "retrieved_at": archived_at.isoformat(),
             "requested_urls": [h["url"] for h in ranked_hits],
             "request_arguments": {"limit_per_target": payload.get("limit_per_target", 10)},

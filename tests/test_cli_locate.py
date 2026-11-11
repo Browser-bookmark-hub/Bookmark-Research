@@ -100,6 +100,21 @@ class CliLocateTests(unittest.TestCase):
         encode_hits = lambda hits: json.dumps(hits, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.assertEqual(encode_hits(cli_result["hits"]), encode_hits(mcp_result["hits"]))
 
+    def test_cli_short_ref_reads_in_a_fresh_process(self):
+        code, synced = self.run_cli("sync", str(self.root / "Package"), "--source-id", "fixture", "--mode", "live")
+        self.assertEqual(0, code)
+        self.assertEqual("fixture", synced["source_id"])
+
+        code, located = self.run_cli_process("locate", "--text", "Needle", "--source-id", "fixture",
+                                             "--limit", "1", "--no-refresh")
+        self.assertEqual(0, code)
+        ref = located["hits"][0]["ref"]
+
+        code, context = self.run_cli_process("read", ref, "--no-refresh")
+        self.assertEqual(0, code)
+        self.assertEqual("fixture", context["source_id"])
+        self.assertEqual(["one"], [item["item"] for item in context["items"]])
+
     def test_cli_locate_lists_direct_folder_children(self):
         code, synced = self.run_cli("sync", str(self.root / "Package"), "--source-id", "fixture", "--mode", "live")
         self.assertEqual(0, code)

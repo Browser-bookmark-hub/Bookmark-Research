@@ -75,7 +75,7 @@ Default checks contact selected retrieval catalogs and enabled professional serv
 
 For access diagnostics, the advanced catalog offers `research_readiness` with the actual host and observed tools. `cached` refreshes on first use, key/config changes or expiry (15 minutes); `always` checks each new question; `manual` waits for `--refresh`. Reuse checks within an investigation. Local bookmark queries need no network check. CLI search/read commands can run directly; readiness is an optional diagnostic.
 
-Search/read adapters are included. Optional Exa Agent, Parallel Task and Tavily Research MCPs belong to the host: setup displays endpoint-specific add/login steps, and readiness returns the same structured guidance. Inspect existing registrations before adding one. Codex uses `codex mcp list` and, where supported, `codex mcp login`; Claude uses `claude mcp list` and `/mcp`. DSH uses its official MCP client's profile configuration and authentication headers. Tool visibility alone is never reported as a successful login. Plugin key storage does not authenticate a separately registered host MCP. See [settings and remediation](../skills/bookmark-research/references/settings-and-archive.md).
+Search/read adapters are included. Optional Exa Agent and Parallel Task MCPs belong to the host: setup displays endpoint-specific add/login steps, and readiness returns the same structured guidance. Inspect existing registrations before adding one. Codex uses `codex mcp list` and, where supported, `codex mcp login`; Claude uses `claude mcp list` and `/mcp`. DSH uses its official MCP client's profile configuration and authentication headers. Tool visibility alone is never reported as a successful login. Plugin key storage does not authenticate a separately registered host MCP. See [settings and remediation](../skills/bookmark-research/references/settings-and-archive.md).
 
 Optional service failures appear under `setup.needs_attention` and do not block local work or other providers. Native install or setup failures return nonzero, with installation and setup status reported separately. Historical versions without setup can still install without requesting that newer feature.
 
@@ -175,6 +175,16 @@ python3 scripts/install.py install --host dsh --profile desktop
 ```
 
 The legacy `cordis.patch.yml` still contains absolute paths and requires separate Skill discovery. Workflow execution separately requires the host service/engine; `hosts/dsh/workflow-call.py --research-id RID --run-key KEY` prepares a call without launching it.
+
+### Other hosts (Agent Plugins 1.0.0, e.g. Devin)
+
+`bookmark-research install other` (same as `--host agent`) writes an [Agent Plugins 1.0.0](https://agent-plugins.org/specification) plugin into a managed directory: root `plugin.json`, `mcp.json` (stdio, `python3 ${PLUGIN_ROOT}/src/cli.py serve`) and `skills/bookmark-research/SKILL.md`, without `AGENTS.md` or other hosts' manifests. The installer exports, records and verifies it; the JSON result's `register` field gives the client command, for example Devin:
+
+```sh
+devin plugins install --local <installed_path>
+```
+
+`update other` and `verify other` use the receipt like the other hosts. Data, settings and keys stay in the shared locations rather than the client's `PLUGIN_DATA`, so every host reads the same index, archive and Wiki. `python3` must be on PATH (the spec requires a single executable token). `python3 scripts/export_bundle.py --format agent --output DIR` exports without installing.
 
 ## First use and data locations
 

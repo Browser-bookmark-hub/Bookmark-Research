@@ -4,7 +4,7 @@
 
 用户可直接在对话中改配置，CLI 与 MCP 使用同一套实现。当前没有独立图形设置页。
 
-搜索 provider 包括 `exa`、`parallel`、`tavily`、`jina`、`deepseek`，以及可选的 `perplexity`（需要 `PERPLEXITY_API_KEY`；仅搜索）。Grok 和用户自定义 OpenAI 兼容模型通过独立的 `agentic_search` 返回回答，不是 URL provider。自定义模型使用 `custom_agentic` 配置 Base URL／模型／协议，并通过 `CUSTOM_AGENTIC_API_KEY` 认证；Responses 的 `native` 模式请求 `web_search`，提示模式不能保证上游联网。回答和引用不独立核验，也不并入 URL 结果。搜索第一轮由 `search.providers` 指定（Exa + Parallel），策略由 `search.strategy` 选择：`hedged`（默认）全并发，所有查询都有结果后最多再等 `search.grace_seconds`（默认 2）即返回；`staggered` 错峰，查询未全部解析才发下一家；`sequential` 按顺序逐家调用，只把未解析查询交给下一家；`wait_all` 等全部。首轮受 `search.deadline_seconds`（默认 10 秒）约束。provider 较慢时可用 `update_settings` 延长该值，设为 `null` 可取消期限。被放弃和未调用的 provider 分别记入 `routing.abandoned_providers` 与 `routing.not_attempted_providers`；已放弃的请求仍可能消耗服务额度。之后 `search.fallback_providers`（Tavily + 有 key 的 Jina）会读取未解析查询；设为空数组可关闭回退。provider 失败保留在 `batches` 中。收到 `quota_exhausted` 后会按服务提供的 `retry_after` 冷却该 provider；未提供时冷却 5 分钟，同时仍会尝试配置的其他回退服务。插件无法恢复已耗尽的服务额度。读取先用 `fetch.provider`，策略由 `fetch.strategy` 选择：`staggered`（默认）在当前提供商超过 `fetch.grace_seconds`（默认 25）仍未解决时并行下一家；`hedged` 全部并发；`sequential` 逐家等待；`grace_seconds` 设为 null 即回到逐家等待。被放弃的提供商记入 `abandoned_providers`；连续两次整批无可用正文的提供商会短暂跳过（`provider_stalled`）。其余 `fetch.providers` 对未成功 URL 并发兜底，默认为 Exa → Parallel + Jina。Jina Reader 支持匿名读取，Search 需要 `JINA_API_KEY`。Tavily 使用 `TAVILY_API_KEY` 或 keyless header。DeepSeek Search/Fetch 使用 `DEEPSEEK_API_KEY`；它是原始 JSON tools API，错误格式兼容 OpenAI，但不是 Chat Completions 接口。密钥优先读取进程环境，其次读取私有凭据文件，公共访问仍受限额影响。
+搜索 provider 包括 `exa`、`parallel`、`deepseek`，以及可选的 `perplexity`（需要 `PERPLEXITY_API_KEY`；仅搜索）。Grok 和用户自定义 OpenAI 兼容模型通过独立的 `agentic_search` 返回回答，不是 URL provider。自定义模型使用 `custom_agentic` 配置 Base URL／模型／协议，并通过 `CUSTOM_AGENTIC_API_KEY` 认证；Responses 的 `native` 模式请求 `web_search`，提示模式不能保证上游联网。回答和引用不独立核验，也不并入 URL 结果。搜索第一轮由 `search.providers` 指定（Exa + Parallel），策略由 `search.strategy` 选择：`hedged`（默认）全并发，所有查询都有结果后最多再等 `search.grace_seconds`（默认 2）即返回；`staggered` 错峰，查询未全部解析才发下一家；`sequential` 按顺序逐家调用，只把未解析查询交给下一家；`wait_all` 等全部。首轮受 `search.deadline_seconds`（默认 10 秒）约束。provider 较慢时可用 `update_settings` 延长该值，设为 `null` 可取消期限。被放弃和未调用的 provider 分别记入 `routing.abandoned_providers` 与 `routing.not_attempted_providers`；已放弃的请求仍可能消耗服务额度。之后 `search.fallback_providers`（默认为空，可加入有 key 的 DeepSeek 或 Perplexity）会读取未解析查询；设为空数组可关闭回退。provider 失败保留在 `batches` 中。收到 `quota_exhausted` 后会按服务提供的 `retry_after` 冷却该 provider；未提供时冷却 5 分钟，同时仍会尝试配置的其他回退服务。插件无法恢复已耗尽的服务额度。读取先用 `fetch.provider`，策略由 `fetch.strategy` 选择：`staggered`（默认）在当前提供商超过 `fetch.grace_seconds`（默认 12）仍未解决时并行下一家；`fetch.deadline_seconds`（默认 40）到期仍在运行的提供商会被放弃；`hedged` 全部并发；`sequential` 逐家等待；`grace_seconds` 设为 null 即回到逐家等待。被放弃的提供商记入 `abandoned_providers`；连续两次整批无可用正文的提供商会短暂跳过（`provider_stalled`）。其余 `fetch.providers` 对未成功 URL 并发兜底，默认为 Exa → Parallel。DeepSeek Search/Fetch 使用 `DEEPSEEK_API_KEY`；它是原始 JSON tools API，错误格式兼容 OpenAI，但不是 Chat Completions 接口。密钥优先读取进程环境，其次读取私有凭据文件，公共访问仍受限额影响。
 
 ## 终端向导与就绪检查
 
@@ -25,7 +25,7 @@
 
 - `missing_credentials`：用 setup 或进程环境配置指明的密钥。
 - `catalog_reachable`：MCP 发现成功，实际搜索／读取权限和额度未验证。
-- `http_unchecked`：有 HTTP 适配，检查各操作缺失的密钥；Jina Search 必须有 key。
+- `http_unchecked`：有 HTTP 适配，检查各操作缺失的密钥。
 - `retrieval_verified`：仅逐操作状态为 `verified` 的操作已验证，其他操作仍可能失败。
 - `model_access_verified`：OpenAI 模型元数据可读，尚未测试付费研究任务。
 - `task_mcp_access_verified`：Parallel Task MCP 接受了密钥，不证明 Task API 的执行权限。
@@ -51,11 +51,11 @@
 {
   "schema_version": 1,
   "timeout_seconds": 30,
-  "search": {"providers": ["exa", "parallel"], "fallback_providers": ["tavily", "jina"], "limit_per_target": 5,
+  "search": {"providers": ["exa", "parallel"], "fallback_providers": [], "limit_per_target": 5,
     "strategy": "hedged", "grace_seconds": 2, "deadline_seconds": 10, "cache_seconds": 0},
-  "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000,
+  "fetch": {"provider": "exa", "providers": ["exa", "parallel"], "max_characters": 12000,
     "max_total_characters": 24000, "fair_share_min": 500,
-    "strategy": "staggered", "grace_seconds": 25, "deadline_seconds": null, "reuse_seconds": 0},
+    "strategy": "staggered", "grace_seconds": 12, "deadline_seconds": 40, "reuse_seconds": 0},
   "server": {"network_workers": 4, "max_pending_calls": 16},
   "archive": {"enabled": true, "directory": "/absolute/path/to/knowledge"},
   "research": {"depth": "auto", "prefer_host_workflows": true, "response_language": "auto",
@@ -77,7 +77,7 @@
 }
 ```
 
-优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch` 的 `archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；`max_total_characters` 默认 24000，超过 `fair_share_min`（默认 500）时按页分配。提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki_preflight`（默认 true）让 `plan_research` 检查 Wiki 与归档；`freshness_days`（默认 30）是本地过期阈值；`plan.max_characters`（默认 8000）与 `plan.homepage_limit` 控制输出大小和首页配额。旧 `plan.min_relevance` 配置继续兼容，不再过滤候选。`wiki.enabled`（默认 true）是 Wiki 总开关：设为 false 会隐藏 `save` 与 deep 档 Wiki 工具，Wiki 作用域的读写会被明确拒绝，`wiki.after_research` 也会跳过。安装向导会询问一次，之后可用 `update_settings` 修改。`tool_scope` 是服务端 MCP 目录白名单：空列表沿用预设。`tool_scope_preset` 是预设：`quick`（默认，10 个原语；关闭 Wiki 时为 9 个）、`deep`／`all`（40 个真实工具；18 个旧名不再列出，但可在 0.8.0 前由显式 `tool_scope` 指定）。非空 `tool_scope` 覆盖预设；`BOOKMARK_RESEARCH_TOOL_SCOPE` 覆盖两者，空值恢复全部。被隐藏的工具会拒绝调用，需改设置或预设。DSH 插件只在环境变量存在时才转发。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
+优先级为本次调用参数 → 用户持久配置 → 内置默认值。`fetch` 的 `archive=false` 只禁用这次保存；改变今后默认值用 `update_settings`。`max_characters` 范围为 100–100000，普通输出始终执行每页限制；`max_total_characters` 默认 24000，超过 `fair_share_min`（默认 500）时按页分配。提供商支持时也传递对应请求参数。`character_limit_applied:false` 仅表示提供商侧没有可用长度参数，不代表插件输出无限制。加大限额不保证完整页面。`wiki_preflight`（默认 true）让 `plan_research` 检查 Wiki 与归档；`freshness_days`（默认 30）是本地过期阈值；`plan.max_characters`（默认 8000）与 `plan.homepage_limit` 控制输出大小和首页配额。旧 `plan.min_relevance` 配置继续兼容，不再过滤候选。`wiki.enabled`（默认 true）是 Wiki 总开关：设为 false 会隐藏 `save` 与 deep 档 Wiki 工具，Wiki 作用域的读写会被明确拒绝，`wiki.after_research` 也会跳过。安装向导会询问一次，之后可用 `update_settings` 修改。`tool_scope` 是服务端 MCP 目录白名单：空列表沿用预设。`tool_scope_preset` 是预设：`quick`（默认，10 个原语；关闭 Wiki 时为 9 个）、`deep`／`all`（40 个工具）。非空 `tool_scope` 覆盖预设；`BOOKMARK_RESEARCH_TOOL_SCOPE` 覆盖两者，空值恢复全部。被隐藏的工具会拒绝调用，需改设置或预设。DSH 插件只在环境变量存在时才转发。`wiki.max_source_age_days` 默认 30 天，范围为 1–3650。
 
 `search.cache_seconds`（0–3600，默认 0）让短时间内的相同搜索直接返回进程内缓存，不再调用提供商；这些批次标记 `cached:true`，保留原 `retrieved_at`，不消耗提供商额度。`fetch.reuse_seconds`（0–86400，默认 0）让 `research_fetch` 对窗口内已保存正文的 URL 直接返回 `reused_sources`（保留原 ID 与检索时间，不追加新快照），不再联网，也不占抓取预算。`server.network_workers`（1–16）与 `server.max_pending_calls`（1–64，且不小于 worker 数）设置 stdio 服务端并发，重启服务后生效。
 
@@ -99,7 +99,7 @@
 
 输出语言优先级为本次要求 → `research.response_language`（`auto`／`en`／`zh`）→ auto 时跟随任务／对话 → 均未指定时英文。安装器 `--lang` 只影响帮助和引导，向导另外询问答复语言；委派工作流时传入确定后的 `output_language`。
 
-`fetch_web` 自动保存它自己收到的实际 provider 响应。搜索命中本身不触发抓取或存档，宿主另外配置的 Exa／GitHub MCP 响应也不会被本插件自动截获。
+`fetch` 自动保存它自己收到的实际 provider 响应。搜索命中本身不触发抓取或存档，宿主另外配置的 Exa／GitHub MCP 响应也不会被本插件自动截获。
 
 普通输出同时执行每页 `max_characters` 与整批 `max_total_characters` 限制（整批默认 24000，范围 100–800000）。多 URL 时按剩余页数分配预算（`fetch.fair_share_min`，默认 500），不再把额度全部耗在前几页；`pages_with_text`／`pages_without_text` 与 `successful_url_count` 只统计有正文的页。`characters`／`text_sha256` 对应当前切片，`source_characters`／`sha256` 对应完整归档正文；`output_truncated`、`next_offset` 和 `continuation` 明确标出未返回部分。带 `capture_id` 和 offset 续读同一快照时不联网，并省略 provider、archive、raw。`raw:true` 用于诊断原始响应，仍受 MCP 总返回上限约束。
 
@@ -125,6 +125,6 @@ knowledge/
 - 旧提供商快照在续读或引用时会对照保存的原始响应重新核对来源；即使正文哈希未变，串页等归属不明的摘录也会被拒绝。归档检索索引会按新提取版本对已有记录复核一次，原抓取文件保留不动。
 - 再读同一 URL 会追加新快照，不覆盖旧档案；这只是按调用保存，不是后台版本监控。
 
-报告可引用 `archive.manifest_path` 和各页 `body_path`。`search_archive`（CLI `search-archive`）对本归档和所有已登记研究任务证据中的已保存正文做字面全文检索，按内容哈希合并；可重建的索引为 `<数据目录>/raw-library.sqlite3`。档案不自动加入书签 SQLite 或生成 Wiki。宿主实际取得的原文可用 `research_import_evidence` 导入并标明 provenance；外部研究报告用 external_report，引用列表不算原页阅读。整理知识页使用 `wiki_write`。
+报告可引用 `archive.manifest_path` 和各页 `body_path`。`locate(in=["archive"])`（CLI `search-archive`）对本归档和所有已登记研究任务证据中的已保存正文做字面全文检索，按内容哈希合并；可重建的索引为 `<数据目录>/raw-library.sqlite3`。档案不自动加入书签 SQLite 或生成 Wiki。宿主实际取得的原文可用 `research_import_evidence` 导入并标明 provenance；外部研究报告用 external_report，引用列表不算原页阅读。整理知识页使用 `save`。
 
 深度研究在各自的任务文件夹保存状态和证据（位置见上文）。`research_fetch` 始终保存已取得的研究响应和正文，普通 fetch 的 archive 开关不影响它；任务恢复和引用校验需要这些快照。会话详情与分页见 [深度研究流程](deep-research.md)。

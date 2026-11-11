@@ -44,7 +44,7 @@ class WikiWork:
                 continue
             row = {"work_id": "page:" + page_id, "kind": "page", "page_id": page_id,
                    "title": pointer.get("title"), "revision": pointer["revision"],
-                   "resume": {"tool": "wiki_get", "arguments": {"page_id": page_id}}}
+                   "resume": {"tool": "read", "arguments": {"page_id": page_id}}}
             try:
                 record = self.wiki._revision(pointer)
                 if record["page_id"] != page_id:
@@ -58,11 +58,11 @@ class WikiWork:
                     observed = issue.get("new_source", {})
                     scope = observed.get("scope_id", "")
                     if scope.startswith("capture:"):
-                        source_reads.append({"tool": "fetch_web", "arguments": {
+                        source_reads.append({"tool": "fetch", "arguments": {
                             "urls": [issue["url"]], "capture_id": scope.removeprefix("capture:"), "offset": 0}})
                     elif scope.startswith("r-"):
-                        source_reads.append({"tool": "research_source", "arguments": {
-                            "research_id": scope, "source_id": observed["source_id"], "offset": 0}})
+                        source_reads.append({"tool": "read", "arguments": {
+                            "research_id": scope, "evidence_source_id": observed["source_id"], "offset": 0}})
                 row.update(status="compiled" if validation["status"] == "current" else "needs_review",
                            validation={**validation, "issues": preview, "issue_count": len(issues),
                                        "issues_truncated": len(issues) > 20},
@@ -169,7 +169,7 @@ class WikiWork:
                            extracted_page_count=readable, compiled_page_count=covered,
                            retrieved_at=manifest.get("retrieved_at"), pending_research_ids=sorted(tasks)[:50],
                            pending_research_count=len(tasks), **self._pages(receipts))
-                row["resume"] = {"tool": "fetch_web", "arguments": {
+                row["resume"] = {"tool": "fetch", "arguments": {
                     "urls": urls[:8], "capture_id": cid, "offset": 0}}
             except (OSError, ValueError, KeyError, TypeError) as error:
                 row.update(status="needs_review", error=str(error)[:1000])
@@ -226,4 +226,4 @@ class WikiWork:
                 "note": "Pending claims are candidates, not mandatory writes or new authorization. "
                         "Compiled means cited by an intact current revision, not that every passage was synthesized; "
                         "check page work for freshness. "
-                        "Historical revisions remain available through wiki_get. Listing does not fetch or write."}
+                        "Historical revisions remain available through read(page_id, revision). Listing does not fetch or write."}

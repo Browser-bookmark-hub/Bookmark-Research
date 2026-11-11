@@ -63,6 +63,32 @@ def resolve(ref):
         return {"kind": kind, "identity": list(identity)}
 
 
+def reserve(ref, kind, identity):
+    """Restore a previously issued ref before a new process registers refs."""
+    if not isinstance(ref, str) or not isinstance(kind, str) or len(kind) != 1 or kind not in ("b", "w", "a"):
+        raise ValueError("invalid persisted ref")
+    identity = tuple(str(value) for value in identity)
+    expected_lengths = {"b": 4, "w": 2, "a": 3}
+    if len(identity) != expected_lengths[kind]:
+        raise ValueError("invalid persisted ref identity")
+    key = (kind, identity)
+    with _LOCK:
+        previous = _BY_REF.get(ref)
+        if previous is not None and previous != key:
+            raise ValueError("persisted ref collision")
+        existing = _BY_IDENTITY.get(key)
+        if existing is not None and existing != ref:
+            return existing
+        _BY_REF[ref] = key
+        _BY_IDENTITY[key] = ref
+        _BY_REF.move_to_end(ref)
+        while len(_BY_REF) > _MAX_REFS:
+            old_ref, old_key = _BY_REF.popitem(last=False)
+            if _BY_IDENTITY.get(old_key) == old_ref:
+                del _BY_IDENTITY[old_key]
+        return ref
+
+
 def clear():
     """Clear the process-local registry; intended for isolated tests."""
     with _LOCK:

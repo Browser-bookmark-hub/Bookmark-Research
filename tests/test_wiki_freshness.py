@@ -20,6 +20,7 @@ from source_manager import SourceManager
 from source_versions import SourceVersions
 from wiki import WikiStore
 from wiki_search import WikiSearchIndex
+from mcp_helpers import call_internal, is_internal  # noqa: F401
 
 
 class WikiFreshnessTests(unittest.TestCase):
@@ -159,11 +160,12 @@ class WikiFreshnessTests(unittest.TestCase):
             "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "fixture", "version": "1"}}})
         server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"})
         def call(name, arguments):
-            result = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                                    "params": {"name": name, "arguments": arguments}})
+            result = (call_internal(server, name, arguments) if is_internal(name) else
+                      server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                     "params": {"name": name, "arguments": arguments}}))
             self.assertFalse(result["result"]["isError"], result)
             return result["result"]["structuredContent"]
-        written = call("wiki_write", {"page_id": "price", "page": self.page(rid, aliases=["Aurora cost"]),
+        written = call("save", {"page_id": "price", "page": self.page(rid, aliases=["Aurora cost"]),
                                      "change_note": "Initial"})
         self.assertEqual(1, written["revision"])
         self.assertEqual("unchanged", call("wiki_refresh", {"page_id": "price", "expected_revision": 1})["checks"][0]["status"])

@@ -113,7 +113,7 @@ class ResearchLifecycleTests(IsolatedLifecycleTests):
         self.assertEqual([], state["sources"])
 
     def test_cancel_prevents_an_additional_fallback_request_and_budget_reservation(self):
-        rid = self.start(providers=["exa", "jina"])
+        rid = self.start(providers=["exa", "deepseek"])
         release, worker, outcome = self.slow_fetch(rid, fails=True)
         try:
             self.sessions.finish(rid, "Cancel before fallback.", status="cancelled")

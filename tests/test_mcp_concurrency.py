@@ -83,7 +83,7 @@ class McpConcurrencyTests(unittest.TestCase):
 
     def test_local_sqlite_request_finishes_while_fetch_waits_and_json_errors_still_recover(self):
         messages = self.serve([
-            request("slow", "fetch_web", {"urls": ["https://example.test/slow"]}),
+            request("slow", "fetch", {"urls": ["https://example.test/slow"]}),
             "{broken-json",
             request("local", "index_status"),
         ])
@@ -94,16 +94,16 @@ class McpConcurrencyTests(unittest.TestCase):
         self.assertEqual([], local["result"]["structuredContent"]["sources"])
         self.assertEqual(-32700, next(message for message in messages if message["id"] is None)["error"]["code"])
         self.assertFalse(next(message for message in messages if message["id"] == "slow")["result"]["isError"])
-        self.assertIn("tool_timing name=fetch_web queue_ms=", self.stderr.getvalue())
+        self.assertIn("tool_timing name=fetch queue_ms=", self.stderr.getvalue())
         self.assertIn("tool_timing name=index_status queue_ms=", self.stderr.getvalue())
         self.assertNotIn("https://example.test/slow", self.stderr.getvalue())
 
     def test_queue_limit_duplicate_ids_and_pending_only_cancellation(self):
         messages = self.serve([
-            request(1, "fetch_web", {"urls": ["https://example.test/running"]}),
-            request(2, "fetch_web", {"urls": ["https://example.test/queued"]}),
-            request(3, "fetch_web", {"urls": ["https://example.test/overflow"]}),
-            request(1, "fetch_web", {"urls": ["https://example.test/duplicate"]}),
+            request(1, "fetch", {"urls": ["https://example.test/running"]}),
+            request(2, "fetch", {"urls": ["https://example.test/queued"]}),
+            request(3, "fetch", {"urls": ["https://example.test/overflow"]}),
+            request(1, "fetch", {"urls": ["https://example.test/duplicate"]}),
             {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 2}},
             {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}},
             request("local", "index_status"),
@@ -121,9 +121,9 @@ class McpConcurrencyTests(unittest.TestCase):
         with patch.object(mcp_server.StdioMcpServer, "_web", return_value=self.engine):
             mcp_server.serve(self.root / "index.sqlite3",
                 stdin=ScriptInput(self.handshake + [
-                    request(1, "fetch_web", {"urls": ["https://example.test/running"]}),
-                    request(2, "fetch_web", {"urls": ["https://example.test/queued"]}),
-                    request(3, "fetch_web", {"urls": ["https://example.test/overflow"]}),
+                    request(1, "fetch", {"urls": ["https://example.test/running"]}),
+                    request(2, "fetch", {"urls": ["https://example.test/queued"]}),
+                    request(3, "fetch", {"urls": ["https://example.test/overflow"]}),
                     {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}},
                 ], 3, self.started),
                 stdout=self.output, stderr=self.stderr,
@@ -134,7 +134,7 @@ class McpConcurrencyTests(unittest.TestCase):
     def test_normal_eof_drains_all_accepted_calls_and_preserves_id_types(self):
         self.release.set()
         identifiers = [1, "1", 2, "second", 3, "third"]
-        messages = self.serve([request(identifier, "fetch_web", {"urls": ["https://example.test/%d" % position]})
+        messages = self.serve([request(identifier, "fetch", {"urls": ["https://example.test/%d" % position]})
                                for position, identifier in enumerate(identifiers)], workers=1, gate_at=None)
         self.assertEqual(6, len(self.calls))
         returned = [(type(message["id"]), message["id"]) for message in messages if message["id"] != 0]
@@ -148,8 +148,8 @@ class McpConcurrencyTests(unittest.TestCase):
                 raise TimeoutError("Provider initialization blocked local work")
             return self.engine
         messages = self.handshake + [
-            request("first", "fetch_web", {"urls": ["https://example.test/first"]}),
-            request("second", "fetch_web", {"urls": ["https://example.test/second"]}),
+            request("first", "fetch", {"urls": ["https://example.test/first"]}),
+            request("second", "fetch", {"urls": ["https://example.test/second"]}),
             request("local", "index_status"),
         ]
         with patch("web_search.SearchProviders", side_effect=create) as factory:

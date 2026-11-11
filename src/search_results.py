@@ -21,8 +21,21 @@ def _nonempty_string(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+# Click-tracking parameters that never select different content.
+_TRACKING_PARAMS = frozenset({"gclid", "fbclid", "msclkid", "yclid", "igshid", "mc_cid", "mc_eid",
+                              "_hsenc", "_hsmi", "spm"})
+
+
+def _strip_tracking(query):
+    """Drop tracking pairs while keeping every other pair byte-for-byte."""
+    kept = [pair for pair in query.split("&") if pair and not (
+        pair.split("=", 1)[0].lower().startswith("utm_") or pair.split("=", 1)[0].lower() in _TRACKING_PARAMS)]
+    return "&".join(kept)
+
+
 def _canonical_url(raw_url):
-    """Conservative URL identity, retaining queries and client-side routes."""
+    """Conservative URL identity for fusion: keeps meaningful queries and client-side
+    routes, drops tracking parameters and a trailing slash on non-root paths."""
     if not _nonempty_string(raw_url):
         raise ValueError("url must be a nonempty string")
     if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in raw_url):
@@ -53,7 +66,10 @@ def _canonical_url(raw_url):
     # Ordinary anchors share a page. Hash-router URLs may represent other pages.
     fragment = parts.fragment if parts.fragment.startswith(("/", "!")) else ""
     # HTTP(S) requests use '/' for an empty path (RFC 3986 section 6.2.3).
-    canonical = urlunsplit((scheme, host, parts.path or "/", parts.query, fragment))
+    path = parts.path or "/"
+    if len(path) > 1 and path.endswith("/"):
+        path = path.rstrip("/") or "/"
+    canonical = urlunsplit((scheme, host, path, _strip_tracking(parts.query), fragment))
     if not parts.query and "?" in raw_url.split("#", 1)[0]:
         before_fragment, marker, after_fragment = canonical.partition("#")
         canonical = before_fragment + "?" + (marker + after_fragment if marker else "")
@@ -323,3 +339,32 @@ def fuse_results(payload, archive=False, archive_dir=None, settings=None):
         "archive": archive_report if archive_report is not None else {"status": "disabled"},
         "backflow_contract": "normalized_host_search_v1",
     }
+
+
+def compact_search(result, snippet_chars=400):
+    """Model-facing view of a search: each fused URL once, provider batches summarized.
+
+    The full response repeats every provider row in ``batches`` and again under
+    each fused result's ``sources``; callers that need those rows pass raw.
+    """
+    compact = {key: value for key, value in result.items()
+               if key not in ("batches", "targets", "retry_policy", "invalid_results")}
+    compact["invalid_result_count"] = len(result.get("invalid_results") or [])
+    compact["targets"] = []
+    for target in result.get("targets", []):
+        rows = []
+        for row in target.get("results", []):
+            sources = row.get("sources") or []
+            snippet = next((source["snippet"] for source in sources if source.get("snippet")), "")
+            rows.append({"url": row["url"], "title": row.get("title"), "providers": row.get("providers"),
+                         "corroborated": row.get("corroborated"), "rrf_score": round(row.get("rrf_score", 0), 5),
+                         "ranks": {source["provider"]: source.get("rank") for source in sources},
+                         "snippet": snippet[:snippet_chars]})
+        summary = {key: target[key] for key in ("target", "status", "providers", "coverage") if key in target}
+        compact["targets"].append({**summary, "results": rows})
+    compact["batches"] = [{key: batch[key] for key in ("provider", "query", "status", "error", "error_kind",
+                                                       "retryable", "skipped_due_to_cooldown") if key in batch}
+                          | {"result_count": len(batch.get("results") or [])}
+                          for batch in result.get("batches", [])]
+    compact["output_format"] = "compact"
+    return compact

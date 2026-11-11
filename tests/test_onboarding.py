@@ -202,8 +202,8 @@ class ReadinessTests(SetupFixture):
 
     def test_missing_optional_keys_and_host_tools_do_not_claim_logged_in(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": "openai"}})
-        result = self.engine.check(providers=["jina"], offline=True, host="claude_code", observed_tools=[])
-        self.assertEqual(result["checks"][0]["operations"]["search"]["missing"], ["JINA_API_KEY"])
+        result = self.engine.check(providers=["perplexity"], offline=True, host="claude_code", observed_tools=[])
+        self.assertEqual(result["checks"][0]["operations"]["search"]["missing"], ["PERPLEXITY_API_KEY"])
         self.assertEqual(result["checks"][1]["status"], "missing_credentials")
         self.assertTrue(result["offline_ready"])
         self.assertTrue(all(row["status"] == "not_observed" for row in result["host_integrations"]["native_research_mcps"]))
@@ -246,7 +246,7 @@ class OnboardingTests(SetupFixture):
 
     def test_enter_preserves_enabled_services_without_a_default_provider(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": None},
-                              "fetch": {"provider": "jina", "providers": ["jina"]}})
+                              "fetch": {"provider": "parallel", "providers": ["parallel"]}})
         console = Console(io.StringIO("\n" * 30), io.StringIO())
         Onboarding(self.settings, console).run(checks=False)
         current = self.settings.load()
@@ -256,6 +256,18 @@ class OnboardingTests(SetupFixture):
         self.assertEqual(current["search"]["providers"], ["exa", "parallel"])
         self.assertEqual(current["fetch"]["provider"], "exa")
         self.assertEqual(current["fetch"]["providers"], ["exa", "parallel"])
+
+    def test_keys_of_retired_providers_in_an_older_file_are_ignored(self):
+        self.credentials.save("EXA_API_KEY", "kept-key")
+        saved = json.loads(self.credentials.path.read_text(encoding="utf-8"))
+        saved.update({"TAVILY_API_KEY": "old-key", "JINA_API_KEY": "old-key"})
+        self.credentials.path.write_text(json.dumps(saved), encoding="utf-8")
+        self.assertEqual("kept-key", self.credentials.get("EXA_API_KEY"))
+        names = [row["name"] for row in self.credentials.describe()["credentials"]]
+        self.assertNotIn("TAVILY_API_KEY", names)
+        self.credentials.save("PARALLEL_API_KEY", "new-key")
+        rewritten = json.loads(self.credentials.path.read_text(encoding="utf-8"))
+        self.assertEqual({"EXA_API_KEY", "PARALLEL_API_KEY"}, set(rewritten))
 
     def test_invalid_setup_input_does_not_change_settings(self):
         for preferences in ([], {}, {"OPENAI_API_KEY": "secret"}):
@@ -276,12 +288,12 @@ class OnboardingTests(SetupFixture):
 
     def test_terminal_defaults_preserve_existing_preferences_without_echoing_keys(self):
         self.settings.update({"research": {"depth": "agentic", "response_language": "zh"},
-                              "search": {"providers": ["tavily"], "fallback_providers": []},
+                              "search": {"providers": ["deepseek"], "fallback_providers": []},
                               "archive": {"enabled": False}, "readiness": {"mode": "manual"}})
-        self.credentials.save("TAVILY_API_KEY", "hidden-key-in-store")
+        self.credentials.save("DEEPSEEK_API_KEY", "hidden-key-in-store")
         output = io.StringIO()
         result = Onboarding(self.settings, Console(io.StringIO("\n" * 20), output, "zh")).run(checks=False)
-        self.assertEqual(self.settings.load()["search"]["providers"], ["tavily"])
+        self.assertEqual(self.settings.load()["search"]["providers"], ["deepseek"])
         self.assertEqual(self.settings.load()["research"]["response_language"], "zh")
         self.assertFalse(result["readiness"]["network_checked"])
         self.assertNotIn("hidden-key-in-store", output.getvalue() + json.dumps(result))

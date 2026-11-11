@@ -365,8 +365,6 @@ class Onboarding:
             Option("auto", "Follow the question", "跟随提问语言"), Option("zh", "Chinese", "中文"),
             Option("en", "English", "英文")], current["research"]["response_language"])
         hints = {"exa": ("Exa search and reading", "Exa 搜索与阅读"), "parallel": ("Parallel search and extract", "Parallel 搜索与提取"),
-                 "tavily": ("Tavily search and extract", "Tavily 搜索与提取"),
-                 "jina": ("Jina Reader; search needs a key", "Jina Reader；搜索需要密钥"),
                  "deepseek": ("DeepSeek Search / Fetch; needs a key", "DeepSeek 搜索／读取；需要密钥"),
                  "perplexity": ("Perplexity structured Search; needs a key; page reading uses another provider", "Perplexity 结构化搜索；需要密钥；网页读取需使用其他服务")}
         # The selected sources are the concurrent primary tier; the remaining
@@ -540,8 +538,7 @@ class Onboarding:
         selected = console.select("Show connection and login steps for an optional research MCP?",
                                   "查看哪个可选研究 MCP 的接入与授权步骤？", [
             Option("none", "Continue with the included adapters", "继续使用已包含的适配器"),
-            Option("exa", "Exa Agent"), Option("parallel", "Parallel Task MCP"),
-            Option("tavily", "Tavily Research")], "none")
+            Option("exa", "Exa Agent"), Option("parallel", "Parallel Task MCP")], "none")
         if selected != "none":
             row = next(row for row in integrations["native_research_mcps"] if row["provider"] == selected)
             setup = row["setup"]

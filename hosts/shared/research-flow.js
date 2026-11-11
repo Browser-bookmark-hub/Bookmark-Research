@@ -111,7 +111,7 @@ for (let round = 0; round <= gapRounds && remaining.length; round += 1) {
     "pass reuse_seconds (for example 3600) so a URL an earlier reader already saved returns its existing " +
     "text instead of being fetched again. " +
     "Read saved text with " +
-    "research_source through relevant next_offset pages. Search only for specific evidence gaps. " +
+    "read(research_id, evidence_source_id) through relevant next_offset pages. Search only for specific evidence gaps. " +
     "Operation IDs must begin with " + JSON.stringify(input.run_key + "-r" + round + "-g" + index) + ". " +
     "Review identity, relevance, date/version and completeness using source_review. Record source-backed claims " +
     "with exact quotes and question IDs. For EACH inventory ID record inventory_review: reviewed requires " +

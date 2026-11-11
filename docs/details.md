@@ -21,12 +21,12 @@
 
 不需要固定提示词。完整数据包研究保留所有原始 URL 和重复书签语境；只有明确限定卡片、分组或专题时才缩小范围。搜索摘要、搜索结果的第一页和外部报告都不能代替原始网页审阅。
 
-一个插件保留一个 MCP 聚合入口和一个执行 Skill；后端服务数量与入口数量无关。MCP 内置 Exa、Parallel、Tavily 搜索／读取适配器、Jina HTTP 接口、可选的 DeepSeek Search／Fetch 与 Perplexity Search 接口、Grok 和自定义 OpenAI 兼容 Agentic 搜索通道，以及 OpenAI／Parallel 研究 API 客户端。普通 URL 来源由 `search_web` 聚合；模型回答和引用单独返回，不参加 URL 排名。自定义模型是否联网由上游能力决定，工具会标明引用未经独立核验。Skill 负责根据任务选择并执行三种流程：
+一个插件保留一个 MCP 聚合入口和一个执行 Skill；后端服务数量与入口数量无关。MCP 内置 Exa、Parallel 搜索／读取适配器、可选的 DeepSeek Search／Fetch 与 Perplexity Search 接口、Grok 和自定义 OpenAI 兼容 Agentic 搜索通道，以及 OpenAI／Parallel 研究 API 客户端。普通 URL 来源由 `search` 聚合；模型回答和引用单独返回，不参加 URL 排名。自定义模型是否联网由上游能力决定，工具会标明引用未经独立核验。Skill 负责根据任务选择并执行三种流程：
 
 | 场景 | 基础流程 | 检索与委派支持 |
 | --- | --- | --- |
-| URL 直读 | 当前模型读取已知页面并回答 | Exa 未读到的 URL 交给 Parallel + Jina Reader 并发读取；可配置 Tavily 提取。 |
-| Agentic Web Search | 当前宿主模型先规划 → 搜索／读文 → 判断证据 → 针对缺口补查 | 优先使用当前宿主实际暴露的搜索工具；`search_web` 聚合已配置服务（Exa + Parallel 默认并发对冲，Perplexity 可选；未解析查询交给 Tavily + Jina）。需要 Grok/X 或已配置的自定义模型通道时按需调用 `agentic_search`，由宿主评估独立回答和未经核验的引用。普通问题无需完整研究会话。 |
+| URL 直读 | 当前模型读取已知页面并回答 | Exa 未读到的 URL 交给 Parallel 读取；可配置 DeepSeek Fetch。 |
+| Agentic Web Search | 当前宿主模型先规划 → 搜索／读文 → 判断证据 → 针对缺口补查 | 优先使用当前宿主实际暴露的搜索工具；`search` 聚合已配置服务（Exa + Parallel 默认并发对冲，Perplexity 可选；可为未解析查询配置 DeepSeek／Perplexity 备用）。需要 Grok/X 或已配置的自定义模型通道时按需调用 `agentic_search`，由宿主评估独立回答和未经核验的引用。普通问题无需完整研究会话。 |
 | Deep Research | 直接向研究 API 提交完整问题，观察进度并审阅报告 | 可选 OpenAI／Parallel API；宿主已有研究能力亦可使用。完整清单与覆盖审计按需启用。 |
 
 三个基座共用这套方法：Codex 原生子代理、Claude 普通子代理或已启用团队、已配置的 DSH 子代理／工作流；具体差异与官方依据见 [宿主兼容说明](harness-compatibility.md)。整包脚本用于分组研究。API 可独立调用，无需先运行宿主调查或创建本地研究会话。运行中和结果未知的任务先观察，保留 operation ID，避免重复创建。
@@ -43,7 +43,7 @@
 | 长任务 | `spawn`、`job` |
 | 知识 | `save` |
 
-`locate(package_path=...)` 用于首次接触：导入包或卡片导出并返回条目数、栏目（含 `source`/`temp_kind`）、Note、搜索页、噪音行与重复组。`spawn(task="fetch"|"ingest"|"research")` 进入本地队列，`job` 观察或取消；`job worker` 是单例 worker。旧工具名保留在 `deep` 目录，0.8.0 起拒绝。CLI 命令与别名见 [cli.md](../skills/bookmark-research/references/cli.md)。
+`locate(package_path=...)` 用于首次接触：导入包或卡片导出并返回条目数、栏目（含 `source`/`temp_kind`）、Note、搜索页、噪音行与重复组。`spawn(task="fetch"|"ingest"|"research")` 进入本地队列，`job` 观察或取消；`job worker` 是单例 worker。18 个旧工具名已移除，调用会提示替代原语。CLI 命令与别名见 [cli.md](../skills/bookmark-research/references/cli.md)。
 
 ## 数据包与保存位置
 
@@ -67,7 +67,7 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 - `research/`：完整输入清单、任务、证据、覆盖与报告；每个任务的 `work/` 存放 agent 中间文件。设置 `output.mode: beside_input` 时，新任务放在单个书签文件／文件夹旁边的 `<名称>.bookmark-research/`，URL 列表、多个来源、Git 仓库、画布包或没有写权限时退回统一目录并说明原因。改设置只影响新任务。
 - `research-locations.json`：所有任务文件夹的位置登记。
 - `wiki/`：主题／实体页和不可变修订；每次写入更新 `index.md`（目录）并追加 `log.md`（时间线）。
-- `raw-library.sqlite3`：`search_archive` 的全文索引，覆盖 `knowledge/` 与所有研究证据，可重建。
+- `raw-library.sqlite3`：`locate(in=["archive"])` 的全文索引，覆盖 `knowledge/` 与所有研究证据，可重建。
 
 配置默认为 `~/.config/bookmark-research/settings.json`。`wiki.enabled`（默认 true）是 Wiki 总开关：关闭后隐藏 `save` 与 deep 档 Wiki 工具、拒绝 Wiki 读写，并跳过研究结束后的整理。`wiki.after_research` 决定研究结束后的 Wiki 整理：`suggest`（默认，遵循已有授权，否则先建议）、`auto`、`off`。支持 XDG 和显式路径覆盖，多宿主可共享数据。索引更新不会自动抓网页、运行 LLM 或改写 Wiki；来源变化时提示复核，旧研究与证据保留。
 
@@ -79,7 +79,7 @@ JSON／`.canvas` 是源数据，SQLite 是可重建的本地查询索引，无�
 
 可以读取公开 GitHub 仓库页面、README、文件和 issues；读取 README 不等于遍历整个代码仓库。代码审查按任务选择具体文件或宿主已有 GitHub 工具，插件未额外安装 GitHub MCP。
 
-网络访问依赖服务方的认证与额度。可运行 `python3 src/cli.py setup` 隐藏输入密钥，或在宿主环境设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`TAVILY_API_KEY`、`JINA_API_KEY`、`DEEPSEEK_API_KEY`、`PERPLEXITY_API_KEY`、`XAI_API_KEY`、`CUSTOM_AGENTIC_API_KEY`、`OPENAI_API_KEY`。密钥默认保存为配置旁仅当前用户可读的 `credentials.json`，环境变量优先。Perplexity 是结构化搜索来源；Grok 和自定义模型通过独立 `agentic_search` 返回模型回答和引用，不会自动并入 `search_web` 的 URL 聚合。
+网络访问依赖服务方的认证与额度。可运行 `python3 src/cli.py setup` 隐藏输入密钥，或在宿主环境设置 `EXA_API_KEY`、`PARALLEL_API_KEY`、`DEEPSEEK_API_KEY`、`PERPLEXITY_API_KEY`、`XAI_API_KEY`、`CUSTOM_AGENTIC_API_KEY`、`OPENAI_API_KEY`。密钥默认保存为配置旁仅当前用户可读的 `credentials.json`，环境变量优先。Perplexity 是结构化搜索来源；Grok 和自定义模型通过独立 `agentic_search` 返回模型回答和引用，不会自动并入 `search` 的 URL 聚合。
 
 需要诊断服务访问问题时，可从高级工具面调用 `research_readiness`，显式检查默认在首次、配置／密钥变化或 15 分钟过期时刷新。向导可改为每题检查或仅手动检查；本地查询不联网。结果区分密钥配置、目录可达、实际检索与宿主 OAuth，检查不会启动专业研究任务。
 

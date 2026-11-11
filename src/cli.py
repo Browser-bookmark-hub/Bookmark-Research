@@ -2,6 +2,7 @@
 """CLI shared by the Skill, native harness adapters, and stdio MCP."""
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -10,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 from bookmark_index import BookmarkIndex
+from ref_codec import reserve as reserve_ref, resolve as resolve_ref
 from search_results import fuse_results
 from settings import Settings
 
@@ -70,8 +72,104 @@ def _read_json(path):
     return json.loads(text)
 
 
+def _cli_ref_paths(database):
+    """Return the durable CLI ref map and its writable temp fallback."""
+    database = Path(database).expanduser().resolve()
+    digest = hashlib.sha256(str(database).encode("utf-8")).hexdigest()[:20]
+    primary = database.parent / (".bookmark-research-refs-" + digest + ".json")
+    owner = str(os.getuid()) if hasattr(os, "getuid") else "default"
+    fallback = Path(tempfile.gettempdir()) / ("bookmark-research-refs-" + owner)
+    fallback = fallback / (digest + ".json")
+    return primary, fallback
+
+
+def _load_cli_refs(database):
+    """Restore CLI refs from the index sidecar, if one exists."""
+    primary, fallback = _cli_ref_paths(database)
+    for path in (primary, fallback):
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, OSError, ValueError, TypeError):
+            continue
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("identity"), list):
+                continue
+            try:
+                reserve_ref(row.get("ref"), row.get("kind"), row["identity"])
+            except (TypeError, ValueError):
+                continue
+        return
+
+
+def _save_cli_refs(database, result):
+    """Persist Canvas refs returned by CLI locate without failing the query."""
+    refs = {}
+
+    def collect(value):
+        if isinstance(value, dict):
+            ref = value.get("ref")
+            if isinstance(ref, str):
+                resolved = resolve_ref(ref)
+                if resolved is not None and resolved["kind"] == "b":
+                    refs[ref] = {"ref": ref, "kind": resolved["kind"], "identity": resolved["identity"]}
+            for child in value.values():
+                collect(child)
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(result)
+    if not refs:
+        return
+    primary, fallback = _cli_ref_paths(database)
+    existing = {}
+    for path in (primary, fallback):
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(rows, list):
+                existing = {row["ref"]: row for row in rows if isinstance(row, dict) and isinstance(row.get("ref"), str)}
+                break
+        except (FileNotFoundError, OSError, ValueError, TypeError, KeyError):
+            pass
+    existing.update(refs)
+    payload = (json.dumps(list(existing.values()), ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    for path in (primary, fallback):
+        temporary = None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            temporary = tempfile.NamedTemporaryFile(prefix=".bookmark-ref-", dir=path.parent,
+                                                     delete=False)
+            try:
+                temporary.write(payload)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            finally:
+                temporary.close()
+            os.replace(temporary.name, path)
+            return
+        except OSError:
+            if temporary is not None:
+                try:
+                    os.unlink(temporary.name)
+                except OSError:
+                    pass
+
+
+def _resolve_cli_canvas_ref(value, database):
+    """Resolve a CLI Canvas ref, including refs issued by an earlier process."""
+    if not isinstance(value, str) or not value.startswith("b-"):
+        return None
+    _load_cli_refs(database)
+    resolved = resolve_ref(value)
+    if resolved is None or resolved["kind"] != "b":
+        raise ValueError("Unknown or expired ref; call locate again")
+    return resolved["identity"]
+
+
 def _checked_input(path, tool, extra=None):
-    from mcp_server import TOOL_SCHEMAS, RpcError, _validate
+    from mcp_server import RpcError, _validate, schema_for
     value = _read_json(path)
     if not isinstance(value, dict):
         raise ValueError("Input must be a JSON object")
@@ -80,7 +178,7 @@ def _checked_input(path, tool, extra=None):
         raise ValueError("Positional identifiers must not be repeated in the input file")
     value = {**value, **extra}
     try:
-        _validate(TOOL_SCHEMAS[tool], value)
+        _validate(schema_for(tool), value)
     except RpcError as error:
         raise ValueError(str(error)) from None
     return value
@@ -428,7 +526,7 @@ def _parser():
     bench_commands = bench.add_subparsers(dest="bench_command", required=True)
     ladder = bench_commands.add_parser(
         "ladder", help="Create a 15-question host capture template; host traces are recorded separately")
-    ladder.add_argument("--preset", choices=("legacy", "quick"), default="quick",
+    ladder.add_argument("--preset", choices=("quick",), default="quick",
                         help="Record which advertised tool surface the host run must use")
     ladder.add_argument("--file", default=".bench/ladder.json", help="Template output path")
     ladder.add_argument("--force", action="store_true", help="Replace an existing ladder file")
@@ -501,16 +599,11 @@ def main(argv=None):
             scripts_directory = Path(__file__).resolve().parent.parent / "scripts"
             sys.path.insert(0, str(scripts_directory))
             from evaluate_ladder import template as ladder_template
-            from bench_tools_list import LEGACY_TOOLS
-            from mcp_server import _legacy_compatibility_expired, release_version
-            if args.preset == "legacy" and _legacy_compatibility_expired(release_version()):
-                raise ValueError("The legacy ladder preset ended at 0.8.0")
-            surface = "legacy-25" if args.preset == "legacy" else "quick-10"
+            surface = "quick-10"
             artifact = ladder_template()
             artifact["baseline_id"] = "2026-11-" + args.preset
             artifact["tool_surface"] = surface
-            artifact["required_tool_scope"] = (list(LEGACY_TOOLS) if args.preset == "legacy"
-                                                else list(Settings.QUICK_TOOLS))
+            artifact["required_tool_scope"] = list(Settings.QUICK_TOOLS)
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             result = {"template": str(destination), "questions": 15, "tool_surface": surface,
@@ -813,6 +906,17 @@ def main(argv=None):
                                   archive=args.archive, settings=settings)
         else:
             from source_manager import SourceManager
+            cli_canvas_ref = None
+            if args.command in ("context", "traverse") and isinstance(args.source, str) and args.source.startswith("b-"):
+                cli_canvas_ref = _resolve_cli_canvas_ref(args.source, _database(args.db))
+                source_id, version_id, section_id, item_id = cli_canvas_ref
+                if args.section is not None and args.section != section_id:
+                    raise ValueError("ref section does not match --section")
+                if args.item is not None and args.item != item_id:
+                    raise ValueError("ref item does not match --item")
+                args.source = source_id
+                args.section = section_id
+                args.item = item_id
             locate_readonly = not args.refresh if args.command == "locate" else True
             if args.command == "locate" and args.handle:
                 from locate import continuation_refresh_requested
@@ -843,6 +947,7 @@ def main(argv=None):
                 elif args.command == "locate":
                     from locate import locate as locate_core
                     from locate import continuation_scope
+                    _load_cli_refs(_database(args.db))
                     locate_scope = args.in_sources or ["canvas"]
                     if args.handle:
                         locate_scope = continuation_scope(args.handle, _database(args.db))
@@ -878,12 +983,17 @@ def main(argv=None):
                         "handle": args.handle, "refresh": args.refresh,
                         "exclude_junk": args.exclude_junk,
                     }, wiki=wiki, raw=raw)
+                    _save_cli_refs(_database(args.db), result)
                 elif args.command == "source":
                     if args.source_command == "remove":
                         result = sources.remove(args.source_id, confirm=args.confirm)
                     else:
                         result = sources.merge(args.source_id, args.into_source_id, confirm=args.confirm)
                 else:
+                    if cli_canvas_ref is not None:
+                        current = sources.source_status(args.source)
+                        if cli_canvas_ref[1] and current.get("version_id") != cli_canvas_ref[1]:
+                            raise ValueError("stale_ref: source version changed; call locate again")
                     if args.no_refresh:
                         refresh = None
                     elif index.readonly:

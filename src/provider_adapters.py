@@ -1,4 +1,4 @@
-"""Explicit mappings for observed Exa, Parallel and Tavily MCP schemas.
+"""Explicit mappings for observed Exa and Parallel MCP schemas.
 
 Only search and extraction are routed. Catalog annotations never authorize an
 unknown tool, and unsupported required fields fail before a billable call.
@@ -117,14 +117,12 @@ class ProviderAdapter:
             candidates = {
                 "exa": {"query": query, "objective": query, "numResults": limit},
                 "parallel": {"objective": query, "search_queries": [query], "session_id": session_id},
-                "tavily": {"query": query, "max_results": limit, "search_depth": "basic", "include_raw_content": False},
             }[self.provider]
             core_fields = {"objective", "search_queries"} if self.provider == "parallel" else {"query"}
         elif purpose == "fetch":
             candidates = {
                 "exa": {"urls": urls, "maxCharacters": max_characters},
                 "parallel": {"urls": urls, "full_content": True, "session_id": session_id},
-                "tavily": {"urls": urls, "extract_depth": "basic", "format": "markdown"},
             }[self.provider]
             core_fields = {"urls"}
             if "urls" not in properties and "url" in properties and urls and len(urls) == 1:

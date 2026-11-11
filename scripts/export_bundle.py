@@ -14,7 +14,11 @@ from host_assets import export_host_assets
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
-FORMATS = ("codex", "claude", "dsh")
+FORMATS = ("codex", "claude", "dsh", "agent")
+# Agent Plugins 1.0.0 (https://agent-plugins.org/specification), loaded by any
+# conformant client such as Devin.
+AGENT_PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+AGENT_MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
 NAME = "bookmark-research"
 # The DSH bundle layer a released tree ships and declares in `dsh.bundle.patch`.
 BUNDLE_PATCH = "bundle.patch.yml"
@@ -228,6 +232,26 @@ inventory page and emits complete ID groups; it does not start agents.
 
 Reference: https://developers.openai.com/codex/cli/reference#codex-plugin
 """
+    elif format_name == "agent":
+        instructions = """## Agent Plugins clients (Devin and other hosts)
+
+This directory follows Agent Plugins 1.0.0: root `plugin.json`, root `mcp.json`
+and `skills/bookmark-research/SKILL.md`. The stdio server runs
+`python3 ${PLUGIN_ROOT}/src/cli.py serve`, so `python3` (3.9+) must be on PATH.
+Keep this directory at a stable path and register it with your client, for
+example in Devin:
+
+```sh
+devin plugins install --local /absolute/path/to/this-bundle
+```
+
+Start a new session afterwards; the Skill is `/bookmark-research:bookmark-research`.
+Data, settings and keys stay in the shared Bookmark Research locations described
+above, not in the client's `PLUGIN_DATA`, so every host reads the same index,
+archive and Wiki.
+
+Reference: https://agent-plugins.org/specification
+"""
     elif format_name == "claude":
         instructions = """## Claude Code
 
@@ -356,6 +380,22 @@ def _write_adapter(stage, format_name, output, manifest, python="python3", sourc
                          "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
                          "category": "Productivity"}],
         })
+    elif format_name == "agent":
+        # The manifest schema is closed; client data would go under extensions.
+        agent_manifest = {"$schema": AGENT_PLUGIN_SCHEMA, **metadata,
+                          "repository": "https://github.com/Browser-bookmark-hub/Bookmark-Research",
+                          "license": "GPL-3.0-only",
+                          "keywords": ["bookmarks", "research", "mcp", "wiki"]}
+        author = manifest.get("author")
+        if isinstance(author, dict) and isinstance(author.get("name"), str):
+            agent_manifest["author"] = {"name": author["name"]}
+        _write_json(stage, "plugin.json", agent_manifest)
+        # `command` must be one bare executable token or a ./ path, never an
+        # absolute interpreter path.
+        _write_json(stage, "mcp.json", {"$schema": AGENT_MCP_SCHEMA, "mcpServers": {NAME: {
+            "type": "stdio", "command": Path(python).name or "python3",
+            "args": ["${PLUGIN_ROOT}/src/cli.py", "serve"], "cwd": "${PLUGIN_ROOT}",
+        }}})
     elif format_name == "claude":
         claude_metadata = {**metadata, "workflows": "./workflows"}
         if manifest.get("author"):

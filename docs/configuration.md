@@ -17,14 +17,14 @@ bookmark-research config set --input /absolute/path/to/my-settings.json
 
 - 搜索与读取来源：`search.providers`、`search.fallback_providers`、`fetch.provider`、`fetch.providers` 和并发策略。Perplexity 可用于结构化 URL 搜索，不能作为网页正文读取器。
 - 用户习惯：`research.depth`、`research.response_language`、`research.methods`、`archive.enabled`、`wiki.enabled`、`wiki.after_research`、`output.mode` 以及缓存、限额和可用性检查选项。
-- 模型端点：`custom_agentic` 中的 Base URL、模型名、协议和搜索模式。它通过独立 `agentic_search` 返回模型回答，不参加 `search_web` 的 URL 聚合。
+- 模型端点：`custom_agentic` 中的 Base URL、模型名、协议和搜索模式。它通过独立 `agentic_search` 返回模型回答，不参加 `search` 的 URL 聚合。
 - 插件直接调用的专业研究服务：`professional_research` 中的 OpenAI Deep Research 或 Parallel Task API 选择。
 
 `config/settings.example.json` 是可导入的部分配置，可按需删除或修改字段。字段必须符合当前版本的设置 schema；无效值会被拒绝。配置项说明、默认值和完整有效设置结构见 [配置与归档参考](../skills/bookmark-research/references/zh/settings-and-archive.md)。
 
 ## MCP 与认证的边界
 
-不要把所有 MCP 都塞进插件的 `settings.json`。Exa Agent、Parallel Task、Tavily Research 等由宿主直接启动或授权的 MCP，其 endpoint、启动命令、OAuth 和 header 格式由 Codex、Claude Code 或 DSH 自己管理；不同宿主格式不同，OAuth 凭据也应留在宿主。安装器/向导可以给出对应的接入步骤，但插件 JSON 不会注册或保存这些 host MCP。
+不要把所有 MCP 都塞进插件的 `settings.json`。Exa Agent、Parallel Task 等由宿主直接启动或授权的 MCP，其 endpoint、启动命令、OAuth 和 header 格式由 Codex、Claude Code 或 DSH 自己管理；不同宿主格式不同，OAuth 凭据也应留在宿主。安装器/向导可以给出对应的接入步骤，但插件 JSON 不会注册或保存这些 host MCP。
 
 如果某个服务由 Bookmark Research 自己通过 API 调用，它的选择和非敏感连接参数可以保存在插件 JSON 中，密钥仍单独管理。例如自定义模型：
 
@@ -48,8 +48,6 @@ bookmark-research config set --input /absolute/path/to/my-settings.json
 | --- | --- |
 | `EXA_API_KEY` | Exa 搜索与网页读取 |
 | `PARALLEL_API_KEY` | Parallel 搜索与网页读取 |
-| `TAVILY_API_KEY` | Tavily 备用搜索与提取 |
-| `JINA_API_KEY` | Jina 搜索；Reader 可匿名读取 |
 | `DEEPSEEK_API_KEY` | DeepSeek Search / Fetch |
 | `PERPLEXITY_API_KEY` | Perplexity 结构化搜索 |
 | `XAI_API_KEY` | Grok `agentic_search` |

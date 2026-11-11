@@ -16,8 +16,10 @@ from package_paths import is_package_dir
 class Settings:
     """Load on each operation so MCP clients can change preferences without restart."""
 
-    PROVIDERS = ("exa", "parallel", "tavily", "jina", "deepseek", "perplexity")
-    FETCH_PROVIDERS = ("exa", "parallel", "tavily", "jina", "deepseek", "browser")
+    PROVIDERS = ("exa", "parallel", "deepseek", "perplexity")
+    FETCH_PROVIDERS = ("exa", "parallel", "deepseek", "browser")
+    # Removed providers; saved preferences that still name them are migrated on load.
+    RETIRED_PROVIDERS = ("tavily", "jina")
     TOOL_SCOPE_PRESETS = ("all", "quick", "deep")
     # Daily context, retrieval, knowledge storage and provider-managed research.
     # Persistent inventories and diagnostics remain in the explicit full catalog.
@@ -63,12 +65,12 @@ class Settings:
     def defaults(cls):
         return {"schema_version": 1, "timeout_seconds": 30,
                 "search": {"providers": ["exa", "parallel"],
-                           "fallback_providers": ["tavily", "jina"], "limit_per_target": 5,
+                           "fallback_providers": [], "limit_per_target": 5,
                            "strategy": "hedged", "grace_seconds": 2, "deadline_seconds": 10,
                            "cache_seconds": 0},
-                "fetch": {"provider": "exa", "providers": ["exa", "parallel", "jina"], "max_characters": 12000,
+                "fetch": {"provider": "exa", "providers": ["exa", "parallel"], "max_characters": 12000,
                           "max_total_characters": 24000, "fair_share_min": 500,
-                          "strategy": "staggered", "grace_seconds": 25, "deadline_seconds": None,
+                          "strategy": "staggered", "grace_seconds": 12, "deadline_seconds": 40,
                           "reuse_seconds": 0},
                 # Stdio server concurrency; read at startup, so changes need a restart.
                 "server": {"network_workers": 4, "max_pending_calls": 16},
@@ -168,6 +170,8 @@ class Settings:
                                                 ("fetch", "providers", cls.FETCH_PROVIDERS, 1),
                                                 ("search", "fallback_providers", cls.PROVIDERS, 0)):
             providers = value[section][field]
+            if isinstance(providers, list) and set(providers) & set(cls.RETIRED_PROVIDERS):
+                raise ValueError(section + "." + field + ": Tavily and Jina were removed; choose from " + ", ".join(allowed))
             if (not isinstance(providers, list) or not minimum <= len(providers) <= len(allowed)
                     or any(p not in allowed for p in providers) or len(set(providers)) != len(providers)):
                 raise ValueError(section + "." + field + " must select supported providers without duplicates")
@@ -280,9 +284,9 @@ class Settings:
 
     @staticmethod
     def fetch_call_count(provider, urls):
-        # Reader and Browser have one request/render per URL; the other providers batch URLs
+        # Browser has one render per URL; the other providers batch URLs
         # in one MCP tool call. Reserve this before any network work begins.
-        return len(urls) if provider in ("jina", "browser") else 1
+        return len(urls) if provider == "browser" else 1
 
     @staticmethod
     def _unique_object(pairs):
@@ -301,6 +305,21 @@ class Settings:
             raise ValueError("Settings file must contain a JSON object")
         return value
 
+    @classmethod
+    def _drop_retired(cls, value):
+        """Remove retired providers from saved choices instead of failing validation."""
+        defaults = cls.defaults()
+        for section, field in (("search", "providers"), ("search", "fallback_providers"), ("fetch", "providers")):
+            selected = value.get(section, {}).get(field) if isinstance(value.get(section), dict) else None
+            if isinstance(selected, list) and set(selected) & set(cls.RETIRED_PROVIDERS):
+                kept = [name for name in selected if name not in cls.RETIRED_PROVIDERS]
+                value[section][field] = kept if kept or field == "fallback_providers" else defaults[section][field]
+        fetch = value.get("fetch") if isinstance(value.get("fetch"), dict) else {}
+        if fetch.get("provider") in cls.RETIRED_PROVIDERS:
+            remaining = [name for name in fetch.get("providers") or [] if name in cls.FETCH_PROVIDERS]
+            fetch["provider"] = remaining[0] if remaining else defaults["fetch"]["provider"]
+        return value
+
     def load(self):
         stored = self._read()
         merged = self._merge(self.defaults(), stored)
@@ -309,7 +328,7 @@ class Settings:
             # An earlier explicit provider list must not silently gain services
             # on upgrade. Users can opt into a separate fallback list.
             merged["search"]["fallback_providers"] = []
-        return self._validate(merged)
+        return self._validate(self._drop_retired(merged))
 
     def describe(self):
         return {"config_path": str(self.path), "config_exists": self.path.is_file(), "settings": self.load()}
@@ -353,13 +372,13 @@ class Settings:
     def update(self, changes):
         if not isinstance(changes, dict) or not changes:
             raise ValueError("Provide at least one settings change")
-        stored = self._merge(self._read(), changes)
+        stored = self._merge(self._drop_retired(self._read()), changes)
         self._validate(self._merge(self.defaults(), stored))
         path = self.external_path(str(self.path), "Settings file")
         path.parent.mkdir(parents=True, exist_ok=True)
         # Persist only overrides; inherited defaults still follow the user's environment.
         with self._update_lock(path):
-            stored = self._merge(self._read(), changes)
+            stored = self._merge(self._drop_retired(self._read()), changes)
             self._validate(self._merge(self.defaults(), stored))
             temporary = None
             try:

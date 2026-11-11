@@ -1,58 +1,77 @@
-# Bookmark Research — Agent 指导规范与开发约定
+# Bookmark Research — Installation and Development Guide (for AI agents and developers)
 
-本文档供维护本项目的所有 AI 代理（包括 Codex、Claude Code、DeepSeek Harness、Antigravity 等）及开发者参考。修改代码、执行测试或准备发布时，必须严格遵守以下约定。
+**English** · [中文阅读版](docs/agents.zh.md)
+
+This file has two parts. Section 0 is for an agent a user asked to install this plugin. Sections 1–4 are the development, testing and release conventions for maintaining this project; they apply to every AI agent (including Codex, Claude Code, DeepSeek Harness, Devin and Antigravity) and to developers. Follow them strictly when changing code, running tests or preparing a release.
 
 ---
 
-## 1. 开发与测试原则：本地优先，严禁频繁发布 npm
+## 0. Install into the client you are running in
+
+When a user gives you this repository or the npm link and asks you to install it, follow these steps in the client you are running in:
+
+1. Identify your client: `codex`, `claude` or `dsh`; otherwise use `other`.
+2. Run: `npx bookmark-research@latest install <client> --non-interactive --json`
+   - `claude`: add `--scope user` (or `--scope project --project <dir>`).
+   - `dsh`: add `--profile <name>`; ask the user for the profile name first. For DeepSeek Harness Desktop use `--dsh "<path to the Desktop's bundled CLI>" --profile desktop`.
+   - `other`: `installed_path` in the result is an [Agent Plugins 1.0.0](https://agent-plugins.org/specification) plugin directory (root `plugin.json`, `mcp.json`, `skills/`). Register it with your own plugin command; the result's `register` field lists known commands (Devin: `devin plugins install --local <installed_path>`). If your client loads only MCP servers, add a stdio server `python3 <installed_path>/src/cli.py serve` and use `<installed_path>/skills` as a skills directory, or read `skills/bookmark-research/SKILL.md` there directly.
+3. The command prints JSON. Confirm `"verified": true`; report any `"error"` to the user as it is and do not work around it.
+4. Never ask the user for API keys in chat (all keys are optional). Ask them to run `bookmark-research setup` in a terminal, or to set the corresponding environment variables.
+5. Tell the user to start a new session so the Skill and MCP tools load.
+
+Do not install this Git repository itself as a plugin (for example `devin plugins install Browser-bookmark-hub/Bookmark-Research`): the repository root contains tests and development files, and this file would be loaded as a session rule. Always install with the `npx` command above, which generates a clean host package.
+
+---
+
+## 1. Development and testing: local first, never publish npm frequently
 
 > [!IMPORTANT]
-> **npm 发布仅用于面向全网用户的正式对外交付**。
-> 日常开发、功能联调、Bug 修复或 PR 测试过程中，**绝对禁止**频繁递增版本并推送到 npm！必须在本地完成全量测试。
+> **Publishing to npm is only for official releases to all users.**
+> During everyday development, feature integration, bug fixes or PR testing, **never** bump the version and push to npm repeatedly. Complete the full test suite locally.
 
-### 本地测试的三种标准方法
+### Three standard ways to test locally
 
-#### 方法一：本地源码直跑（最快捷，秒级生效）
-直接从当前开发源码运行安装与测试，改完代码即时生效：
+#### Method 1: run the source directly (fastest, changes apply immediately)
+Install and test straight from the current development source; code changes take effect at once:
 ```sh
-# 单独安装/更新到 Codex
+# Install or update Codex only
 python3 scripts/launcher.py install codex
 
-# 启动交互式安装向导进行体验测试
+# Launch the interactive install wizard for a hands-on test
 python3 scripts/launcher.py install
 
-# 快速验证本机所有宿主的安装和 MCP 工具状态
+# Quickly verify every host's installation and MCP tools on this machine
 python3 scripts/launcher.py verify
 
-# 离线环境与 SQLite 状态自检
+# Offline environment and SQLite self-check
 python3 scripts/launcher.py doctor
 ```
 
-#### 方法二：`npm pack` 本地模拟 npx（100% 还原真实安装，无需发包）
-如果需要测试真实的 npm 打包和解压流，使用 `npm pack` 在本地生成压缩包，并通过 `npx` 直接加载本地文件：
+#### Method 2: `npm pack` to simulate npx locally (reproduces a real install exactly, no publishing)
+To test the real npm packing and extraction flow, generate a tarball with `npm pack` and load it directly with `npx`:
 ```sh
-# 1. 本地生成打包文件（如 bookmark-research-0.5.0-beta.19.tgz，不联网、不上传）
+# 1. Build the package locally (e.g. bookmark-research-0.5.0-beta.19.tgz; no network, no upload)
 npm pack
 
-# 2. 用本地压缩包模拟 npx 安装（需指定 --package 指向 tgz，后接二进制名 bookmark-research）
-# npm 缓存若被其他用户创建过，先使用项目专用缓存，避免 npm-cache 权限干扰测试。
+# 2. Simulate an npx install from the local tarball (--package points at the tgz, followed by the binary name bookmark-research)
+# If the npm cache was created by another user, use a project-specific cache so npm-cache permissions do not interfere.
 LOCAL_NPM_CACHE=/private/tmp/bookmark-research-npm-cache
 npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package ./bookmark-research-*.tgz bookmark-research install codex --non-interactive --json
 
-# 或者测试交互模式
+# Or test the interactive mode
 npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package ./bookmark-research-*.tgz bookmark-research install
 ```
-- **优势**：执行逻辑与线上 `npx bookmark-research install` 完全一致（包含 package 打包过滤、tarball 解压、软链注入和宿主注册）；
-- **零成本**：纯本地运行，不污染 npm 线上版本库，无需等待 CDN 刷新，也不需要任何 2FA 登录验证。
+- **Advantage**: identical behavior to the published `npx bookmark-research install` (package file filtering, tarball extraction, link injection and host registration).
+- **No cost**: purely local; it does not touch the published npm versions, needs no CDN refresh and no 2FA login.
 
-##### 三宿主与 DSH Desktop/CLI 的本地验收
+##### Local acceptance for the three hosts and DSH Desktop/CLI
 
-本地 tgz 必须分别验证三个宿主；DSH 的普通 CLI 和 Desktop CLI 是两个不同的安装目标，不能用一次 --profile 或一次 --dsh 路径代替。
+A local tgz must be verified on each of the three hosts separately. The ordinary DSH CLI and the Desktop CLI are two different install targets; one `--profile` or one `--dsh` path cannot stand in for both.
 
 ~~~sh
 LOCAL_NPM_CACHE=/private/tmp/bookmark-research-npm-cache
 LOCAL_PACKAGE=./bookmark-research-0.6.5.tgz
-CLI_PROFILE=web  # 替换为本机普通 DSH CLI 使用的 profile
+CLI_PROFILE=web  # replace with the profile used by this machine's ordinary DSH CLI
 
 # Codex
 npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research install codex --non-interactive --json
@@ -61,22 +80,22 @@ npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmar
 npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research install claude \
   --scope user --non-interactive --json
 
-# 普通 DSH CLI：profile 名由 DSH 配置决定；需要 PATH 中可用的 dsh 和 pnpm。
+# Ordinary DSH CLI: the profile name comes from the DSH configuration; requires dsh and pnpm on PATH.
 npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research install dsh \
   --profile "$CLI_PROFILE" --non-interactive --json
 
-# DeepSeek Harness Desktop：必须使用桌面版自带 CLI 和保留的 desktop profile。
-# macOS 路径如下；Windows/Linux 按本机 Desktop 安装位置替换。
+# DeepSeek Harness Desktop: must use the Desktop's bundled CLI and the reserved desktop profile.
+# macOS path below; on Windows/Linux substitute the local Desktop installation path.
 DSH_DESKTOP_CLI="/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
 npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research install dsh \
   --dsh "$DSH_DESKTOP_CLI" --profile desktop --non-interactive --json
 ~~~
 
-验收 JSON 必须逐项检查 host、profile、version、installed_path 和 verified；DSH Desktop 的 target 应为 desktop，并且使用桌面版 CLI。普通 DSH 的 profile 可以是已有名称或明确指定的新名称，不能把 desktop 交给 PATH 中的通用 CLI。
+Check every acceptance JSON field by field: host, profile, version, installed_path and verified. For DSH Desktop the target must be desktop and must use the Desktop CLI. The ordinary DSH profile may be an existing name or an explicitly chosen new one; never hand desktop to the generic CLI on PATH.
 
-本地包测试新构建时使用 install：它会把当前运行的 tarball 保留为干净来源，并在已有目标上执行覆盖安装。update 继续使用目标收据中已登记的来源，适合验证已发布 npm、Git 或已登记本地来源的后续更新；不要用旧收据的 update 来判断一个全新的本地 tarball 是否已经被安装。
+Use install when testing a new local build: it keeps the running tarball as a clean source and overwrites an existing target. update keeps using the source registered in the target's receipt, which suits verifying later updates of a published npm release, Git or a registered local source; do not use update with an old receipt to judge whether a brand-new local tarball has been installed.
 
-如果要测试已登记来源的升级，分别运行对应目标并确认版本：
+To test an upgrade of a registered source, run each target separately and confirm the version:
 
 ~~~sh
 npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmark-research update dsh \
@@ -90,64 +109,64 @@ npm_config_cache="$LOCAL_NPM_CACHE" npx --yes --package "$LOCAL_PACKAGE" bookmar
   --dsh "$DSH_DESKTOP_CLI" --profile desktop --json
 ~~~
 
-升级后必须重新打开对应宿主，并用同一个 profile 和同一个实际 CLI 跑 verify；只看到 Updated 或只检查安装器退出码不算通过。
+After an upgrade, reopen the corresponding host and run verify with the same profile and the same actual CLI. Seeing "Updated" or checking only the installer's exit code does not count as passing.
 
-#### 方法三：本地全量自动化单测
-每次修改代码后必须运行全量单测，确保测试全部通过：
+#### Method 3: the full local automated test suite
+Run the full suite after every code change and make sure every test passes:
 ```sh
 python3 -B -m unittest discover -s tests -p "test_*.py"
 ```
 
 ---
 
-## 2. 交互体验（TUI）设计规范
+## 2. Interaction (TUI) design rules
 
-维护 `src/onboarding.py` 和 `src/tui.py` 时，必须遵循以下用户体验守则：
+When maintaining `src/onboarding.py` and `src/tui.py`, follow these user-experience rules:
 
-1. **按键提示必须显眼（避免回车误触）**：
-   - 多选框必须在题目标题与底部同时醒目标注操作方式：
-     `安装到哪些宿主？（空格 勾选/取消，回车 确认）`
-     底部以高亮颜色显示：`[空格] 勾选/取消  [a] 全选/全不选  [回车] 确认`。
-2. **严禁设计“死胡同”交互，必须支持退回（Back / Re-select）**：
-   - 宿主参数配置步骤（如 Claude Scope、DSH Profile）必须提供 `← 返回重新选择宿主` 选项；
-   - 最终“安装计划确认（Install now?）”若用户选 `No`，不能直接抛出异常崩溃退出，必须提供 `重新选择宿主与选项？` 让用户返回第一步。
+1. **Key hints must be prominent (to avoid accidental Enter presses)**:
+   - A multi-select must show how to operate it both in the question title and at the bottom:
+     `安装到哪些宿主？（空格 勾选/取消，回车 确认）` (English UI: which hosts to install to; Space toggles, Enter confirms)
+     with a highlighted footer: `[空格] 勾选/取消  [a] 全选/全不选  [回车] 确认` (Space toggle, a select all/none, Enter confirm).
+2. **Never design dead ends; always support going back (Back / Re-select)**:
+   - Host parameter steps (such as Claude scope or DSH profile) must offer `← 返回重新选择宿主` (back to host selection).
+   - If the user answers `No` at the final install-plan confirmation (Install now?), do not raise and exit; offer `重新选择宿主与选项？` (re-select hosts and options?) to return to the first step.
 
 ---
 
-## 3. 发布与版本管理规范（正式发布时使用）
+## 3. Release and version management (for official releases only)
 
-只有在所有功能和交互在本地完全验证无误后，才可发起正式发布：
+Start an official release only after every feature and interaction has been fully verified locally:
 
-### 版本一致性同步
-递增版本号时，必须严格保持以下三处完全一致：
-1. `package.json` 中的 `"version"`
-2. `.codex-plugin/plugin.json` 中的 `"version"`
-3. `.agents/plugins/marketplace.json` 中的 `"version"`
+### Version consistency
+When bumping the version, keep these three places exactly identical:
+1. `"version"` in `package.json`
+2. `"version"` in `.codex-plugin/plugin.json`
+3. `"version"` in `.agents/plugins/marketplace.json`
 
-### npm 发布策略
-- 发布统一使用最新标签（`latest`）：
+### npm publishing
+- Always publish with the `latest` tag:
   ```sh
   npm publish --tag latest
   ```
-- 确保 `latest` dist-tag 始终指向最新稳定发布版，让用户通过 `npx bookmark-research install` 默认拉取到最新构建。
+- Keep the `latest` dist-tag pointing at the newest stable release so `npx bookmark-research install` pulls the newest build by default.
 
 ---
 
-## 4. npm 历史包管理与隐藏约定
+## 4. Managing and hiding old npm versions
 
-如需下架或在 npm 页面隐藏混乱的历史测试版本：
+To withdraw or hide messy historical test versions on npm:
 
-1. **强制下架删除（`unpublish`）**：
-   - 规则：仅适用于发布在 **72 小时以内** 的构建；
-   - 命令：
+1. **Unpublish (`unpublish`)**:
+   - Rule: only for builds published **within the last 72 hours**.
+   - Command:
      ```sh
      npm unpublish bookmark-research@<version> --force
      ```
-   - 注意：下架后该版本号不可复用，需 2FA 授权确认。
-2. **批量折叠标记废弃（`deprecate`）**：
-   - 规则：适用于发布超过 72 小时或不想硬删除的所有历史旧包；
-   - 命令：
+   - Note: an unpublished version number can never be reused, and 2FA confirmation is required.
+2. **Deprecate in bulk (`deprecate`)**:
+   - Rule: for every older release published more than 72 hours ago, or one you do not want to hard-delete.
+   - Command:
      ```sh
      npm deprecate bookmark-research@"<0.5.0-beta.19" "已废弃，请使用最新版本"
      ```
-   - 效果：npm 官网上历史旧包会被折叠标记为废弃，npm 客户端在安装和搜索时会自动忽略它们。
+   - Effect: older releases are collapsed and marked deprecated on the npm website, and npm clients ignore them when installing and searching.

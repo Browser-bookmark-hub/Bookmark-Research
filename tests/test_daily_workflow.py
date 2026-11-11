@@ -39,9 +39,8 @@ class DailyWorkflowTests(unittest.TestCase):
         self.server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
     def call(self, name, arguments):
-        # The product default is now the ten primitive quick surface.  These
-        # workflow cases intentionally exercise legacy compatibility paths, so
-        # opt this fixture into the complete catalog only for those calls.
+        # Daily paths run through the quick primitives; deep-only tools used by
+        # a case opt this fixture into the complete catalog for that call.
         if name not in Settings.QUICK_TOOLS:
             self.settings.update({"tool_scope_preset": "all"})
         response = self.server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -69,13 +68,13 @@ class DailyWorkflowTests(unittest.TestCase):
         self.assertFalse(self.settings.path.exists())
 
     def test_host_sources_are_saved_and_reused_without_a_canvas_or_network(self):
-        result = self.call("wiki_write", {"page_id": "aurora", "page": self.page(), "change_note": "Save findings",
+        result = self.call("save", {"page_id": "aurora", "page": self.page(), "change_note": "Save findings",
             "sources": [{"id": "docs", "url": "https://example.test/docs",
                          "text": "Reusable sessions are supported."}]})
         self.assertEqual(1, result["revision"])
         primitive_read = self.call("read", {"page_id": "aurora", "revision": 1})
         self.assertEqual(1, primitive_read["revision"])
-        read = self.call("wiki_get", {"page_id": "aurora"})
+        read = self.call("read", {"page_id": "aurora"})
         self.assertEqual("valid", read["validation"]["integrity"])
         self.assertEqual("Reusable sessions are supported.", read["evidence"][0]["citations"][0]["quote"])
         plan = self.call("plan_research", {"question": "Aurora", "include_archive": False})
@@ -98,9 +97,9 @@ class DailyWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Quote is absent"):
             wiki.write("aurora", page, "Invalid quote", sources=[source])
         self.assertFalse(wiki.research.directory.exists())
-        self.call("wiki_write", {"page_id": "aurora", "page": self.page(), "change_note": "Reuse capture",
+        self.call("save", {"page_id": "aurora", "page": self.page(), "change_note": "Reuse capture",
                                  "sources": [source]})
-        read = self.call("wiki_get", {"page_id": "aurora"})
+        read = self.call("read", {"page_id": "aurora"})
         self.assertEqual("2026-10-25T00:00:00Z", read["evidence"][0]["citations"][0]["retrieved_at"])
         self.assertIsNone(self.server._providers)
 
@@ -169,10 +168,10 @@ class DailyWorkflowTests(unittest.TestCase):
         saved = archive.save({"provider": "exa", "tool": "fixture", "urls": ["https://example.test/docs"],
             "request_arguments": {}, "retrieved_at": "2026-10-25T00:00:00Z", "requested_max_characters": 200000,
             "result": {"structuredContent": {"url": "https://example.test/docs", "text": text}}})
-        result = self.call("wiki_write", {"page_id": "aurora", "page": self.page("Start." + " " * 8000 + "End."),
+        result = self.call("save", {"page_id": "aurora", "page": self.page("Start." + " " * 8000 + "End."),
             "change_note": "Retain tail evidence", "sources": [{"id": "docs", "url": "https://example.test/docs",
             "capture_id": saved["capture_id"]}]})
-        read = self.call("wiki_get", {"page_id": result["page_id"]})
+        read = self.call("read", {"page_id": result["page_id"]})
         self.assertEqual("valid", read["validation"]["integrity"])
         self.assertEqual(quote, read["evidence"][0]["citations"][0]["quote"])
 
@@ -207,14 +206,14 @@ class DailyWorkflowTests(unittest.TestCase):
                      "options": {"model": "gpt-5.6-sol"}}
         prepared = self.call("research_service_prepare", {key: value for key, value in arguments.items() if key != "operation_id"})
         self.assertEqual("gpt-5.6-sol", prepared["payload"]["model"])
-        first = self.call("research_service_start", arguments)
-        replay = self.call("research_service_start", arguments)
+        first = self.call("spawn", arguments)
+        replay = self.call("spawn", arguments)
         self.assertEqual(first["external_id"], replay["external_id"])
         self.assertTrue(replay["replayed"])
         self.assertEqual(1, transport.request.call_count)
         transport.request.return_value = {"id": "resp_fixture", "status": "completed", "output": [
             {"type": "message", "content": [{"type": "output_text", "text": "Reviewed report.", "annotations": []}]}]}
-        result = self.call("research_service_result", {"external_id": first["external_id"], "refresh": True})
+        result = self.call("job", {"external_id": first["external_id"], "action": "result", "refresh": True})
         self.assertIn("Reviewed report.", json.dumps(result))
         self.assertFalse(services.sessions.directory.exists())
 

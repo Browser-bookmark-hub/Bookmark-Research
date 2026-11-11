@@ -7,13 +7,13 @@
   },
   "search": {
     "providers": ["exa", "parallel", "perplexity"],
-    "fallback_providers": ["tavily", "jina"],
+    "fallback_providers": [],
     "limit_per_target": 5,
     "strategy": "hedged"
   },
   "fetch": {
     "provider": "exa",
-    "providers": ["exa", "parallel", "jina"],
+    "providers": ["exa", "parallel"],
     "strategy": "staggered",
     "max_characters": 12000
   },

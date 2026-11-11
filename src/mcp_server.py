@@ -297,7 +297,7 @@ TOOL_DESCRIPTIONS = {
     "merge_search_results": "Fuse and deduplicate search results from host-native tools or other MCPs. Deduplicates by URL and text SHA-256, computes RRF scores, preserves provider provenance, and optionally archives extracts into knowledge storage.",
     "agentic_search": "Optional model answer/search channel, separate from search_web URL fusion. provider=grok (default) uses xAI Responses and XAI_API_KEY; include_x enables X Search. provider=custom uses the configured custom_agentic OpenAI-compatible endpoint and CUSTOM_AGENTIC_API_KEY; native web search is only requested for Responses mode when explicitly configured. Prompt mode cannot guarantee the upstream actually searches. Citations are not independently verified. Use only when selected by the user or workflow.",
     "fetch_web": "Read known URLs directly (up to 16 per call) with per-page and total text budgets. Continue saved text using capture_id and offset without refetching. Omit provider for the saved fallback order (fetch.strategy overlaps a stalled provider); specifying one restricts it. raw returns provider envelopes; archive=false skips saving. Check page identity before citing. Every page carries content_state, the page's own shape: usable, content_insufficient (under 400 characters or an empty-page marker), js_shell_suspected (a title and navigation but no prose), challenge_blocked, login_required (an SSO or sign-in wall), soft_404 or paywall_suspected; only usable pages are worth citing, and unavailable means no body was obtained. published_at is a day-precision date with published_at_source (provider_metadata, structured_metadata or body_date) and published_at_confidence; a bare date in the text is low confidence and never later than the fetch day. A URL with no body carries liveness: dead only for 404/410, otherwise unknown, and dead_urls lists them.",
-    "search_providers": "Describe configured retrieval capabilities and per-operation auth. Includes Exa, Parallel, Tavily, Jina, DeepSeek and optional Perplexity structured Search. probe=true checks remote MCP catalogs, not successful retrieval; HTTP APIs (Jina, DeepSeek, Perplexity) are reported as not probed. Perplexity is search-only and requires PERPLEXITY_API_KEY. Configure credentials through CLI setup, never chat.",
+    "search_providers": "Describe configured retrieval capabilities and per-operation auth. Includes Exa, Parallel, DeepSeek and optional Perplexity structured Search. probe=true checks remote MCP catalogs, not successful retrieval; HTTP APIs (DeepSeek, Perplexity) are reported as not probed. Perplexity is search-only and requires PERPLEXITY_API_KEY. Configure credentials through CLI setup, never chat.",
     "search_archive": "Search saved page text across local archives and research tasks using literal terms. No network. By default, results are grouped by URL, reporting version counts, time span, and distinct versions. Set expand_versions=true to view separate captures merged by body hash. Occurrences have their own pagination. Hash-mismatched bodies are skipped and counted; the index refreshes incrementally.",
 }
 
@@ -511,13 +511,14 @@ TOOL_SCHEMAS.update({
     }, ["action"]),
 })
 
-# P0b primitive names. The legacy schemas remain available during the
-# compatibility window; these aliases provide one stable surface while the
-# underlying providers and evidence rules are migrated incrementally.
+# Primitive names. Several reuse an implementation schema defined above under
+# its historical name; those historical names are internal only (see below).
 TOOL_SCHEMAS.update({
     "search": _object_schema({
         "query": _text_schema(2000), "providers": PROVIDERS,
         "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8},
+        "raw": {"type": "boolean", "default": False,
+                "description": "Return every provider row and full snippets instead of the compact fused list."},
     }, ["query"]),
     "fetch": TOOL_SCHEMAS["fetch_web"],
     "ingest": copy.deepcopy(TOOL_SCHEMAS["merge_search_results"]),
@@ -543,8 +544,8 @@ TOOL_SCHEMAS.update({
 })
 TOOL_SCHEMAS["ingest"]["properties"]["batches"]["maxItems"] = 16
 # The primitive surfaces accept a short ref as an alternative to repeating
-# source/section/item identifiers returned by locate.  Legacy schemas keep
-# their source_id requirement and remain available for compatibility calls.
+# source/section/item identifiers returned by locate. The internal schemas
+# keep their source_id requirement.
 for _primitive_name in ("read", "walk"):
     TOOL_SCHEMAS[_primitive_name]["required"] = []
     TOOL_SCHEMAS[_primitive_name]["properties"]["ref"] = _text_schema(128)
@@ -575,7 +576,7 @@ TOOL_DESCRIPTIONS.update({
     "wiki_search": "Find authored Wiki text using an incremental character index, literal/spacing matching and explicit aliases. Validates matching candidates; invalid/retracted evidence is excluded. Freshness warnings remain visible. No embeddings or network calls.",
     "wiki_lint": "Audit all selected Wiki evidence, hashes, source freshness, crosslinks and history. Mechanical integrity and declared semantic review are reported separately; no network.",
     "wiki_compile": "Plan and audit incremental Wiki compilation. action=plan clusters a bookmark scope by folder, drops junk/search/duplicate URLs, reports coverage by current revisions and the pages a cluster would touch; action=status recomputes coverage, gap and pending items from a stored plan (coverage_basis says which denominator); action=gap records planned URLs that were attempted but could not be read (urls, reason, provider). Planning and gaps write only plan/gap files; no fetch and no Wiki page. Deep preset only.",
-    "search": "Search public sources and return discovery results with provider failures and coverage visible. A host-native search is the default discovery channel; call this when it is unavailable, insufficient or provider diversity is requested. Primary search has a 10-second default search.deadline_seconds; quota_exhausted providers enter cooldown while other fallbacks are still attempted. Results are not page正文; fetch known URLs before citing.",
+    "search": "Fallback web discovery across the configured providers (default Exa + Parallel in parallel). The host's own search is the first channel; call this when it is unavailable, returns too little, or provider diversity is requested. Returns each fused URL once with providers, ranks and a short snippet, plus per-provider status; raw=true returns every provider row. Primary search stops at search.deadline_seconds (10 s default); quota_exhausted providers enter cooldown. Snippets are discovery only; fetch a page before citing it.",
     "fetch": "Fetch known URLs with provider fallback, bounded text budgets, content_state and optional archived capture continuation. A returned body is not automatically a verified citation.",
     "ingest": "Fuse host or provider search batches by canonical URL and body SHA-256, preserving provider provenance, failures and coverage. Tag host batches with provider=host:<name> so the channel stays auditable. This is deterministic result ingestion, not Agentic Search planning.",
     "spawn": "Submit work that outlives one tool step. task=deep_research (default) starts a provider-managed Deep Research run and returns an external id; task=fetch/ingest/research enqueues a durable local job and returns job_id, processed by `br job worker`. The host owns iteration and decides when to observe it with job.",
@@ -592,7 +593,10 @@ WIKI_ONLY_TOOLS = frozenset({
 })
 
 
-DEPRECATED_TOOL_TARGETS = {
+# Historical names replaced by the primitives. They are not tools: tools/call
+# rejects them with the replacement name. Their schemas and handlers stay as
+# internal implementations that the primitives and the CLI dispatch to.
+REPLACED_TOOLS = {
     "search_bookmarks": "locate", "lookup_url": "locate", "search_archive": "locate",
     "wiki_search": "locate", "wiki_list": "locate", "get_context": "read",
     "traverse_graph": "walk", "search_web": "search", "fetch_web": "fetch",
@@ -601,23 +605,14 @@ DEPRECATED_TOOL_TARGETS = {
     "research_service_result": "job", "research_service_cancel": "job",
     "research_source": "read", "wiki_get": "read",
 }
-for _legacy_name, _replacement_name in DEPRECATED_TOOL_TARGETS.items():
-    TOOL_DESCRIPTIONS[_legacy_name] = "[deprecated→%s] %s" % (
-        _replacement_name, TOOL_DESCRIPTIONS[_legacy_name])
+INTERNAL_SCHEMAS = {name: TOOL_SCHEMAS.pop(name) for name in REPLACED_TOOLS}
+for _replaced_name in REPLACED_TOOLS:
+    TOOL_DESCRIPTIONS.pop(_replaced_name, None)
 
 
-def _legacy_compatibility_expired(version):
-    """Return whether a stable release has reached the 0.8.0 cutoff."""
-    match = re.fullmatch(
-        r"(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?",
-        str(version or ""))
-    if match is None:
-        return False
-    current = tuple(int(match.group(index)) for index in (1, 2, 3))
-    cutoff = (0, 8, 0)
-    if current != cutoff:
-        return current > cutoff
-    return match.group(4) is None
+def schema_for(name):
+    """Return the public or internal input schema used to validate a call."""
+    return TOOL_SCHEMAS[name] if name in TOOL_SCHEMAS else INTERNAL_SCHEMAS[name]
 
 
 class RpcError(Exception):
@@ -887,31 +882,18 @@ class StdioMcpServer:
         small without deleting any implementation.
         """
         scope = self._tool_scope()
-        expired = _legacy_compatibility_expired(release_version())
-        if scope:
-            names = list(dict.fromkeys(
-                name for name in scope
-                if name in TOOL_SCHEMAS and (not expired or name not in DEPRECATED_TOOL_TARGETS)))
-        else:
-            # Default deep/all advertises only real tools. Legacy names stay
-            # callable until 0.8.0, but presence alone steers mis-picks.
-            names = [name for name in TOOL_SCHEMAS if name not in DEPRECATED_TOOL_TARGETS]
+        names = (list(dict.fromkeys(name for name in scope if name in TOOL_SCHEMAS))
+                 if scope else list(TOOL_SCHEMAS))
         if not self._wiki_enabled():
             names = [name for name in names if name not in WIKI_ONLY_TOOLS]
         return names
 
-    @staticmethod
-    def _legacy_tool_removed(name):
-        return (name in DEPRECATED_TOOL_TARGETS
-                and _legacy_compatibility_expired(release_version()))
-
     def _tool_enabled(self, name):
         """Explicit scopes restrict calls; quick/deep presets only filter discovery.
 
-        The quick preset must keep deprecated handlers callable during the
-        compatibility window even though they are omitted from tools/list.
-        A host environment override or an explicit user allowlist remains a
-        hard capability boundary.
+        The quick preset keeps the full catalog callable even though tools/list
+        shows only the primitives. A host environment override or an explicit
+        user allowlist remains a hard capability boundary.
         """
         override = os.environ.get("BOOKMARK_RESEARCH_TOOL_SCOPE")
         if override is not None:
@@ -1073,11 +1055,15 @@ class StdioMcpServer:
         if name == "locate":
             return self._locate_canvas(arguments)
         if name == "search":
-            return self._web().search(
+            result = self._web().search(
                 targets=[{"target": arguments["query"], "query": arguments["query"]}],
                 providers=arguments.get("providers"),
                 limit_per_target=arguments.get("limit", 8),
             )
+            if arguments.get("raw"):
+                return result
+            from search_results import compact_search
+            return compact_search(result)
         if name == "fetch":
             return self._call("fetch_web", dict(arguments))
         if name == "ingest":
@@ -1305,8 +1291,8 @@ class StdioMcpServer:
                 ("collection", None), ("offset", 0), ("limit", 200), ("compact", False))
                 } if name == "get_context" else None
             scope_notes = None if name != "get_context" or "item_id" in options else {
-                "items": "get_context fills items only for one item_id; read a card's bookmarks with "
-                         "search_bookmarks(section=...) or plan_research."}
+                "items": "items are filled only for one item_id; list a card's bookmarks with "
+                         "locate(section=...) or plan_research."}
             index = self._local(readonly=not refresh)
             update = self._sources().refresh(options["source_id"]) if refresh else None
             if update and update["state"] in ("error", "unavailable"):
@@ -1380,6 +1366,21 @@ class StdioMcpServer:
             return fuse_results(arguments, archive=arguments.get("archive", False), settings=self.settings)
         raise RpcError(-32602, "Unknown tool: " + name)
 
+    def _execute(self, name, arguments):
+        """Run one validated call and wrap its value, or its failure, as a tool result."""
+        try:
+            value = self._call(name, arguments)
+            failed = ((name in ("fetch", "fetch_web", "research_search", "research_fetch", "wiki_refresh")
+                       and value.get("status") == "error")
+                      or (name in ("search", "search_web") and value.get("successful_provider_count") == 0))
+            return self._tool_result(value, is_error=failed)
+        except Exception as exc:
+            # No raw arguments, tracebacks, credentials or provider
+            # payloads are written to stderr.
+            self._log("Tool failed: %s (%s)" % (name, type(exc).__name__))
+            return self._tool_result({"tool": name, "error": str(exc)[:4000], "error_type": type(exc).__name__},
+                                     is_error=True)
+
     def _tool_result(self, value, is_error=False):
         rendered = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
         if len(rendered) > MAX_RESULT_CHARS:
@@ -1399,22 +1400,27 @@ class StdioMcpServer:
             params = _params(message.get("params", {}), ("name", "arguments"), ("name",))
             name, arguments = params["name"], params.get("arguments", {})
             _validate(_text_schema(128), name, "name")
-            if name not in TOOL_SCHEMAS or self._legacy_tool_removed(name):
+            if name not in TOOL_SCHEMAS:
                 return False
             if not self._tool_enabled(name):
                 return False
             _validate(TOOL_SCHEMAS[name], arguments)
         except RpcError:
             return False
-        if name == "fetch_web":
+        if name == "fetch":
             return "capture_id" not in arguments
         if name == "search_providers":
             return arguments.get("probe", False)
         if name == "research_readiness":
             return not arguments.get("offline", False)
-        return name in {"search_web", "agentic_search", "research_search", "research_fetch", "wiki_refresh",
-                        "research_service_start", "research_service_status", "research_service_result",
-                        "research_service_cancel", "research_service_attach", "research_service_import"}
+        if name == "spawn":
+            return (arguments.get("task") or "deep_research") == "deep_research"
+        if name == "job":
+            # Provider runs are observed over the network; local jobs read SQLite.
+            identifier = arguments.get("job_id") or arguments.get("external_id") or ""
+            return not identifier.startswith("j-")
+        return name in {"search", "agentic_search", "research_search", "research_fetch", "wiki_refresh",
+                        "research_service_attach", "research_service_import"}
 
     def handle(self, message):
         """Return a response object, or None for a valid notification."""
@@ -1484,22 +1490,15 @@ class StdioMcpServer:
                 _params(params, ("name", "arguments"), ("name",))
                 name = params["name"]
                 _validate(_text_schema(128), name, "name")
-                if name not in TOOL_SCHEMAS or self._legacy_tool_removed(name):
-                    raise RpcError(-32602, "Unknown tool: " + name)
+                if name not in TOOL_SCHEMAS:
+                    replacement = REPLACED_TOOLS.get(name)
+                    raise RpcError(-32602, "Unknown tool: " + name +
+                                   ("; use " + replacement if replacement else ""))
                 if not self._tool_enabled(name):
                     raise RpcError(-32602, "Tool is outside this profile's tool_scope: " + name)
                 arguments = params.get("arguments", {})
                 _validate(TOOL_SCHEMAS[name], arguments)
-                try:
-                    value = self._call(name, arguments)
-                    failed = ((name in ("fetch_web", "research_search", "research_fetch", "wiki_refresh") and value.get("status") == "error")
-                              or (name == "search_web" and value.get("successful_provider_count") == 0))
-                    result = self._tool_result(value, is_error=failed)
-                except Exception as exc:
-                    # No raw arguments, tracebacks, credentials or provider
-                    # payloads are written to stderr.
-                    self._log("Tool failed: %s (%s)" % (name, type(exc).__name__))
-                    result = self._tool_result({"tool": name, "error": str(exc)[:4000], "error_type": type(exc).__name__}, is_error=True)
+                result = self._execute(name, arguments)
             return {"jsonrpc": "2.0", "id": request_id, "result": result}
         except RpcError as exc:
             if notification:

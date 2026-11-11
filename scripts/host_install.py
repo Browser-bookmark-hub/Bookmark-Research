@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 from export_bundle import SOURCE_ROOT, _write_adapter, export_bundle, read_plugin_manifest
-from host_clients import HostClient, read_json
+from host_clients import AgentClient, HostClient, read_json
 
 
 def _write_json(path, value):
@@ -263,14 +263,24 @@ def _manage(action, client, base, source, ref, dry_run):
             failed_receipt["state"] = "needs_verification"
             _write_json(receipt_path, failed_receipt)
             raise
+        if client.host == "agent":
+            register = AgentClient.register_commands(bundle)
+            return {**plan, **checked, "register": register,
+                    "next_step": "Register " + str(bundle) + " with your Agent Plugins client (Devin: "
+                                 + " ".join(register["devin"]) + "), then start a new session."}
         return {**plan, **checked, "next_step": "Restart " + client.host + " to load the installed Skill and tools."}
 
 
 def manage_host(action, host, binary=None, timeout=60, source=None, ref=None, dry_run=False,
                 scope=None, project=None, profile=None, install_dir=None):
-    if host not in ("claude", "dsh"):
+    if host not in ("claude", "dsh", "agent"):
         raise ValueError("Unsupported host: " + host)
-    client = HostClient(host, binary or host, timeout, scope, project, profile)
+    if host == "agent":
+        if scope or project or profile:
+            raise ValueError("The agent host takes no --scope, --project or --profile; register the directory in your client")
+        client = AgentClient(timeout)
+    else:
+        client = HostClient(host, binary or host, timeout, scope, project, profile)
     client.require()
     data_home = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))).expanduser()
     if not data_home.is_absolute():

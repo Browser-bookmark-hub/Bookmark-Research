@@ -17,7 +17,7 @@
 | `job` | `job submit|list|status|result|cancel|worker` |
 | `health` | `status`／`providers` |
 
-默认 MCP 面为 10 个原语。CLI 保留历史命令名（`context`、`traverse`、`search-web`、`fetch-web`），但共享同一 core、ref 与返回 schema；`locate`、`dupes`、`job` 两个入口同名。所有命令都支持全局 `--json`、`--out FILE`、`--quiet`、`--fields`。
+默认 MCP 面为 10 个原语。CLI 保留历史命令名（`context`、`traverse`、`search-web`、`fetch-web`），但共享同一 core、ref 与返回 schema；`locate`、`dupes`、`job` 两个入口同名。所有命令都支持全局 `--json`、`--out FILE`、`--quiet`、`--fields`。CLI `locate` 输出的 Canvas ref 可以在后续进程中作为 `read`/`context` 或 `walk`/`traverse` 的 `source` 传入；CLI 会在每个索引绑定的 sidecar 中保存 ref 身份，并拒绝已过期的 source version。
 
 ```sh
 python3 <root>/src/cli.py locate --source-id my-canvas --text '示例公司甲' --limit 5
@@ -70,7 +70,7 @@ python3 <root>/src/cli.py config set --depth agentic
 
 `search-archive` 不联网，查找本地已保存的正文（知识归档与研究证据）；`--url` 按 URL 子串过滤。`fetch-web.pages` 按 URL 返回一份正文，保留各次尝试状态和归档路径；`--raw` 返回完整服务响应。`--timeout` 作用于单个服务 HTTP 请求，发现工具和回退可能使总耗时更长。`research fetch` 只接受文档规定的 MCP JSON 字段，不接受 `timeout`。
 
-`providers` 只描述配置；`--probe` 才联网检查握手和工具列表。Exa/Parallel 公共端点是否可匿名使用取决于服务当前限额；可在启动进程前设置 `EXA_API_KEY` / `PARALLEL_API_KEY`。可选 `--provider tavily`：存在 `TAVILY_API_KEY` 时使用 Bearer，否则发送明确 keyless header。工具列出不证明当前凭据能够执行。不要把密钥写进 manifest 或报告。
+`providers` 只描述配置；`--probe` 才联网检查握手和工具列表。Exa/Parallel 公共端点是否可匿名使用取决于服务当前限额；可在启动进程前设置 `EXA_API_KEY` / `PARALLEL_API_KEY`。工具列出不证明当前凭据能够执行。不要把密钥写进 manifest 或报告。
 
 独立目标标签与多轮查询可通过 `search-web --input /path/to/query.json` 传入：
 
@@ -95,7 +95,7 @@ python3 <root>/src/cli.py config set --depth agentic
   "targets": ["示例公司甲"],
   "limit_per_target": 5,
   "batches": [{
-    "provider": "tavily",
+    "provider": "host:web_search",
     "target": "示例公司甲",
     "query": "示例公司甲 官方 API 价格",
     "status": "ok",

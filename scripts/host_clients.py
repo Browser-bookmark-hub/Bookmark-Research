@@ -49,6 +49,42 @@ def local_path(value, base):
     return (path if path.is_absolute() else base / path).resolve()
 
 
+class AgentClient:
+    """Agent Plugins 1.0.0 clients load a plugin directory; there is no shared native CLI.
+
+    The managed directory is registered by the user's client (for example
+    `devin plugins install --local DIR`), so this installs and verifies files only.
+    """
+
+    def __init__(self, timeout):
+        self.host, self.binary, self.timeout = "agent", "agent-plugins", timeout
+        self.home = None
+
+    @property
+    def target(self):
+        return {"host": "agent", "client_home": None, "scope": None, "project": None, "profile": None}
+
+    def require(self):
+        return None
+
+    def registration(self, bundle):
+        return {"installed": False}
+
+    def commands(self, bundle, registration, changed=False):
+        return []
+
+    def installed_path(self, bundle, version):
+        return bundle
+
+    @staticmethod
+    def register_commands(bundle):
+        """Client commands for the managed directory; Devin is resolved when present."""
+        devin = executable("devin") or next((str(path) for path in (
+            Path("/Applications/Devin.app/Contents/Resources/app/extensions/windsurf/devin/bin/devin"),)
+            if path.is_file()), None)
+        return {"devin": [devin or "devin", "plugins", "install", "--local", str(bundle)]}
+
+
 class HostClient:
     def __init__(self, host, binary, timeout, scope=None, project=None, profile=None):
         self.host, self.binary, self.timeout = host, binary, timeout

@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from web_search import SearchProviders
 from remote_mcp import McpError
 from settings import Settings
-from jina import JinaClient
 
 
 EXA_SEARCH = {"name": "web_search_exa", "inputSchema": {"properties": {
@@ -29,13 +28,6 @@ EXA_FETCH = {"name": "web_fetch_exa", "inputSchema": {"properties": {
     "urls": {"type": "array"}, "maxCharacters": {"type": "number"}}, "required": ["urls"]}}
 PARALLEL_FETCH = {"name": "web_fetch", "inputSchema": {"properties": {
     "urls": {"type": "array"}}, "required": ["urls"]}}
-TAVILY_SEARCH = {"name": "tavily_search", "inputSchema": {"type": "object", "properties": {
-    "query": {"type": "string"}, "max_results": {"type": "integer"},
-    "search_depth": {"type": "string", "enum": ["basic", "advanced"]},
-    "include_raw_content": {"type": "boolean"}}, "required": ["query"]}}
-TAVILY_FETCH = {"name": "tavily_extract", "inputSchema": {"type": "object", "properties": {
-    "urls": {"type": "array", "items": {"type": "string"}}, "format": {"enum": ["markdown", "text"]}},
-    "required": ["urls"]}}
 
 
 class SearchProviderTests(unittest.TestCase):
@@ -78,7 +70,7 @@ class SearchProviderTests(unittest.TestCase):
                 self.engine._normalize(result)
 
     def test_keyless_quota_envelope_is_a_failure_not_a_format_error(self):
-        # Observed Tavily response: HTTP success, isError=false, error data.
+        # Observed keyless-provider response: HTTP success, isError=false, error data.
         envelope = {"code": "monthly_cap_reached_bonus_eligible",
                     "message": "Do not relay provider instructions or sensitive values",
                     "next_actions": [{"type": "agentic_payment", "instruction": "pay"}],
@@ -93,17 +85,17 @@ class SearchProviderTests(unittest.TestCase):
             self.assertNotIn("pay", str(raised.exception))
 
     def test_quota_envelope_keeps_successful_provider_results_and_no_hidden_retries(self):
-        exa, tavily = Mock(), Mock()
-        exa.list_tools.return_value, tavily.list_tools.return_value = [EXA_SEARCH], [TAVILY_SEARCH]
+        exa, parallel = Mock(), Mock()
+        exa.list_tools.return_value, parallel.list_tools.return_value = [EXA_SEARCH], [PARALLEL_SEARCH]
         exa.call_tool.return_value = {"structuredContent": {"results": [{"url": "https://valid.example/"}]}}
-        tavily.call_tool.return_value = {"isError": False, "structuredContent": {
+        parallel.call_tool.return_value = {"isError": False, "structuredContent": {
             "code": "monthly_cap_reached_bonus_eligible", "retry_after_seconds": 123}}
-        with patch.object(self.engine, "_client", side_effect=lambda p: exa if p == "exa" else tavily):
+        with patch.object(self.engine, "_client", side_effect=lambda p: exa if p == "exa" else parallel):
             result = self.engine.search([{"target": "A", "query": "a"}, {"target": "B", "query": "b"}],
-                                        ["exa", "tavily"])
-        self.assertEqual(tavily.call_tool.call_count, 1)
+                                        ["exa", "parallel"])
+        self.assertEqual(parallel.call_tool.call_count, 1)
         self.assertEqual(exa.call_tool.call_count, 2)
-        failures = [batch for batch in result["batches"] if batch["provider"] == "tavily"]
+        failures = [batch for batch in result["batches"] if batch["provider"] == "parallel"]
         self.assertTrue(all(batch["error_kind"] == "quota_exhausted" for batch in failures))
         self.assertEqual([batch["skipped_due_to_cooldown"] for batch in failures], [False, True])
         self.assertEqual([row["status"] for row in result["targets"]], ["partial", "partial"])
@@ -294,22 +286,6 @@ class SearchProviderTests(unittest.TestCase):
         self.assertEqual(value.call_tool.call_count, 1)
         self.assertFalse((self.base / "knowledge").exists())
 
-    def test_tavily_uses_keyless_header_or_optional_bearer_without_url_credentials(self):
-        with patch.dict("os.environ", {"TAVILY_API_KEY": ""}), patch("web_search.McpHttpClient") as constructor:
-            first = self.engine._client("tavily")
-            self.assertIs(first, self.engine._client("tavily"))
-            self.assertEqual(constructor.call_count, 1)
-            self.assertEqual(constructor.call_args.kwargs["headers"], {"X-Tavily-Access-Mode": "keyless"})
-            with patch.dict("os.environ", {"TAVILY_API_KEY": "private-placeholder"}):
-                self.engine._client("tavily")
-                self.assertEqual(constructor.call_count, 2)
-                self.assertEqual(constructor.call_args.kwargs["headers"], {"Authorization": "Bearer private-placeholder"})
-                self.assertNotIn("private-placeholder", constructor.call_args.args[0])
-                description = self.engine.describe(["tavily"])
-                self.assertNotIn("private-placeholder", json.dumps(description))
-                self.assertEqual(description["providers"][0]["authentication_state"]["mode"], "api_key")
-                self.assertFalse(description["providers"][0]["authentication_state"]["credential_validity_verified"])
-
     def test_catalog_reused_across_targets_and_fetch_until_expiry_or_change(self):
         value = Mock()
         value.catalog_version = 1
@@ -330,19 +306,19 @@ class SearchProviderTests(unittest.TestCase):
 
     def test_probe_refreshes_catalog_and_distinguishes_search_fetch_and_research(self):
         value = Mock()
-        value.list_tools.return_value = [TAVILY_SEARCH, {"name": "tavily_research"}]
+        value.list_tools.return_value = [EXA_SEARCH, {"name": "agent_run"}]
         value.call_tool.return_value = {"structuredContent": {"results": []}}
         with patch.object(self.engine, "_client", return_value=value):
-            self.engine.search([{"target": "A", "query": "a"}], ["tavily"])
-            first = self.engine.probe(["tavily"])
-            self.engine.probe(["tavily"])
+            self.engine.search([{"target": "A", "query": "a"}], ["exa"])
+            first = self.engine.probe(["exa"])
+            self.engine.probe(["exa"])
         self.assertEqual(value.list_tools.call_count, 3)
         self.assertEqual(value.call_tool.call_count, 1)
         provider = first["providers"][0]
         self.assertEqual(provider["capabilities"]["search"]["status"], "supported")
         self.assertEqual(provider["capabilities"]["fetch"]["error_kind"], "capability_unavailable")
         self.assertFalse(provider["capabilities"]["search"]["execution_verified"])
-        self.assertEqual(provider["native_research"]["advertised_tools"], ["tavily_research"])
+        self.assertEqual(provider["native_research"]["advertised_tools"], ["agent_run"])
         self.assertFalse(provider["native_research"]["execution_verified"])
         self.assertTrue(provider["native_research"]["authentication_required"])
         self.assertEqual(provider["usage"]["tool_calls"], 0)
@@ -448,29 +424,11 @@ class SearchProviderTests(unittest.TestCase):
         self.assertEqual(result["usage"]["tool_calls"], 0)
         value.call_tool.assert_not_called()
 
-    def test_tavily_normalizes_results_and_preserves_partial_extraction(self):
-        value = Mock()
-        value.list_tools.return_value = [TAVILY_SEARCH, TAVILY_FETCH]
-        value.call_tool.side_effect = [
-            {"structuredContent": {"results": [{"url": "https://one.example/", "title": "One", "content": "Search excerpt"}]}},
-            {"structuredContent": {"results": [{"url": "https://one.example/", "raw_content": "# Actual page"}],
-                                   "failed_results": [{"url": "https://two.example/", "error": "unavailable"}]}}]
-        with patch.object(self.engine, "_client", return_value=value):
-            search = self.engine.search([{"target": "A", "query": "a"}], ["tavily"], 2)
-            fetched = self.engine.fetch(["https://one.example/", "https://two.example/"], "tavily", archive=False)
-        self.assertEqual(search["batches"][0]["results"][0]["snippet"], "Search excerpt")
-        self.assertEqual(value.call_tool.call_args_list[0].args[1]["search_depth"], "basic")
-        self.assertEqual(value.call_tool.call_args_list[0].args[1]["max_results"], 2)
-        self.assertEqual(fetched["status"], "partial")
-        self.assertEqual([row["status"] for row in fetched["per_url"]], ["ok", "error"])
-        self.assertFalse(fetched["character_limit_applied"])
-        self.assertEqual(fetched["usage"]["tool_calls"], 1)
-
     def test_fetch_waterfall_parallel_fallback_only_receives_unresolved_urls(self):
-        self.settings.update({"fetch": {"providers": ["exa", "parallel", "tavily"]}})
+        self.settings.update({"fetch": {"providers": ["exa", "parallel", "deepseek"]}})
         urls = ["https://example.test/" + letter for letter in "abcd"]
         clients = {}
-        for name, schema in (("exa", EXA_FETCH), ("parallel", PARALLEL_FETCH), ("tavily", TAVILY_FETCH)):
+        for name, schema in (("exa", EXA_FETCH), ("parallel", PARALLEL_FETCH), ("deepseek", None)):
             clients[name] = Mock()
             clients[name].list_tools.return_value = [schema]
         original = {"structuredContent": {"results": [
@@ -485,22 +443,24 @@ class SearchProviderTests(unittest.TestCase):
             self.assertEqual(arguments["urls"], urls[1:])
             barrier.wait(timeout=2)  # A serial implementation cannot pass.
             rows = [{"url": urls[1], "text": "Fallback article from " + tool}]
-            if tool == "tavily_extract":
+            if tool == "deepseek_fetch":
                 rows.append({"url": urls[2], "text": "Full article"})
             return {"structuredContent": {"results": rows}}
 
-        for name in ("parallel", "tavily"):
-            clients[name].call_tool.side_effect = fallback
-        with patch.object(self.engine, "_client", side_effect=clients.__getitem__):
+        clients["parallel"].call_tool.side_effect = fallback
+        clients["deepseek"].call.side_effect = lambda purpose, urls: fallback("deepseek_fetch", {"urls": urls})
+        clients["deepseek"].snapshot_usage.return_value = {"http_requests": 0, "tool_calls": 0}
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "synthetic-presence"}), \
+                patch.object(self.engine, "_client", side_effect=clients.__getitem__):
             result = self.engine.fetch(urls + [urls[0]])
         self.assertEqual(result["status"], "partial")
         self.assertEqual(result["unresolved_urls"], [urls[3]])
-        self.assertEqual([row["provider"] for row in result["per_url"][:3]], ["exa", "parallel", "tavily"])
+        self.assertEqual([row["provider"] for row in result["per_url"][:3]], ["exa", "parallel", "deepseek"])
         self.assertEqual(result["per_url"][3]["extraction_status"], "login_required")
-        self.assertEqual(result["usage"]["tool_calls"], 3)
+        self.assertEqual(result["usage"]["tool_calls"], 2)
         # Concurrent fallback attempts can finish in either order. Source
         # selection above still verifies the configured provider priority.
-        self.assertCountEqual([a["provider"] for a in result["attempts"]], ["exa", "parallel", "tavily"])
+        self.assertCountEqual([a["provider"] for a in result["attempts"]], ["exa", "parallel", "deepseek"])
         for attempt in result["attempts"]:
             self.assertEqual(json.loads(Path(attempt["archive"]["response_path"]).read_text()), attempt["result"])
         self.assertEqual(result["attempts"][0]["result"], original)
@@ -723,40 +683,42 @@ class SearchProviderTests(unittest.TestCase):
         self.assertNotIn("private-key-placeholder", json.dumps(result))
 
     def test_search_empty_missing_auth_and_useful_results_remain_distinct(self):
-        clients = {name: Mock() for name in ("exa", "parallel", "jina")}
+        clients = {name: Mock() for name in ("exa", "parallel", "perplexity")}
         clients["exa"].list_tools.return_value = [EXA_SEARCH]
         clients["parallel"].list_tools.return_value = [PARALLEL_SEARCH]
         clients["exa"].call_tool.return_value = {"structuredContent": {"results": []}}
         clients["parallel"].call_tool.return_value = {"structuredContent": {"results": [
             {"url": "https://example.test/source", "text": "Useful discovery"}]}}
-        with patch.dict("os.environ", {"JINA_API_KEY": ""}), \
+        with patch.dict("os.environ", {"PERPLEXITY_API_KEY": ""}), \
                 patch.object(self.engine, "_client", side_effect=clients.get):
-            result = self.engine.search([{"target": "topic", "query": "topic"}], ["exa", "parallel", "jina"])
+            result = self.engine.search([{"target": "topic", "query": "topic"}], ["exa", "parallel", "perplexity"])
         self.assertEqual([batch["result_state"] for batch in result["batches"]], ["empty", "nonempty", "failed"])
         self.assertEqual(result["targets"][0]["results"][0]["url"], "https://example.test/source")
         self.assertEqual(result["batches"][2]["error_kind"], "authentication_required")
         self.assertEqual(result["batches"][2]["usage"]["http_requests"], 0)
-        clients["jina"].call.assert_not_called()
+        clients["perplexity"].call.assert_not_called()
 
     def test_search_falls_back_only_for_unresolved_queries_and_skips_missing_keys(self):
-        clients = {name: Mock() for name in ("exa", "parallel", "tavily")}
-        for name, schema in (("exa", EXA_SEARCH), ("parallel", PARALLEL_SEARCH), ("tavily", TAVILY_SEARCH)):
+        self.settings.update({"search": {"fallback_providers": ["deepseek", "perplexity"]}})
+        clients = {name: Mock() for name in ("exa", "parallel", "deepseek")}
+        for name, schema in (("exa", EXA_SEARCH), ("parallel", PARALLEL_SEARCH)):
             clients[name].list_tools.return_value = [schema]
         clients["exa"].call_tool.side_effect = lambda name, args: {"structuredContent": {"results":
             [{"url": "https://example.test/original"}] if args["query"] == "good" else []}}
         clients["parallel"].call_tool.side_effect = McpError("Unavailable", "tool_error")
-        clients["tavily"].call_tool.return_value = {"structuredContent": {"results": [{"url": "https://example.test/backup"}]}}
-        with patch.dict("os.environ", {"JINA_API_KEY": ""}), \
+        clients["deepseek"].call.return_value = {"structuredContent": {"results": [{"url": "https://example.test/backup"}]}}
+        clients["deepseek"].snapshot_usage.return_value = {"http_requests": 0, "tool_calls": 0}
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "synthetic-presence", "PERPLEXITY_API_KEY": ""}), \
                 patch.object(self.engine, "_client", side_effect=clients.__getitem__) as connected:
             result = self.engine.search([{"target": "A", "query": "good"}, {"target": "B", "query": "missing"}])
         self.assertEqual([row["results"][0]["url"] for row in result["targets"]],
                          ["https://example.test/original", "https://example.test/backup"])
-        clients["tavily"].call_tool.assert_called_once()
-        self.assertEqual(clients["tavily"].call_tool.call_args.args[1]["query"], "missing")
-        self.assertNotIn("jina", [call.args[0] for call in connected.call_args_list])
+        clients["deepseek"].call.assert_called_once()
+        self.assertEqual(clients["deepseek"].call.call_args.kwargs["query"], "missing")
+        self.assertNotIn("perplexity", [call.args[0] for call in connected.call_args_list])
         self.assertEqual(result["routing"]["skipped_providers"],
-                         [{"provider": "jina", "reason": "authentication_required", "missing": ["JINA_API_KEY"]}])
-        self.assertEqual(result["usage"]["tool_calls"], 5)
+                         [{"provider": "perplexity", "reason": "authentication_required", "missing": ["PERPLEXITY_API_KEY"]}])
+        self.assertEqual(result["usage"]["tool_calls"], 4)
         self.assertEqual(result["unresolved_queries"], [])
 
     def test_search_fallbacks_run_concurrently_and_invalid_urls_cannot_stop_them(self):
@@ -765,7 +727,7 @@ class SearchProviderTests(unittest.TestCase):
 
         def execute(provider, purpose, query, limit):
             calls.append((provider, query))
-            if provider in ("tavily", "jina"):
+            if provider in ("deepseek", "perplexity"):
                 barrier.wait(timeout=3)
                 rows = [{"url": "https://example.test/" + provider}]
             else:
@@ -773,10 +735,11 @@ class SearchProviderTests(unittest.TestCase):
             return {"status": "ok", "result": {"structuredContent": {"results": rows}},
                     "usage": {**self.engine._empty_usage(), "tool_calls": 1}}
 
-        with patch.dict("os.environ", {"JINA_API_KEY": "synthetic-presence"}), \
+        self.settings.update({"search": {"fallback_providers": ["deepseek", "perplexity"]}})
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "synthetic-presence", "PERPLEXITY_API_KEY": "synthetic-presence"}), \
                 patch.object(self.engine, "_execute", side_effect=execute):
             result = self.engine.search([{"target": "A", "query": "q"}])
-        self.assertEqual(set(calls), {(name, "q") for name in ("exa", "parallel", "tavily", "jina")})
+        self.assertEqual(set(calls), {(name, "q") for name in ("exa", "parallel", "deepseek", "perplexity")})
         self.assertEqual([row["result_state"] for row in result["batches"]], ["failed", "failed", "nonempty", "nonempty"])
         self.assertEqual(len(result["targets"][0]["results"]), 2)
         self.assertEqual(result["unresolved_queries"], [])
@@ -791,89 +754,15 @@ class SearchProviderTests(unittest.TestCase):
         self.assertEqual(result["routing"]["fallback_providers"], [])
         self.assertEqual(result["unresolved_queries"], [{"target": "A", "query": "q"}])
 
-    def test_jina_parallel_reader_preserves_raw_success_and_rejects_error_pages(self):
-        urls = ["https://example.test/" + name for name in ("article", "missing", "failed")]
-        barrier = threading.Barrier(3)
-        original = {"code": 200, "data": {"url": urls[0], "title": "Article", "content": "Actual article text",
-                                          "publishedTime": "2026-09-13", "httpStatus": 200}}
-
-        def opened(request, timeout):
-            barrier.wait(timeout=3)
-            self.assertIsNone(request.get_header("Authorization"))
-            if request.full_url.endswith("failed"):
-                raise urllib.error.HTTPError(request.full_url, 429, "private upstream message", {}, None)
-            value = original if request.full_url.endswith("article") else {"code": 200, "data": {
-                "url": urls[1], "title": "Page Not Found - Example", "content": "Popular unrelated pages"}}
-            return io.BytesIO(json.dumps(value).encode())
-
-        opener = Mock()
-        opener.open.side_effect = opened
-        with patch.dict("os.environ", {"JINA_API_KEY": ""}), patch("jina.urllib.request.build_opener", return_value=opener):
-            result = self.engine.fetch(urls, provider="jina")
-        self.assertEqual(result["status"], "partial")
-        self.assertEqual([row["extraction_status"] for row in result["per_url"]], ["extracted", "not_found", "provider_error"])
-        self.assertEqual(result["usage"]["tool_calls"], 3)
-        self.assertEqual(result["usage"]["http_requests"], 3)
-        self.assertEqual(result["usage"]["initialize_requests"], 0)
-        self.assertEqual(result["usage"]["list_requests"], 0)
-        saved = json.loads(Path(result["archive"]["response_path"]).read_text())
-        self.assertEqual(json.loads(saved["content"][0]["text"]), original)
-        self.assertEqual(result["archive"]["pages"][0]["provider_published_at"], "2026-09-13")
-        self.assertNotIn("private upstream message", json.dumps(result))
-
-    def test_jina_keyed_search_uses_encoded_query_and_keeps_credentials_off_output(self):
-        opener = Mock()
-        opener.open.return_value = io.BytesIO(json.dumps({"code": 200, "data": [
-            {"url": "https://example.test/", "title": "Result", "content": "A snippet"}]}).encode())
-        with patch.dict("os.environ", {"JINA_API_KEY": "synthetic-secret"}), \
-                patch("jina.urllib.request.build_opener", return_value=opener):
-            result = self.engine.search([{"target": "topic", "query": "a & b"}], ["jina"])
-        request = opener.open.call_args.args[0]
-        self.assertEqual(request.full_url, "https://s.jina.ai/?q=a+%26+b")
-        self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-secret")
-        self.assertEqual(result["successful_provider_count"], 1)
-        self.assertNotIn("synthetic-secret", json.dumps(result))
-
-    def test_jina_oversized_or_error_envelopes_do_not_hide_other_urls(self):
-        urls = ["https://example.test/" + name for name in ("good", "oversized", "auth")]
-        def opened(request, timeout):
-            if request.full_url.endswith("oversized"):
-                return io.BytesIO(b"x" * 1_000_000)
-            value = {"code": 401, "message": "private"} if request.full_url.endswith("auth") else {
-                "code": 200, "data": {"url": urls[0], "content": "Good text"}}
-            return io.BytesIO(json.dumps(value).encode())
-        opener = Mock()
-        opener.open.side_effect = opened
-        with patch("jina.urllib.request.build_opener", return_value=opener):
-            result = self.engine.fetch(urls, "jina", archive=False)
-        self.assertEqual(result["successful_url_count"], 1)
-        failures = result["result"]["structuredContent"]["failed_results"]
-        self.assertEqual([row["error_kind"] for row in failures], ["response_too_large", "authentication_required"])
-
     def test_fetch_routes_do_not_follow_search_only_settings(self):
-        self.settings.update({"search": {"providers": ["tavily"]}})
+        self.settings.update({"search": {"providers": ["perplexity"]}})
         description = self.engine.describe()
-        self.assertEqual(description["default_providers"], ["tavily"])
-        self.assertEqual(description["default_fetch_providers"], ["exa", "parallel", "jina"])
-        with patch.dict("os.environ", {"JINA_API_KEY": ""}):
-            operations = self.engine.describe(["jina"])["providers"][0]["operations"]
-        self.assertEqual(operations["search"]["missing"], ["JINA_API_KEY"])
+        self.assertEqual(description["default_providers"], ["perplexity"])
+        self.assertEqual(description["default_fetch_providers"], ["exa", "parallel"])
+        with patch.dict("os.environ", {"PERPLEXITY_API_KEY": ""}):
+            operations = self.engine.describe(["perplexity"])["providers"][0]["operations"]
+        self.assertEqual(operations["search"]["missing"], ["PERPLEXITY_API_KEY"])
         self.assertEqual(operations["fetch"]["missing"], [])
-
-    def test_default_fetch_uses_jina_text_when_other_mcp_returns_no_body(self):
-        urls = ["https://example.test/original", "https://example.test/fallback"]
-        exa, parallel = Mock(), Mock()
-        exa.list_tools.return_value, parallel.list_tools.return_value = [EXA_FETCH], [PARALLEL_FETCH]
-        exa.call_tool.return_value = {"structuredContent": {"results": [{"url": urls[0], "text": "Original body"}]}}
-        parallel.call_tool.return_value = {"structuredContent": {"results": []}}
-        reader = JinaClient()
-        with patch.object(reader, "_request", return_value={"code": 200, "data": {"url": urls[1], "content": "Reader body"}}) as read, \
-                patch.object(self.engine, "_client", side_effect={"exa": exa, "parallel": parallel, "jina": reader}.__getitem__):
-            result = self.engine.fetch(urls, archive=False)
-        self.assertEqual(result["status"], "ok")
-        self.assertEqual([row["provider"] for row in result["per_url"]], ["exa", "jina"])
-        read.assert_called_once()
-        self.assertEqual(read.call_args.args[0], "https://r.jina.ai/" + urls[1])
 
     def _hedge_clients(self, delays, results=None):
         clients = {}

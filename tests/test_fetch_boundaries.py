@@ -160,7 +160,7 @@ class FetchBoundaryTests(unittest.TestCase):
         server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"})
         with patch.object(server, "_web", side_effect=AssertionError("Must remain offline")):
             result = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": {"name": "fetch_web", "arguments": {"urls": [url], "capture_id": capture["capture_id"],
+                "params": {"name": "fetch", "arguments": {"urls": [url], "capture_id": capture["capture_id"],
                            "offset": 100, "max_characters": 100}}})
         self.assertFalse(result["result"]["isError"], result)
         self.assertEqual(body[100:200], result["result"]["structuredContent"]["pages"][0]["text"])

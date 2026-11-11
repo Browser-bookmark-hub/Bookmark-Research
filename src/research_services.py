@@ -190,8 +190,7 @@ class ResearchServices:
                     "budget_controls": ["max_tool_calls"] if name == "openai" else ["processor"]}
                     for name in providers],
                 "execution": "Provider-managed runs; observe explicitly by run ID. No local worker or automatic retry.",
-                "workflow": ["research_service_prepare", "research_service_start",
-                             "research_service_status", "research_service_result"],
+                "workflow": ["research_service_prepare", "spawn", "job(action=status)", "job(action=result)"],
                 "native_research": {"available": True, "entrypoint": "research_start",
                                     "execution_owner": "host", "requires_service_credentials": False},
                 "cost_note": "Tool-count/processor controls are not a monetary cap. Host-native research tools remain usable independently."}
@@ -280,7 +279,7 @@ class ResearchServices:
             endpoint = "/v1/tasks/runs"
         return {"research_id": research_id, "provider": provider, "question_id": question_id,
                 **self._availability(provider, config),
-                "next_action": "research_service_start" if self._availability(provider, config)["ready_to_start"]
+                "next_action": "spawn" if self._availability(provider, config)["ready_to_start"]
                                else "Configure the listed missing settings/credential in the host environment before starting this service.",
                 "endpoint": endpoint, "payload": payload,
                 "source_scope": {"input_version": source_scope.get("input_version"),
@@ -315,16 +314,17 @@ class ResearchServices:
         external_id = state["external_id"]
         if state["status"] in ResearchServices.ACTIVE:
             if state.get("provider_run_id"):
-                return {"tool": "research_service_status", "arguments": {"external_id": external_id, "refresh": True},
+                return {"tool": "job", "arguments": {"external_id": external_id, "action": "status", "refresh": True},
                         "poll_after_seconds": 15}
             return {"tool": "research_service_attach", "requires": ["known provider run_id"],
                     "reason": "The create outcome is unknown. Recover the existing provider ID; do not submit another run."}
         if state["status"] == "completed":
-            return {"tool": "research_service_result",
-                    "arguments": {"external_id": external_id, "refresh": not bool(state.get("report_path"))},
-                    "then": "Read all report pages and verify cited original sources. Save reviewed findings with wiki_write."}
+            return {"tool": "job",
+                    "arguments": {"external_id": external_id, "action": "result",
+                                  "refresh": not bool(state.get("report_path"))},
+                    "then": "Read all report pages and verify cited original sources. Save reviewed findings with save."}
         if not state.get("research_id"):
-            return {"tool": "research_service_result", "arguments": {"external_id": external_id},
+            return {"tool": "job", "arguments": {"external_id": external_id, "action": "result"},
                     "reason": "Inspect the saved outcome and report remaining gaps. Do not start a replacement automatically."}
         if state["status"] == "error":
             return {"tool": "research_route", "arguments": {"depth": "deep",

@@ -19,21 +19,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-import mcp_server  # noqa: E402
-from mcp_server import _legacy_compatibility_expired, serve  # noqa: E402
+from mcp_server import serve  # noqa: E402
 from settings import Settings  # noqa: E402
 
 
-# Frozen 2026-11-06 quick catalog for before/after host comparisons.
-LEGACY_TOOLS = (
-    "sync_package", "index_status", "search_bookmarks", "lookup_url", "get_context",
-    "traverse_graph", "plan_research", "search_web", "merge_search_results",
-    "agentic_search", "fetch_web", "search_archive", "wiki_write", "wiki_get",
-    "wiki_list", "wiki_search", "research_services", "research_service_prepare",
-    "research_service_start", "research_service_status", "research_service_result",
-    "research_service_cancel", "research_service_attach", "get_settings", "update_settings",
-)
-PRESETS = ("quick", "legacy", "deep", "all")
+PRESETS = ("quick", "deep", "all")
 
 
 def _request(method, request_id=None, params=None):
@@ -47,8 +37,6 @@ def _request(method, request_id=None, params=None):
 
 def capture(preset, db_path=":memory:", excluded=()):
     """Return the parsed tools/list response and its exact emitted line."""
-    if preset == "legacy" and _legacy_compatibility_expired(mcp_server.release_version()):
-        raise ValueError("The legacy tool surface ended at 0.8.0")
     temporary = tempfile.TemporaryDirectory(prefix="bookmark-tools-list-")
     old_scope = os.environ.get("BOOKMARK_RESEARCH_TOOL_SCOPE")
     try:
@@ -57,9 +45,6 @@ def capture(preset, db_path=":memory:", excluded=()):
         settings = Settings(Path(temporary.name) / "settings.json")
         if preset == "quick":
             names = [name for name in Settings.QUICK_TOOLS if name not in excluded]
-            os.environ["BOOKMARK_RESEARCH_TOOL_SCOPE"] = ",".join(names)
-        elif preset == "legacy":
-            names = [name for name in LEGACY_TOOLS if name not in excluded]
             os.environ["BOOKMARK_RESEARCH_TOOL_SCOPE"] = ",".join(names)
         elif excluded:
             from mcp_server import TOOL_SCHEMAS

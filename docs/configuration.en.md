@@ -17,14 +17,14 @@ Use this file for long-term preferences and connection parameters that Bookmark 
 
 - Search and reading sources: `search.providers`, `search.fallback_providers`, `fetch.provider`, `fetch.providers` and concurrency strategies. Perplexity provides structured URL search, not page extraction.
 - User preferences: `research.depth`, `research.response_language`, `research.methods`, `archive.enabled`, `wiki.enabled`, `wiki.after_research`, `output.mode`, cache and limit settings, and readiness checks.
-- Model endpoints: Base URL, model ID, protocol and search mode under `custom_agentic`. It returns a separate model answer through `agentic_search` and is not fused into `search_web` URL results.
+- Model endpoints: Base URL, model ID, protocol and search mode under `custom_agentic`. It returns a separate model answer through `agentic_search` and is not fused into `search` URL results.
 - Professional research APIs called directly by this plugin: the OpenAI Deep Research or Parallel Task API selection under `professional_research`.
 
 `config/settings.example.json` is an importable partial config; remove or change fields to suit your setup. Values must match the current settings schema. Invalid settings are rejected. For defaults, field details and the complete effective settings shape, see the [settings and archives reference](../skills/bookmark-research/references/settings-and-archive.md).
 
 ## MCP And Credentials
 
-Do not put every MCP in the plugin's `settings.json`. MCPs launched or authorized directly by the host, such as Exa Agent, Parallel Task and Tavily Research, use host-specific endpoint, command, OAuth and header formats managed by Codex, Claude Code or DSH. The installer/setup can show connection steps, but the plugin JSON does not register host MCPs or store their OAuth credentials.
+Do not put every MCP in the plugin's `settings.json`. MCPs launched or authorized directly by the host, such as Exa Agent and Parallel Task, use host-specific endpoint, command, OAuth and header formats managed by Codex, Claude Code or DSH. The installer/setup can show connection steps, but the plugin JSON does not register host MCPs or store their OAuth credentials.
 
 When Bookmark Research calls a service through its own API, its selection and non-secret connection settings can live here; the key stays separate. For example:
 
@@ -48,8 +48,6 @@ Bookmark Research accepts these API keys for its service adapters. Configure onl
 | --- | --- |
 | `EXA_API_KEY` | Exa search and page reading |
 | `PARALLEL_API_KEY` | Parallel search and page reading |
-| `TAVILY_API_KEY` | Tavily fallback search and extraction |
-| `JINA_API_KEY` | Jina Search; Reader can fetch anonymously |
 | `DEEPSEEK_API_KEY` | DeepSeek Search / Fetch |
 | `PERPLEXITY_API_KEY` | Perplexity structured Search |
 | `XAI_API_KEY` | Grok `agentic_search` |

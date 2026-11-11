@@ -666,11 +666,13 @@ def manage(action, cli, source=None, ref=None, dry_run=False, installed_path=Non
     return result
 
 
-HOSTS = ("codex", "claude", "dsh")
+HOSTS = ("codex", "claude", "dsh", "agent")
+# `other` names any client that loads Agent Plugins 1.0.0 packages (e.g. Devin).
+HOST_ALIASES = {"other": "agent", "devin": "agent"}
 
 
 def _setup_host(host):
-    return "claude_code" if host == "claude" else host
+    return {"claude": "claude_code", "agent": "unknown"}.get(host, host)
 
 
 def _normalize_hosts(values):
@@ -683,12 +685,13 @@ def _normalize_hosts(values):
             name = name.strip()
             if not name:
                 continue
+            name = HOST_ALIASES.get(name, name)
             if name not in HOSTS:
-                raise ValueError("--host must be codex, claude, or dsh: " + name)
+                raise ValueError("--host must be codex, claude, dsh or agent (other): " + name)
             if name not in hosts:
                 hosts.append(name)
     if not hosts:
-        raise ValueError("--host requires at least one of codex, claude, or dsh")
+        raise ValueError("--host requires at least one of codex, claude, dsh or agent (other)")
     return hosts
 
 
@@ -726,7 +729,7 @@ def _run_target(args, target, language):
     from host_install import manage_host
     if getattr(args, "installed_path", None):
         raise ValueError("--installed-path is only supported for Codex")
-    result = manage_host(args.action, host, binary=getattr(args, host), timeout=args.timeout,
+    result = manage_host(args.action, host, binary=getattr(args, host, None), timeout=args.timeout,
                          source=getattr(args, "source", None), ref=getattr(args, "ref", None),
                          dry_run=getattr(args, "dry_run", False), scope=target.get("scope"),
                          project=target.get("project"), profile=target.get("profile"), install_dir=args.install_dir)
@@ -794,8 +797,8 @@ def main(argv=None):
         command.add_argument("--json", action="store_true", help=message(
             "Print the full installation result as JSON", "以 JSON 输出完整安装结果"))
         command.add_argument("--host", action="append", help=message(
-            "Target client: codex, claude, or dsh; repeat or comma-separate for several. Guided selection in a terminal, otherwise codex",
-            "目标宿主：codex、claude 或 dsh；可重复或用逗号指定多个。终端中引导选择，非交互时默认 codex"))
+            "Target client: codex, claude, dsh, or agent (alias other: any Agent Plugins 1.0.0 client such as Devin); repeat or comma-separate for several. Guided selection in a terminal, otherwise codex",
+            "目标宿主：codex、claude、dsh 或 agent（别名 other：任何支持 Agent Plugins 1.0.0 的客户端，如 Devin）；可重复或用逗号指定多个。终端中引导选择，非交互时默认 codex"))
         command.add_argument("--codex", default="codex", help=message("Codex CLI executable, optionally an absolute path", "Codex CLI 程序名或绝对路径"))
         for host in ("claude", "dsh"):
             detail = (" (default: a usable dsh on PATH, then a DeepSeek Harness Desktop installation)",

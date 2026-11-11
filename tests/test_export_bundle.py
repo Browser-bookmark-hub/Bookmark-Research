@@ -16,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import export_bundle
 import build_zip
+from data_isolation import setUpModule, tearDownModule  # noqa: F401
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +68,7 @@ class ExportBundleTests(unittest.TestCase):
             "codex": {".codex-plugin", ".agents", "hosts"},
             "claude": {".claude-plugin", ".mcp.json", "hosts", "workflows", "commands"},
             "dsh": {"package.json", "bundle.patch.yml", "cordis.patch.yml", "hosts", "workflows"},
+            "agent": {"plugin.json", "mcp.json", "hosts"},
         }
         for format_name in export_bundle.FORMATS:
             with self.subTest(format=format_name):
@@ -104,6 +106,9 @@ class ExportBundleTests(unittest.TestCase):
                     server = self.read_json(output, ".mcp.json")["mcpServers"]["bookmark-research"]
                     self.assertEqual(server, {"type": "stdio", "command": "python3",
                                               "args": ["${CLAUDE_PLUGIN_ROOT}/src/cli.py", "serve"]})
+                elif format_name == "agent":
+                    self.assertEqual(self.read_json(output, "plugin.json")["name"], "bookmark-research")
+                    self.assertIn("devin plugins install --local", readme)
                 else:
                     patch = (output / "cordis.patch.yml").read_text(encoding="utf-8")
                     self.assertIn(json.dumps(str(output / "src/cli.py"), ensure_ascii=False), patch)
@@ -111,6 +116,38 @@ class ExportBundleTests(unittest.TestCase):
                     self.assertNotIn("${", patch)
                     self.assertNotIn("--db", patch)
                     self.assertIn("absolute local paths", (output / "README.md").read_text(encoding="utf-8"))
+
+    def test_agent_plugins_layout_follows_the_closed_1_0_0_schema(self):
+        output = self.export("agent")
+        manifest = self.read_json(output, "plugin.json")
+        self.assertEqual(export_bundle.AGENT_PLUGIN_SCHEMA, manifest["$schema"])
+        self.assertLessEqual(set(manifest), {"$schema", "name", "version", "description", "author", "homepage",
+                                             "repository", "license", "keywords", "extensions"})
+        self.assertRegex(manifest["name"], r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")
+        self.assertLessEqual(set(manifest.get("author", {})), {"name", "email", "url"})
+        mcp = self.read_json(output, "mcp.json")
+        self.assertEqual({"$schema", "mcpServers"}, set(mcp))
+        self.assertEqual(export_bundle.AGENT_MCP_SCHEMA, mcp["$schema"])
+        server = mcp["mcpServers"]["bookmark-research"]
+        self.assertEqual({"type", "command", "args", "cwd"}, set(server))
+        self.assertEqual("stdio", server["type"])
+        self.assertNotIn("/", server["command"])
+        self.assertEqual("${PLUGIN_ROOT}", server["cwd"])
+        # Client rules (AGENTS.md) and other hosts' manifests must not ride along.
+        for absent in ("AGENTS.md", ".devin-plugin", ".claude-plugin", ".codex-plugin", ".mcp.json"):
+            self.assertFalse((output / absent).exists(), absent)
+        expanded = [argument.replace("${PLUGIN_ROOT}", str(output)) for argument in server["args"]]
+        requests = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                        "protocolVersion": "2025-11-25", "capabilities": {},
+                        "clientInfo": {"name": "agent-plugins-test", "version": "1"}}},
+                    {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                    {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}]
+        result = subprocess.run([sys.executable, "-B", *expanded], cwd=output, text=True, capture_output=True,
+                                input="".join(json.dumps(row) + "\n" for row in requests), timeout=30,
+                                env=dict(self.env, PLUGIN_ROOT=str(output), PLUGIN_DATA=str(self.base / "plugin-data")))
+        self.assertEqual(0, result.returncode, result.stderr)
+        listing = {row.get("id"): row for row in map(json.loads, result.stdout.splitlines())}[2]
+        self.assertIn("locate", {tool["name"] for tool in listing["result"]["tools"]})
 
     def test_dsh_release_layer_is_copied_and_registry_installable(self):
         output = self.base / "dsh release"
@@ -246,7 +283,7 @@ class ExportBundleTests(unittest.TestCase):
         support.parent.mkdir(parents=True, exist_ok=True)
         support.write_text("Shared reference", encoding="utf-8")
         with mock.patch.dict(os.environ, {"EXA_API_KEY": "environment-secret-marker",
-                                          "TAVILY_API_KEY": "environment-secret-marker"}):
+                                          "DEEPSEEK_API_KEY": "environment-secret-marker"}):
             output = self.export("claude")
         for path in output.rglob("*"):
             if path.is_file():

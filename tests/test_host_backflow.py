@@ -157,7 +157,7 @@ class TestHostBackflow(unittest.TestCase):
             "id": 1,
             "method": "tools/call",
             "params": {
-                "name": "merge_search_results",
+                "name": "ingest",
                 "arguments": {
                     "batches": [
                         {

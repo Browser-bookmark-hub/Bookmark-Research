@@ -10,14 +10,14 @@ The plugin does not bundle or install GitHub MCP, GitHub OAuth or `gh`. Identify
 
 | Task | Entry point |
 | --- | --- |
-| Public README, documentation or Gist | Existing GitHub file-reading tool, or `fetch_web` for the public URL. |
+| Public README, documentation or Gist | Existing GitHub file-reading tool, or `fetch` for the public URL. |
 | Exact code, branch/commit, issue, PR or release lookup | Prefer the host's GitHub MCP; an existing `gh` can also be used through host commands. |
 | Local repository history and changes supplied by the user | Host commands such as `git status`, `git diff`, `git log`. |
 | Commit, push, pull, create an issue or PR | A separate modification task governed by current user authorization and directory rules. This plugin exposes no such operations. |
 
 Fetching a page does not establish that all repository code, comments or a particular commit were checked. Without specialized GitHub tools, read relevant public pages and disclose coverage. Use existing host access and task scope for private repositories; do not send private content to public search services. The official GitHub MCP project is https://github.com/github/github-mcp-server .
 
-Host GitHub MCP / `gh` results bypass this plugin's `fetch_web` and are not automatically archived. When retention is needed, save actual returned content and record repository, file path, ref/commit when available, URL and reading time. Do not invent missing fields.
+Host GitHub MCP / `gh` results bypass this plugin's `fetch` and are not automatically archived. When retention is needed, save actual returned content and record repository, file path, ref/commit when available, URL and reading time. Do not invent missing fields.
 
 ## Review learning stages
 

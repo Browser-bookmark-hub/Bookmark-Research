@@ -50,46 +50,6 @@
       },
       "docs": "https://docs.parallel.ai/integrations/mcp/search-mcp"
     },
-    "jina": {
-      "label": "Jina Reader / Search",
-      "url": "https://r.jina.ai/",
-      "search_url": "https://s.jina.ai/",
-      "transport": "http",
-      "search_tools": ["jina_search"],
-      "fetch_tools": ["jina_reader"],
-      "direct_client": true,
-      "optional_bearer_env": "JINA_API_KEY",
-      "required_env": {"search": "JINA_API_KEY"},
-      "authentication": "Reader supports anonymous rate-limited webpage/PDF extraction. Search requires JINA_API_KEY. Uses the HTTP APIs, not the hosted Jina MCP, whose anonymous reading is not established.",
-      "docs": "https://jina.ai/reader/"
-    },
-    "tavily": {
-      "label": "Tavily",
-      "url": "https://mcp.tavily.com/mcp/",
-      "search_tools": [
-        "tavily_search",
-        "tavily-search"
-      ],
-      "fetch_tools": [
-        "tavily_extract",
-        "tavily-extract"
-      ],
-      "direct_client": true,
-      "optional_bearer_env": "TAVILY_API_KEY",
-      "keyless_headers": {
-        "X-Tavily-Access-Mode": "keyless"
-      },
-      "authentication": "Optional TAVILY_API_KEY Bearer header; otherwise explicitly selects keyless search/extraction. OAuth is host-managed.",
-      "keyless_docs": "https://docs.tavily.com/documentation/keyless",
-      "native_research": {
-        "url": "https://mcp.tavily.com/mcp/",
-        "tools": ["tavily_research", "tavily-research"],
-        "authentication_required": true,
-        "mode": "host_native_mcp",
-        "note": "May be advertised to keyless clients but requires an API key to execute. The aggregator routes search and extraction only."
-      },
-      "docs": "https://docs.tavily.com/documentation/mcp"
-    },
     "deepseek": {
       "label": "DeepSeek Search / Fetch",
       "url": "https://api.deepseek.com",

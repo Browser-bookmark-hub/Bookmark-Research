@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from mcp_server import StdioMcpServer
 from settings import Settings
+from mcp_helpers import call_internal, is_internal  # noqa: F401
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,8 +56,8 @@ class ResearchIntegrationTests(unittest.TestCase):
             "source_ids": ["fixture"]})["research_id"]
 
     def call(self, name, arguments=None, fails=False):
-        response = self.server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-            "params": {"name": name, "arguments": arguments or {}}})
+        response = call_internal(self.server, name, arguments) if is_internal(name) else self.server.handle(
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": name, "arguments": arguments or {}}})
         self.assertNotIn("error", response, response)
         self.assertEqual(response["result"]["isError"], fails, response)
         result = json.loads(response["result"]["content"][0]["text"])
@@ -132,7 +133,7 @@ class ResearchIntegrationTests(unittest.TestCase):
                 "note": "Test data; no live semantic quality assertion."}}
         self.cli("wiki", "write", "search-capabilities", "--input", "-", payload={
             "page": page, "change_note": "Organize the reviewed synthetic findings."})
-        read = self.call("wiki_get", {"page_id": "search-capabilities"})
+        read = self.call("read", {"page_id": "search-capabilities"})
         self.assertEqual(read["page"], page)
         self.assertEqual(self.call("wiki_search", {"query": "documents search"})["total"], 1)
         self.assertEqual(self.cli("wiki", "lint")["status"], "ok")

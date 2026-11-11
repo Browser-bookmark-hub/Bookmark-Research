@@ -11,8 +11,8 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from mcp_server import (DEPRECATED_TOOL_TARGETS, PROTOCOLS, StdioMcpServer, TOOL_SCHEMAS,
-                        _legacy_compatibility_expired, serve)
+from mcp_server import PROTOCOLS, REPLACED_TOOLS, StdioMcpServer, TOOL_SCHEMAS, serve
+from mcp_helpers import call_internal, is_internal
 from settings import Settings
 
 
@@ -70,6 +70,8 @@ class McpServerTests(unittest.TestCase):
         return response
 
     def call(self, name, arguments=None):
+        if is_internal(name):
+            return call_internal(self.server, name, arguments)
         return self.server.handle(request("tools/call", {"name": name, "arguments": arguments or {}}))
 
     def sync(self):
@@ -99,7 +101,7 @@ class McpServerTests(unittest.TestCase):
         self.assertIn("max_cards accepts 1–3", plan["description"])
         self.assertIn("max_urls accepts 1–8", plan["description"])
         search_description = tools["search"]["description"]
-        self.assertIn("10-second default search.deadline_seconds", search_description)
+        self.assertIn("search.deadline_seconds (10 s default)", search_description)
         self.assertIn("quota_exhausted providers enter cooldown", search_description)
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server._providers)
@@ -145,7 +147,7 @@ class McpServerTests(unittest.TestCase):
         self.assertFalse(changed["result"]["isError"], changed)
         listing = {tool["name"] for tool in self.server.handle(request("tools/list"))["result"]["tools"]}
         self.assertNotIn("save", listing)
-        for name in ("wiki_get", "wiki_lint", "wiki_compile"):
+        for name in ("wiki_lint", "wiki_compile"):
             self.assertNotIn(name, listing)
         self.assertIn("locate", listing)
         self.assertIn("read", listing)
@@ -180,6 +182,37 @@ class McpServerTests(unittest.TestCase):
         self.assertGreaterEqual(status["summary"]["gap_items"], 1)
         self.assertEqual(before, len(self.server._wiki().list(limit=100)["pages"]))
 
+    def test_search_primitive_returns_compact_fused_results_unless_raw(self):
+        self.ready()
+        snippet = "Primary evidence " * 80
+        engine = mock.Mock()
+        engine.search.return_value = {
+            "successful_provider_count": 1, "provider_count": 2, "retry_policy": "long text",
+            "invalid_results": [], "routing": {"strategy": "hedged"}, "unresolved_queries": [],
+            "targets": [{"target": "q", "status": "partial", "providers": ["exa"], "coverage": {"unique_urls": 1},
+                         "results": [{"url": "https://example.test/a", "canonical_url": "https://example.test/a",
+                                      "raw_urls": ["https://example.test/a/"], "title": "A", "sha256": "x" * 64,
+                                      "rrf_score": 0.016393442, "providers": ["exa"], "corroborated": False,
+                                      "sources": [{"provider": "exa", "rank": 1, "snippet": snippet}]}]}],
+            "batches": [{"provider": "exa", "query": "q", "status": "ok", "results": [{"url": "https://example.test/a",
+                         "snippet": snippet}], "usage": {}},
+                        {"provider": "parallel", "query": "q", "status": "error", "error": "deadline",
+                         "error_kind": "timeout", "retryable": True, "results": [], "usage": {}}]}
+        self.server._providers = engine
+        compact = decode_tool(self.call("search", {"query": "q"}))
+        self.assertEqual("compact", compact["output_format"])
+        self.assertNotIn("retry_policy", compact)
+        row = compact["targets"][0]["results"][0]
+        self.assertEqual({"url", "title", "providers", "corroborated", "rrf_score", "ranks", "snippet"}, set(row))
+        self.assertEqual(400, len(row["snippet"]))
+        self.assertEqual([{"provider": "exa", "query": "q", "status": "ok", "result_count": 1},
+                          {"provider": "parallel", "query": "q", "status": "error", "error": "deadline",
+                           "error_kind": "timeout", "retryable": True, "result_count": 0}], compact["batches"])
+        raw = decode_tool(self.call("search", {"query": "q", "raw": True}))
+        self.assertEqual(snippet, raw["batches"][0]["results"][0]["snippet"])
+        engine.search.return_value = {**engine.search.return_value, "successful_provider_count": 0}
+        self.assertTrue(self.call("search", {"query": "q"})["result"]["isError"])
+
     def test_ingest_alias_enforces_inline_batch_budget(self):
         self.ready()
         batches = [{"target": "q", "provider": "host", "query": "q", "status": "error", "error": "x"}
@@ -203,54 +236,37 @@ class McpServerTests(unittest.TestCase):
         self.assertNotIn("search_bookmarks", names)
         self.assertNotIn("search_web", names)
         self.sync()
-        compatible = self.call("get_context", {"source_id": "fixture", "item_id": "temp-one",
-                                                "refresh": False})
+        compatible = self.call("read", {"source_id": "fixture", "item_id": "temp-one"})
         self.assertFalse(compatible["result"]["isError"], compatible)
 
-    def test_legacy_names_are_not_advertised_but_remain_callable(self):
+    def test_replaced_names_are_rejected_with_their_replacement(self):
         self.ready()
         self.sync()
         listing = {tool["name"] for tool in self.server.handle(request("tools/list"))["result"]["tools"]}
-        for old in ("search_bookmarks", "lookup_url", "get_context", "traverse_graph",
-                    "search_web", "fetch_web", "merge_search_results", "wiki_write",
-                    "wiki_get", "research_source", "research_service_start"):
-            self.assertNotIn(old, listing)
-        response = self.call("get_context", {"source_id": "fixture", "item_id": "temp-one",
-                                             "refresh": False})
-        self.assertFalse(response["result"]["isError"], response)
-
-    def test_legacy_catalog_and_calls_expire_at_070(self):
-        self.assertFalse(_legacy_compatibility_expired("0.8.0-rc.1"))
-        self.assertTrue(_legacy_compatibility_expired("0.8.0"))
-        self.assertTrue(_legacy_compatibility_expired("0.8.1"))
-        self.assertFalse(_legacy_compatibility_expired("0+unknown"))
-
-        self.ready()
-        with mock.patch("mcp_server.release_version", return_value="0.8.0"):
-            listing = {tool["name"] for tool in self.server.handle(request("tools/list"))["result"]["tools"]}
-            self.assertFalse(DEPRECATED_TOOL_TARGETS.keys() & listing)
-            self.assertTrue(set(Settings.QUICK_TOOLS) <= listing)
-            removed = self.call("get_context", {"source_id": "fixture", "refresh": False})
-        self.assertEqual(-32602, removed["error"]["code"])
-        self.assertIn("Unknown tool: get_context", removed["error"]["message"])
+        self.assertFalse(REPLACED_TOOLS.keys() & listing)
+        self.assertFalse(REPLACED_TOOLS.keys() & TOOL_SCHEMAS.keys())
+        for old, replacement in REPLACED_TOOLS.items():
+            response = self.server.handle(request("tools/call", {"name": old, "arguments": {}}))
+            self.assertEqual(-32602, response["error"]["code"], old)
+            self.assertIn("Unknown tool: %s; use %s" % (old, replacement), response["error"]["message"])
 
     def test_explicit_tool_scope_narrows_catalog_and_rejects_hidden_calls(self):
         self.ready()
-        changed = self.call("update_settings", {"changes": {"tool_scope": ["get_context", "plan_research"]}})
+        changed = self.call("update_settings", {"changes": {"tool_scope": ["read", "plan_research"]}})
         self.assertIn("result", changed, changed)
         self.assertFalse(changed["result"]["isError"], changed)
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
-        self.assertEqual(["get_context", "plan_research"], [tool["name"] for tool in listing])
-        hidden = self.call("fetch_web", {"urls": ["https://example.test/"]})
+        self.assertEqual(["plan_research", "read"], sorted(tool["name"] for tool in listing))
+        hidden = self.call("fetch", {"urls": ["https://example.test/"]})
         self.assertEqual(-32602, hidden["error"]["code"])
         self.assertIn("tool_scope", hidden["error"]["message"])
 
     def test_environment_tool_scope_overrides_the_saved_preference(self):
         self.ready()
-        self.call("update_settings", {"changes": {"tool_scope": ["get_context"]}})
-        with mock.patch.dict(os.environ, {"BOOKMARK_RESEARCH_TOOL_SCOPE": "plan_research, search_web"}):
+        self.call("update_settings", {"changes": {"tool_scope": ["read"]}})
+        with mock.patch.dict(os.environ, {"BOOKMARK_RESEARCH_TOOL_SCOPE": "plan_research, search"}):
             listing = self.server.handle(request("tools/list"))["result"]["tools"]
-        self.assertEqual(["plan_research", "search_web"], [tool["name"] for tool in listing])
+        self.assertEqual(["plan_research", "search"], [tool["name"] for tool in listing])
 
     def test_all_protocols_and_version_specific_content(self):
         for protocol in PROTOCOLS:
@@ -560,13 +576,13 @@ class McpServerTests(unittest.TestCase):
         from research import ResearchSessions
         self.ready()
         engine = mock.Mock()
-        engine.fetch.return_value = {"provider": "tavily", "urls": ["https://example.test/docs"],
-            "tool": "tavily_extract", "request_arguments": {"urls": ["https://example.test/docs"]},
+        engine.fetch.return_value = {"provider": "parallel", "urls": ["https://example.test/docs"],
+            "tool": "web_fetch", "request_arguments": {"urls": ["https://example.test/docs"]},
             "requested_max_characters": 12000, "retrieved_at": "2026-09-10T00:00:00Z",
             "result": {"structuredContent": {"results": [
                 {"url": "https://example.test/docs", "title": "Docs", "raw_content": "Only search and extract are supported here."}]}}}
         self.server._research_sessions = ResearchSessions(self.base / "research", settings=self.settings, engine=engine)
-        started = decode_tool(self.call("research_start", {"brief": "Check supported capabilities", "providers": ["tavily"],
+        started = decode_tool(self.call("research_start", {"brief": "Check supported capabilities", "providers": ["parallel"],
             "questions": [{"id": "q1", "question": "What is supported?"}]}))
         research_id = started["research_id"]
         self.assertFalse(self.db_path.exists())

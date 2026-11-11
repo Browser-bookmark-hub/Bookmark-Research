@@ -5,7 +5,9 @@
 [![GitHub Bookmark-Canvas](https://img.shields.io/badge/GitHub-Bookmark--Canvas-181717?logo=github&logoColor=white)](https://github.com/Browser-bookmark-hub/Bookmark-Canvas)
 [![npm version](https://img.shields.io/npm/v/bookmark-research?logo=npm)](https://www.npmjs.com/package/bookmark-research)
 
-Research with bookmark context and retain reusable knowledge. Read a [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) package, investigate with the host model or a research API, and save sourced Wiki pages. Works in **Codex, Claude Code and DeepSeek Harness (dsh)**.
+Research with bookmark context and retain reusable knowledge. Read a [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) package, investigate with the host model or a research API, and save sourced Wiki pages. Works in **Codex, Claude Code and DeepSeek Harness (dsh)**, and in other clients that load [Agent Plugins 1.0.0](https://agent-plugins.org/specification) packages, such as Devin.
+
+**An AI agent asked to install this from a link?** Follow [Install with an agent](#install-with-an-agent).
 
 [Installation guide](docs/installation.en.md) · [User guide](docs/user-guide.en.md) · [Details](docs/details.en.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
@@ -61,22 +63,35 @@ Enter keeps the highlighted value, so a full run can be just a few keystrokes. T
 | Codex | `npx bookmark-research@latest install codex --non-interactive` | `codex plugin add` |
 | Claude Code | `npx bookmark-research@latest install claude --scope user --non-interactive` | `claude plugin install` |
 | DeepSeek Harness (dsh) | `npx bookmark-research@latest install dsh --profile web --non-interactive` | `dsh plugin add` |
+| Other Agent Plugins clients (Devin, …) | `npx bookmark-research@latest install other --non-interactive` | Exports an [Agent Plugins 1.0.0](https://agent-plugins.org/specification) directory; register it, e.g. `devin plugins install --local <dir>` |
 
 Several at once: `npx bookmark-research@latest install claude dsh --profile web --non-interactive`. Project scope: `--scope project --project /path/to/project` (Claude Code). All options: [installation guide](docs/installation.en.md).
 
-**Ask your agent to install it.** Paste this into Codex, Claude Code or DeepSeek Harness (dsh):
+### Install with an agent
+
+If a user gave you (an AI agent) this repository or npm link and asked you to install it, follow these steps in the client you are running in. Users can also paste the block into any client.
 
 ```text
 Install the Bookmark Research plugin into the client you are running in.
 
-1. Identify your own client: codex, claude or dsh.
+1. Identify your client: codex, claude, dsh, or other (any other client).
 2. Run: npx bookmark-research@latest install <client> --non-interactive --json
-   - Claude Code: add --scope user (or --scope project --project <dir>).
-   - DeepSeek Harness (dsh): add --profile <profile>; ask me for the profile name.
+   - claude: add --scope user (or --scope project --project <dir>).
+   - dsh: add --profile <profile>; ask the user for the profile name.
+   - other: installed_path in the result is an Agent Plugins 1.0.0 plugin
+     directory (https://agent-plugins.org/specification). Register it with your own plugin
+     command; the result's "register" field lists known ones (Devin:
+     devin plugins install --local <installed_path>). If your client loads only
+     MCP servers, add a stdio server running python3 <installed_path>/src/cli.py serve
+     and use <installed_path>/skills as a skills directory, or read
+     skills/bookmark-research/SKILL.md there directly.
 3. The command prints JSON. Confirm "verified": true and report any "error".
-4. Do not ask me for API keys in chat. Tell me to run `bookmark-research setup`
-   in my terminal to enter them.
-5. Tell me to start a new session so the Skill and MCP tools load.
+4. Do not ask for API keys in chat. Tell the user to run `bookmark-research setup`
+   in a terminal to enter them.
+5. Tell the user to start a new session so the Skill and MCP tools load.
+
+Do not install this Git repository itself as a plugin: it contains tests and
+development files, and its root AGENTS.md would be loaded as a session rule.
 ```
 
 Install notes:
@@ -110,8 +125,6 @@ Use `npx bookmark-research@latest …` if the command is not installed globally.
 | --- | --- | --- |
 | `EXA_API_KEY` | Exa search and page reading | Anonymous use where Exa allows it |
 | `PARALLEL_API_KEY` | Parallel search and page reading | Free anonymous use with lower limits |
-| `TAVILY_API_KEY` | Tavily search fallback and extraction | Keyless mode |
-| `JINA_API_KEY` | Jina search | Jina Reader still reads pages anonymously |
 | `DEEPSEEK_API_KEY` | Optional DeepSeek Search / Fetch | Not selected; other providers still work |
 | `PERPLEXITY_API_KEY` | Optional Perplexity structured Search | Search results only; no page extraction |
 | `XAI_API_KEY` | Optional Grok Agentic search | Separate `agentic_search` answer channel; not URL-fused |
@@ -154,10 +167,10 @@ A bundle of one Skill, one local MCP server, and the remote MCPs and services th
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) and method references, each with a [Chinese copy](skills/bookmark-research/references/zh/skill-guide.md) | Loaded by the client | None |
 | Local MCP | `bookmark-research`, 10 default tools (below) | Python process started by the client | Installed for you |
-| Remote MCPs, called by the local MCP | [Exa](https://exa.ai) (search, page reading), [Parallel](https://parallel.ai) (search, fallback reading), [Tavily](https://tavily.com) (search fallback) | HTTPS, no local process | Optional API keys |
-| HTTP services, called by the local MCP | [Jina Reader](https://jina.ai/reader) (fallback reading; search with a key); [DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/); [Perplexity Search](https://docs.perplexity.ai/api-reference/search-post) (structured results only) | HTTPS | Optional provider keys |
+| Remote MCPs, called by the local MCP | [Exa](https://exa.ai) (search, page reading), [Parallel](https://parallel.ai) (search, fallback reading) | HTTPS, no local process | Optional API keys |
+| HTTP services, called by the local MCP | [DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/); [Perplexity Search](https://docs.perplexity.ai/api-reference/search-post) (structured results only) | HTTPS | Optional provider keys |
 | Model search API | [xAI Grok Responses](https://docs.x.ai/developers/tools/web-search) with optional Web Search and X Search | HTTPS | Optional `XAI_API_KEY`; invoked separately via `agentic_search` |
-| Optional client MCPs | Exa Agent, Parallel Task MCP, Tavily Research | Added to your client by you | `bookmark-research setup` shows the steps |
+| Optional client MCPs | Exa Agent, Parallel Task MCP | Added to your client by you | `bookmark-research setup` shows the steps |
 
 Default MCP tools:
 
@@ -173,7 +186,7 @@ Default MCP tools:
 
 Long or batch work does not block a tool step: `spawn(task="fetch"|"ingest"|"research", args)` enqueues it, a singleton `bookmark-research job worker` executes it with a bounded pool, and `job(job_id)` reports state and result. The queue is shared by every host and the CLI.
 
-The `deep` preset additionally exposes 30 maintenance tools: source maintenance, persistent research records, routing diagnostics, Wiki maintenance and `wiki_compile` incremental compile plans. The 18 replaced names are not listed in any preset; an explicit `tool_scope` can still name them until they are rejected at 0.8.0. Git history uses the host's shell.
+The `deep` preset additionally exposes 30 maintenance tools: source maintenance, persistent research records, routing diagnostics, Wiki maintenance and `wiki_compile` incremental compile plans. The 18 replaced names (`search_web`, `fetch_web`, …) are removed; a call to one is rejected with the replacement primitive. Git history uses the host's shell.
 
 Tool descriptions: [details](docs/details.en.md#mcp-tools).
 

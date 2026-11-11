@@ -17,7 +17,7 @@ Commands use Python 3.9+ and the standard library; stdout is JSON. Replace `<roo
 | `job` | `job submit|list|status|result|cancel|worker` |
 | `health` | `status` / `providers` |
 
-The default MCP surface is 10 primitives (9 when `wiki.enabled` is false). The CLI keeps its historical command names (`context`, `traverse`, `search-web`, `fetch-web`) while sharing the same core, refs and result schema; `locate`, `dupes` and `job` use the same names on both entries. Every command accepts global `--json`, `--out FILE`, `--quiet` and `--fields`.
+The default MCP surface is 10 primitives (9 when `wiki.enabled` is false). The CLI keeps its historical command names (`context`, `traverse`, `search-web`, `fetch-web`) while sharing the same core, refs and result schema; `locate`, `dupes` and `job` use the same names on both entries. Every command accepts global `--json`, `--out FILE`, `--quiet` and `--fields`. A Canvas ref printed by CLI `locate` can be passed as the `source` to `read`/`context` or `walk`/`traverse` in a later process; the CLI keeps the ref identity in a per-index sidecar and rejects a stale source version.
 
 ```sh
 python3 <root>/src/cli.py locate --source-id my-canvas --text 'Example Company A' --limit 5
@@ -70,7 +70,7 @@ python3 <root>/src/cli.py config set --depth agentic
 
 `search-archive` searches text already saved locally (knowledge archive and research evidence) without network access; `--url` filters by URL substring. `fetch-web` returns one selected text per URL in `pages`, with all attempt statuses and archive paths. `--raw` returns the full provider envelopes. Its `--timeout` applies per provider HTTP request; discovery and fallback can take longer overall. `research fetch` accepts only its documented MCP JSON fields and does not accept `timeout`.
 
-`providers` describes configuration only; `--probe` checks online handshake and tool discovery. Anonymous Exa/Parallel access depends on current provider limits. Set `EXA_API_KEY` / `PARALLEL_API_KEY` before starting the process when needed. Optional `--provider tavily` uses Bearer with `TAVILY_API_KEY` or an explicit keyless header without it. A listed tool does not prove execution authorization. Never place keys in manifests or reports.
+`providers` describes configuration only; `--probe` checks online handshake and tool discovery. Anonymous Exa/Parallel access depends on current provider limits. Set `EXA_API_KEY` / `PARALLEL_API_KEY` before starting the process when needed. A listed tool does not prove execution authorization. Never place keys in manifests or reports.
 
 Use `search-web --input /path/to/query.json` for stable target labels and repeated queries:
 
@@ -95,7 +95,7 @@ To merge **actual results** from other host MCPs, normalize them to this shape a
   "targets": ["Example Company A"],
   "limit_per_target": 5,
   "batches": [{
-    "provider": "tavily",
+    "provider": "host:web_search",
     "target": "Example Company A",
     "query": "Example Company A official API pricing",
     "status": "ok",

@@ -174,10 +174,10 @@ class AuditCriticalFixesTests(unittest.TestCase):
         self.assertEqual(versions[2]["title"], "No Date")
 
     def test_mcp_search_providers_no_browser(self):
-        """Fix 4.4: browser is fetch-only and must not be in search_web PROVIDERS."""
+        """Fix 4.4: browser is fetch-only and must not be in the search PROVIDERS."""
         self.assertNotIn("browser", Settings.PROVIDERS)
         self.assertIn("browser", Settings.FETCH_PROVIDERS)
-        search_web_schema = TOOL_SCHEMAS["search_web"]["properties"]["providers"]
+        search_web_schema = TOOL_SCHEMAS["search"]["properties"]["providers"]
         allowed_enums = search_web_schema["items"]["enum"]
         self.assertNotIn("browser", allowed_enums)
 

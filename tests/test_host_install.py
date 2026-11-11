@@ -159,6 +159,21 @@ class HostInstallerTests(unittest.TestCase):
         self.assertFalse((self.base / "personal-settings.json").exists())
         self.assertFalse(any("codex" in row[0] for row in self.calls()))
 
+    def test_agent_host_installs_and_verifies_a_directory_for_any_agent_plugins_client(self):
+        first = host_install.manage_host("install", "agent", source=self.source, install_dir=self.home, timeout=30)
+        bundle = Path(first["installed_path"])
+        self.assertTrue(first["verified"])
+        self.assertEqual([], first["commands"])
+        self.assertTrue((bundle / "plugin.json").is_file() and (bundle / "mcp.json").is_file())
+        self.assertEqual(["plugins", "install", "--local", str(bundle)], first["register"]["devin"][1:])
+        self.assertIn("--local", first["next_step"])
+        self.assertFalse(host_install.manage_host("install", "agent", source=self.source, install_dir=self.home,
+                                                  timeout=30)["changed"])
+        self.assertTrue(host_install.manage_host("verify", "agent", install_dir=self.home, timeout=30)["verified"])
+        with self.assertRaisesRegex(ValueError, "no --scope"):
+            host_install.manage_host("install", "agent", source=self.source, install_dir=self.home, scope="user")
+        self.assertEqual([], self.calls())
+
     def test_claude_content_version_changes_with_code_not_repeated_installs(self):
         first = self.manage("claude")
         repeated = self.manage("claude")

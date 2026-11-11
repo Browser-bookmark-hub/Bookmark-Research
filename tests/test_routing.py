@@ -91,9 +91,9 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(result["selected"]["provider"], "parallel")
         self.assertEqual(result["next_action"]["tool"], "research_start")
         steps = result["workflow"]
-        self.assertLess(steps.index("research_service_prepare"), steps.index("research_service_start"))
-        self.assertLess(steps.index("research_service_start"), steps.index("research_service_result"))
-        self.assertLess(steps.index("research_service_import"), steps.index("research_source"))
+        self.assertLess(steps.index("research_service_prepare"), steps.index("spawn"))
+        self.assertLess(steps.index("spawn"), steps.index("job"))
+        self.assertLess(steps.index("research_service_import"), steps.index("read"))
         self.assertFalse(result["execution_started"])
 
     def test_missing_deep_api_does_not_disable_native_research_or_silently_replace_explicit_api(self):
@@ -115,7 +115,7 @@ class RoutingTests(unittest.TestCase):
                 self.assertEqual(result["research_process"]["owner"], "current_host_model")
                 self.assertEqual(result["research_process"]["steps"][0], "plan")
                 self.assertIn("assess_evidence", result["research_process"]["steps"])
-                self.assertIn("fetch_web", result["next_action"]["tools"])
+                self.assertIn("fetch", result["next_action"]["tools"])
                 self.assertNotIn("research_start", result["workflow"])
                 self.assertFalse(result["execution_started"])
 
@@ -125,22 +125,22 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(result["selected"]["route"], "host_iterative_research")
         self.assertTrue(result["host_search"]["available"])
         self.assertEqual("web_search", result["host_search"]["tool"])
-        self.assertEqual("web_search / fetch_web", result["selected"]["entrypoint"])
-        self.assertEqual(["web_search", "fetch_web"], result["next_action"]["tools"])
-        self.assertEqual(["web_search", "fetch_web", "answer_with_sources"], result["workflow"])
+        self.assertEqual("web_search / fetch", result["selected"]["entrypoint"])
+        self.assertEqual(["web_search", "fetch"], result["next_action"]["tools"])
+        self.assertEqual(["web_search", "fetch", "answer_with_sources"], result["workflow"])
         self.assertEqual("host_first", result["discovery"]["mode"])
         self.assertEqual("web_search", result["discovery"]["primary"])
-        self.assertEqual("search_web", result["discovery"]["fallback"])
-        self.assertEqual(["web_search", "search_web"], result["discovery"]["channels"])
+        self.assertEqual("search", result["discovery"]["fallback"])
+        self.assertEqual(["web_search", "search"], result["discovery"]["channels"])
         self.assertTrue(result["discovery"]["first_usable_result_wins"])
-        self.assertEqual("search_web", result["next_action"]["fallback_tool"])
+        self.assertEqual("search", result["next_action"]["fallback_tool"])
 
         absent = self.router.route(host="dsh", depth="agentic", task_shape="investigation")
         self.assertFalse(absent["host_search"]["available"])
-        self.assertEqual("search_web / fetch_web", absent["selected"]["entrypoint"])
-        self.assertEqual(["search_web", "fetch_web"], absent["next_action"]["tools"])
+        self.assertEqual("search / fetch", absent["selected"]["entrypoint"])
+        self.assertEqual(["search", "fetch"], absent["next_action"]["tools"])
         self.assertEqual("plugin_parallel", absent["discovery"]["mode"])
-        self.assertEqual("search_web", absent["discovery"]["primary"])
+        self.assertEqual("search", absent["discovery"]["primary"])
         self.assertIsNone(absent["discovery"]["fallback"])
 
     def test_deep_host_research_precedes_loaded_and_configured_external_services(self):

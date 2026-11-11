@@ -217,6 +217,14 @@ class ResearchSessions:
         state = json.loads(state_path.read_text(encoding="utf-8"))
         if state.get("schema_version") not in (1, 2) or state.get("research_id") != research_id:
             raise ValueError("Unsupported or inconsistent research state")
+        # Sessions frozen before a provider was retired keep working with the rest.
+        defaults = Settings.defaults()
+        for key, fallback in (("providers", defaults["search"]["providers"]),
+                              ("fetch_providers", defaults["fetch"]["providers"]),
+                              ("search_fallback_providers", [])):
+            if isinstance(state.get(key), list):
+                kept = [name for name in state[key] if name not in Settings.RETIRED_PROVIDERS]
+                state[key] = kept or list(fallback)
         if state["schema_version"] == 2:
             manifest_bytes = self._artifact(path, "inventory.json").read_bytes()
             if hashlib.sha256(manifest_bytes).hexdigest() != state.get("inventory_manifest_sha256"):
@@ -405,7 +413,7 @@ class ResearchSessions:
                 "artifacts": ({key: str(path / Path(value).name) for key, value in state["artifacts"].items()}
                               if isinstance(state.get("artifacts"), dict) else state.get("artifacts")),
                 "execution": "Host model must choose each next action; no background worker is running.",
-                "budget_unit": "Reserved provider attempts: one per MCP batch or Jina HTTP request (one Reader request per URL). Search batches also consume a round. Failures and unknown outcomes keep their reservation.",
+                "budget_unit": "Reserved provider attempts: one per provider batch (one browser render per URL). Search batches also consume a round. Failures and unknown outcomes keep their reservation.",
                 "evidence_note": "Quotes are checked against saved extracts. Relevance, factual support and independence require model review; provider agreement is not confirmation."}
 
     def _bookmark_scope(self, source_ids, references, scope_mode, inventory_ids, urls=None):
@@ -550,7 +558,7 @@ class ResearchSessions:
         source_ids = list(dict.fromkeys(self._text(value, "Source id", 512) for value in source_ids))
         manifest, inventory, bookmark_context, selection = self._bookmark_scope(source_ids, bookmark_refs, scope_mode, inventory_ids, urls)
         source_ids = manifest["source_ids"]
-        urls_per_call = 1 if fetch_names[0] == "jina" else self.FETCH_BATCH_SIZE
+        urls_per_call = 1 if fetch_names[0] == "browser" else self.FETCH_BATCH_SIZE
         minimum_fetch_calls = (len(inventory) + urls_per_call - 1) // urls_per_call
         explicit_fetch_budget = budget is not None and "max_fetch_calls" in budget
         if not explicit_fetch_budget and inventory:

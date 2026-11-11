@@ -11,6 +11,7 @@ from unittest.mock import patch
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import cli
+from data_isolation import setUpModule, tearDownModule  # noqa: F401
 
 
 class CliOutputTests(unittest.TestCase):

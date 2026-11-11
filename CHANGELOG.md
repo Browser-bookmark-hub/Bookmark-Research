@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+Host-native search stays the first discovery channel; the plugin keeps local
+context, page reading with archives, fallback search and the Wiki. This build
+narrows the external backends and removes the replaced tool names.
+
+### Added
+- A fourth host, `agent` (aliases `other`, `devin`): `install other` exports an
+  Agent Plugins 1.0.0 directory (`plugin.json`, `mcp.json`, `skills/`) that any
+  conformant client, including Devin, can load, and returns the registration
+  command (`devin plugins install --local DIR`). `update`/`verify` work through
+  the same receipts; `export_bundle.py --format agent` exports only.
+
+### Removed
+- Tavily MCP and Jina Reader/Search backends (`src/jina.py`, registry entries,
+  setup options, the `TAVILY_API_KEY`/`JINA_API_KEY` forwarding). Saved
+  settings that still name them are migrated on load; saved keys are ignored.
+- The 18 replaced MCP names (`search_web`, `fetch_web`, `get_context`,
+  `merge_search_results`, `wiki_write`, …). `tools/call` rejects them and names
+  the replacement primitive; their implementations remain behind the
+  primitives and the CLI. The `legacy` bench preset is gone.
+
+### Changed
+- `search` returns each fused URL once with providers, ranks and a 400-character
+  snippet plus per-provider status; `raw=true` returns every provider row.
+- `fetch` defaults: `grace_seconds` 25 → 12 and a 40-second `deadline_seconds`,
+  so a stalled provider no longer holds a read for a minute.
+- Search fusion treats URLs that differ only by tracking parameters (`utm_*`,
+  `gclid`, `fbclid`, …) or a trailing slash as one page, so host and provider
+  results corroborate each other.
+- Default search fallback list is empty; fetch providers default to Exa → Parallel.
+- `research_route`, Wiki work recovery and research-service next actions name
+  the primitives (`fetch`, `search`, `ingest`, `spawn`, `job`, `read`).
+
+### Fixed
+- The `search`/`fetch`/`job`/`spawn` primitives run on the network workers again
+  (only the old names did), and `search`/`fetch` failures set `isError`.
+- Tests no longer write research tasks, Wiki pages or caches into the user's
+  data directory (`tests/data_isolation.py`).
+
 ## 0.7.3 — 2026-11-10
 
 0.7.3 resolves Codex marketplace source replacement during custom wizard
