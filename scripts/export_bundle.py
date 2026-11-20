@@ -247,8 +247,9 @@ devin plugins install --local /absolute/path/to/this-bundle
 
 Start a new session afterwards; the Skill is `/bookmark-research:bookmark-research`.
 Data, settings and keys stay in the shared Bookmark Research locations described
-above, not in the client's `PLUGIN_DATA`, so every host reads the same index,
-archive and Wiki.
+above, so every host reads the same index, archive and Wiki; only when those
+locations are not writable and the client provides `PLUGIN_DATA` does the plugin
+store them there instead.
 
 Reference: https://agent-plugins.org/specification
 """

@@ -182,10 +182,13 @@ class DiscoveryToolTests(unittest.TestCase):
         self.assertEqual("sha256_mismatch", payload["unavailable_sources"][0]["reason"])
 
     def test_invalid_arguments_never_reach_the_tool(self):
-        self.assertEqual(-32602, self.call("discovery_bundle", {})["error"]["code"])
-        self.assertEqual(-32602, self.call("discovery_bundle", {"sources": "all"})["error"]["code"])
-        self.assertEqual(-32602, self.call("discovery_bundle", {"sources": [], "steps": 41})["error"]["code"])
-        self.assertEqual(-32602, self.call("discovery_bundle", {"sources": [], "elapsed_seconds": -1})["error"]["code"])
+        for arguments in ({}, {"sources": "all"}, {"sources": [], "steps": 41},
+                          {"sources": [], "elapsed_seconds": -1}):
+            with self.subTest(arguments=arguments):
+                response = self.call("discovery_bundle", arguments)
+                self.assertTrue(response["result"]["isError"], response)
+                self.assertEqual("InvalidArguments",
+                                 response["result"]["structuredContent"]["error_type"])
 
 
 if __name__ == "__main__":

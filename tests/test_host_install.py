@@ -167,9 +167,21 @@ class HostInstallerTests(unittest.TestCase):
         self.assertTrue((bundle / "plugin.json").is_file() and (bundle / "mcp.json").is_file())
         self.assertEqual(["plugins", "install", "--local", str(bundle)], first["register"]["devin"][1:])
         self.assertIn("--local", first["next_step"])
+        self.assertEqual("files_and_stdio", first["verified_scope"])
+        self.assertEqual("not_performed", first["registration"]["state"])
+        fallback = first["registration"]["fallback"]
+        self.assertEqual([str(bundle / "src/cli.py"), "serve"], fallback["mcp_server"]["args"])
+        self.assertEqual(str(bundle), fallback["mcp_server"]["cwd"])
+        self.assertEqual(str(bundle / "skills"), fallback["skills_dir"])
+        mcp_json = json.loads((bundle / "mcp.json").read_text())
+        self.assertEqual(mcp_json["mcpServers"]["bookmark-research"]["command"],
+                         fallback["mcp_server"]["command"])
         self.assertFalse(host_install.manage_host("install", "agent", source=self.source, install_dir=self.home,
                                                   timeout=30)["changed"])
-        self.assertTrue(host_install.manage_host("verify", "agent", install_dir=self.home, timeout=30)["verified"])
+        verified = host_install.manage_host("verify", "agent", install_dir=self.home, timeout=30)
+        self.assertTrue(verified["verified"])
+        self.assertEqual("files_and_stdio", verified["verified_scope"])
+        self.assertEqual("not_performed", verified["registration"]["state"])
         with self.assertRaisesRegex(ValueError, "no --scope"):
             host_install.manage_host("install", "agent", source=self.source, install_dir=self.home, scope="user")
         self.assertEqual([], self.calls())

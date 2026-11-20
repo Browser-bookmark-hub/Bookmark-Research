@@ -1870,6 +1870,42 @@ class BookmarkIndex:
             params.append(source_id)
         where = " AND ".join(clauses)
 
+        result = self._lookup_url_rows(where, params, source_id, limit, offset)
+        result.update(url=url, source_filter=source_id)
+        return result
+
+    def lookup_url_loose(self, key, source_id=None, limit=1000):
+        """Find bookmark instances whose URL carries ``key`` after a scheme/www prefix.
+
+        ``key`` is a URL already stripped of a leading ``http(s)://``, ``www.``
+        and trailing slash by the caller. Matching is a LIKE prefix over the
+        four ``http(s)://[www.]`` forms; callers classify exact-vs-prefix.
+        """
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("key must be a non-empty string")
+        key = key.strip()
+        if source_id is not None:
+            _string(source_id, "source_id", True)
+            source_id = self.resolve_source_id(source_id)
+            self._source(source_id)
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise ValueError("limit must be an integer between 1 and 1000")
+
+        escaped = key.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        variants = " OR ".join("i.url LIKE ? ESCAPE '\\'" for _ in range(4))
+        clauses = ["i.item_type = 'bookmark'", "(" + variants + ")"]
+        params = [prefix + escaped for prefix in
+                  ("http://", "https://", "http://www.", "https://www.")]
+        if source_id is not None:
+            clauses.append("i.source_id = ?")
+            params.append(source_id)
+        where = " AND ".join(clauses)
+
+        result = self._lookup_url_rows(where, params, source_id, limit, 0)
+        result.update(url=key, source_filter=source_id)
+        return result
+
+    def _lookup_url_rows(self, where, params, source_id, limit, offset):
         total = self.connection.execute(f"SELECT count(*) FROM items i WHERE {where}", params).fetchone()[0]
         distinct_sources = [r[0] for r in self.connection.execute(
             f"SELECT DISTINCT i.source_id FROM items i WHERE {where} ORDER BY i.source_id", params).fetchall()]
@@ -1932,8 +1968,6 @@ class BookmarkIndex:
 
         next_offset = (offset + len(instances)) if (offset + len(instances)) < total else None
         return {
-            "url": url,
-            "source_filter": source_id,
             "total_instances": total,
             "unique_sources": len(distinct_sources),
             "sources": distinct_sources,

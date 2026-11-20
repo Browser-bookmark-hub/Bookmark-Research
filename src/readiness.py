@@ -213,8 +213,7 @@ class Readiness:
 
     def _host_integrations(self, host, observed_tools):
         from routing import ResearchRouting
-        if host not in ResearchRouting.HOSTS:
-            raise ValueError("Unsupported host")
+        host = ResearchRouting.normalize_host(host)
         tools = ResearchRouting._names(observed_tools, "observed_tools")
         rows = []
         for name, info in self.web.registry["providers"].items():

@@ -44,6 +44,14 @@ class ResearchRouting:
                    for tool in tools for name in names)
 
     @classmethod
+    def normalize_host(cls, host):
+        """Map any reported host name to a known identity; never rejects a name."""
+        if host is None or not isinstance(host, str) or not host.strip():
+            return "unknown"
+        normalized = host.strip().casefold()
+        return normalized if normalized in cls.HOSTS else "unknown"
+
+    @classmethod
     def _native_search(cls, tools, host):
         """Return the observed host search tool, ignoring plugin MCP tools."""
         for tool in tools:
@@ -61,11 +69,10 @@ class ResearchRouting:
         This is discovery information reported by the caller; it starts no work
         and proves no login or result quality.
         """
-        if host not in cls.HOSTS:
-            raise ValueError("Unsupported host")
+        host = cls.normalize_host(host)
         tools = cls._names(observed_tools, "observed_tools")
         tool = cls._native_search(tools, host)
-        return {"available": tool is not None, "tool": tool,
+        return {"available": tool is not None, "tool": tool, "host": host,
                 "role": "discovery_only; fetch remains the evidence read",
                 "backflow_tool": "ingest", "fallback_tool": "search",
                 "names_checked": list(cls.SEARCH_TOOLS[host]),
@@ -75,8 +82,9 @@ class ResearchRouting:
               available_commands=None, installed_extensions=None, provider=None, failed_routes=None):
         settings = self.settings.load()
         depth = settings["research"]["depth"] if depth is None else depth
-        if depth not in ("auto", "quick", "agentic", "deep") or host not in self.HOSTS:
-            raise ValueError("Unsupported research depth or host")
+        if depth not in ("auto", "quick", "agentic", "deep"):
+            raise ValueError("Unsupported research depth")
+        host = self.normalize_host(host)
         if task_shape not in ("lookup", "investigation", "batch_research"):
             raise ValueError("task_shape must be lookup, investigation or batch_research")
         if provider not in (None, "openai", "parallel"):

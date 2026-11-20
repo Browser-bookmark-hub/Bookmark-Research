@@ -12,14 +12,15 @@
 
 用户给了你本仓库或 npm 链接并要求安装时，在你当前运行的客户端里按以下步骤操作：
 
-1. 先确认你自己是哪个客户端：`codex`、`claude`、`dsh`；都不是就用 `other`。
+1. 先确认你自己是哪个客户端：`codex`、`claude`、`dsh`。其他任何能加载 [Agent Plugins 1.0.0](https://agent-plugins.org/specification) 插件包（根目录 `plugin.json`、`mcp.json`、`skills/`）的客户端，不论叫什么名字，都用 `other`。
 2. 运行：`npx bookmark-research@latest install <客户端> --non-interactive --json`
    - `claude`：加 `--scope user`（或 `--scope project --project <目录>`）。
    - `dsh`：加 `--profile <名称>`；profile 名称先问用户。DeepSeek Harness 桌面版用 `--dsh "<桌面版自带 CLI 路径>" --profile desktop`。
    - `other`：结果里的 `installed_path` 是一个 [Agent Plugins 1.0.0](https://agent-plugins.org/specification) 插件目录（根目录 `plugin.json`、`mcp.json`、`skills/`）。用你自己的插件命令登记它；结果的 `register` 字段列出了已知命令（Devin：`devin plugins install --local <installed_path>`）。如果你只支持 MCP，就添加一个 stdio 服务 `python3 <installed_path>/src/cli.py serve`，并把 `<installed_path>/skills` 作为技能目录，或直接阅读其中的 `skills/bookmark-research/SKILL.md`。
-3. 命令会输出 JSON。确认 `"verified": true`；有 `"error"` 就如实告诉用户，不要自行绕过。
-4. 不要在对话里向用户要 API Key（全部可选）。请用户在终端运行 `bookmark-research setup` 自己输入，或设置对应环境变量。
-5. 提醒用户新建一个会话，让 Skill 和 MCP 工具生效。
+3. 命令会输出 JSON。确认 `"verified": true`；有 `"error"` 就如实告诉用户，不要自行绕过。对 `other`，`verified: true` 只表示导出文件和 stdio 自检通过（`verified_scope: "files_and_stdio"`）；客户端登记是独立一步——看 `registration`。如果客户端登记命令失败（Devin 需要先 `devin auth login`），改用 `registration.fallback`。
+4. 找出你自己的网页搜索和读页工具：查看你的工具列表，按工具说明里写的功能判断，不看名字（本插件的工具不算）。告诉用户找到了哪些，或者没有。Skill 会先用这些工具，再用插件的 `search`/`fetch`，并把实际用到的工具记录为 `provider:"host:<工具名>"`。
+5. 不要在对话里向用户要 API Key（全部可选）。请用户在终端运行 `bookmark-research setup` 自己输入，或设置对应环境变量。
+6. 提醒用户新建一个会话，让 Skill 和 MCP 工具生效。
 
 不要把这个 Git 仓库本身直接当插件安装（例如 `devin plugins install Browser-bookmark-hub/Bookmark-Research`）：仓库根目录包含测试与开发文件，本文件也会被当作会话规则加载。始终通过上面的 `npx` 命令安装，它会生成干净的宿主包。
 

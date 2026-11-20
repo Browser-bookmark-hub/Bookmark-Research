@@ -125,14 +125,17 @@ class McpServerTests(unittest.TestCase):
         self.assertTrue({"search", "fetch", "ingest", "spawn", "job", "health"} <= names)
         health = decode_tool(self.call("health"))
         self.assertEqual("ok", health["status"])
-        self.assertLessEqual(len(json.dumps(health, ensure_ascii=False)), 200)
+        self.assertEqual({"name": "bookmark-tests", "version": "1.0"}, health["client"])
+        self.assertEqual({"data_directory", "data_source", "data_writable",
+                          "config_path", "config_source"}, set(health["storage"]))
+        self.assertLessEqual(len(json.dumps(health, ensure_ascii=False)), 1200)
         self.assertIn("sources", health)
 
     def test_health_reports_observed_host_search_only_when_asked(self):
         self.ready()
         bounded = decode_tool(self.call("health"))
         self.assertNotIn("host_search", bounded)
-        self.assertLessEqual(len(json.dumps(bounded, ensure_ascii=False)), 200)
+        self.assertLessEqual(len(json.dumps(bounded, ensure_ascii=False)), 1200)
         host_only = decode_tool(self.call("health", {"host": "codex"}))
         self.assertNotIn("host_search", host_only)
         report = decode_tool(self.call("health", {"host": "codex", "observed_tools": ["tools.web__run"]}))
@@ -140,6 +143,9 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual("ingest", report["host_search"]["backflow_tool"])
         absent = decode_tool(self.call("health", {"host": "codex", "observed_tools": ["mcp__other__web_search"]}))
         self.assertFalse(absent["host_search"]["available"])
+        unrecognized = decode_tool(self.call("health", {"host": "devin", "observed_tools": ["web_search"]}))
+        self.assertEqual("unknown", unrecognized["host_search"]["host"])
+        self.assertEqual("web_search", unrecognized["host_search"]["tool"])
 
     def test_disabled_wiki_hides_tools_and_rejects_wiki_scope_calls(self):
         self.ready()
@@ -218,8 +224,9 @@ class McpServerTests(unittest.TestCase):
         batches = [{"target": "q", "provider": "host", "query": "q", "status": "error", "error": "x"}
                    for _ in range(17)]
         response = self.call("ingest", {"batches": batches})
-        self.assertEqual(-32602, response["error"]["code"])
-        self.assertIn("batches", response["error"]["message"])
+        self.assertTrue(response["result"]["isError"], response)
+        self.assertEqual("InvalidArguments", decode_tool(response)["error_type"])
+        self.assertIn("batches", decode_tool(response)["error"])
 
 
 
@@ -247,8 +254,10 @@ class McpServerTests(unittest.TestCase):
         self.assertFalse(REPLACED_TOOLS.keys() & TOOL_SCHEMAS.keys())
         for old, replacement in REPLACED_TOOLS.items():
             response = self.server.handle(request("tools/call", {"name": old, "arguments": {}}))
-            self.assertEqual(-32602, response["error"]["code"], old)
-            self.assertIn("Unknown tool: %s; use %s" % (old, replacement), response["error"]["message"])
+            self.assertTrue(response["result"]["isError"], old)
+            payload = decode_tool(response)
+            self.assertEqual("ReplacedTool", payload["error_type"], old)
+            self.assertEqual(replacement, payload["replacement"], old)
 
     def test_explicit_tool_scope_narrows_catalog_and_rejects_hidden_calls(self):
         self.ready()
@@ -258,8 +267,9 @@ class McpServerTests(unittest.TestCase):
         listing = self.server.handle(request("tools/list"))["result"]["tools"]
         self.assertEqual(["plan_research", "read"], sorted(tool["name"] for tool in listing))
         hidden = self.call("fetch", {"urls": ["https://example.test/"]})
-        self.assertEqual(-32602, hidden["error"]["code"])
-        self.assertIn("tool_scope", hidden["error"]["message"])
+        self.assertTrue(hidden["result"]["isError"], hidden)
+        self.assertEqual("ToolNotEnabled", decode_tool(hidden)["error_type"])
+        self.assertIn("tool_scope", decode_tool(hidden)["error"])
 
     def test_environment_tool_scope_overrides_the_saved_preference(self):
         self.ready()
@@ -386,7 +396,7 @@ class McpServerTests(unittest.TestCase):
     def test_unknown_tools_methods_and_invalid_arguments_never_execute(self):
         self.ready()
         self.assertEqual(self.call("execute_sql", {"sql": "DROP TABLE items"})["error"]["code"], -32602)
-        self.assertEqual(self.server.handle(request("resources/list"))["error"]["code"], -32601)
+        self.assertEqual({"resources": []}, self.server.handle(request("resources/list"))["result"])
         cases = [
             ("search_bookmarks", {"source_id": "fixture", "compact": "false"}),
             ("search_bookmarks", {"source_id": "fixture", "compact": 1}),
@@ -413,7 +423,9 @@ class McpServerTests(unittest.TestCase):
         ]
         for name, arguments in cases:
             with self.subTest(name=name, arguments=arguments):
-                self.assertEqual(self.call(name, arguments)["error"]["code"], -32602)
+                response = self.call(name, arguments)
+                self.assertTrue(response["result"]["isError"], response)
+                self.assertEqual("InvalidArguments", decode_tool(response)["error_type"])
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server._providers)
 
@@ -432,6 +444,67 @@ class McpServerTests(unittest.TestCase):
         self.assertFalse(self.db_path.exists())
         self.assertIsNone(self.server.handle({"jsonrpc": "2.0", "method": "notifications/unknown"}))
         self.assertEqual(self.server.handle(request("tools/list", {"cursor": "unknown"}))["error"]["code"], -32602)
+
+    def test_lenient_initialize_and_generic_client_calls(self):
+        variants = [
+            {"protocolVersion": "2025-11-25", "clientInfo": {"name": "x"}},
+            {"protocolVersion": "2025-11-25", "capabilities": {}},
+            {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {}},
+            {"protocolVersion": "2025-11-25", "capabilities": {},
+             "clientInfo": {"name": "x", "version": "1"}, "futureField": True},
+            {"capabilities": {}, "clientInfo": {"name": "x", "version": "1"}},
+        ]
+        for index, params in enumerate(variants):
+            with self.subTest(params=params):
+                server = StdioMcpServer(self.base / ("lenient-%d.sqlite3" % index),
+                                        stderr=self.stderr, settings=self.settings)
+                self.addCleanup(server.close)
+                response = server.handle(request("initialize", params))
+                self.assertNotIn("error", response, response)
+                # A client that never sends notifications/initialized can call.
+                called = server.handle(request("tools/call", {"name": "health", "arguments": {}}))
+                self.assertNotIn("error", called, called)
+                self.assertFalse(called["result"]["isError"], called)
+                server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+        self.ready()
+        listed = self.server.handle(request("tools/list", {"unknownParam": 1}))
+        self.assertIn("tools", listed["result"])
+        for method, key in (("resources/list", "resources"),
+                            ("resources/templates/list", "resourceTemplates"),
+                            ("prompts/list", "prompts")):
+            with self.subTest(method=method):
+                self.assertEqual({key: []}, self.server.handle(request(method))["result"])
+        capabilities = self.server.handle(request("initialize", {
+            "protocolVersion": "2025-11-25", "capabilities": {},
+            "clientInfo": {"name": "x", "version": "1"}}, request_id=99))
+        self.assertEqual(-32600, capabilities["error"]["code"])
+
+    def test_tools_call_ignores_unknown_params_and_runs_synchronously(self):
+        self.ready()
+        response = self.server.handle(request("tools/call", {
+            "name": "health", "arguments": {}, "task": {"ttl": 1000}, "extra": True}))
+        self.assertNotIn("error", response, response)
+        self.assertFalse(response["result"]["isError"], response)
+        health = decode_tool(response)
+        self.assertEqual("ok", health["status"])
+        null_args = self.server.handle(request("tools/call", {
+            "name": "health", "arguments": None}))
+        self.assertFalse(null_args["result"]["isError"], null_args)
+        missing_args = self.server.handle(request("tools/call", {"name": "health"}))
+        self.assertFalse(missing_args["result"]["isError"], missing_args)
+        unknown = self.server.handle(request("tools/call", {"name": "no_such_tool", "arguments": {}}))
+        self.assertEqual(-32602, unknown["error"]["code"])
+
+    def test_health_reports_initialize_client_and_storage(self):
+        self.server.handle(request("initialize", {
+            "protocolVersion": "2025-11-25", "capabilities": {},
+            "clientInfo": {"name": "agent-client", "version": "9"}}))
+        health = decode_tool(self.call("health"))
+        self.assertEqual({"name": "agent-client", "version": "9"}, health["client"])
+        storage = health["storage"]
+        self.assertEqual("env", storage["data_source"])
+        self.assertTrue(storage["data_directory"].endswith("data"))
 
     def test_web_dispatch_uses_lazy_provider_interface(self):
         calls = []
@@ -524,8 +597,10 @@ class McpServerTests(unittest.TestCase):
             self.assertEqual(result["indexed"]["documents"], 1)
             self.assertTrue((data / "raw-library.sqlite3").is_file())
             self.assertEqual(decode_tool(self.call("search_archive", {"query": "marker", "url": "other.test"}))["total"], 0)
-            self.assertEqual(self.call("search_archive", {"query": "x" * 501})["error"]["code"], -32602)
-            self.assertEqual(self.call("search_archive", {"query": "marker", "limit": 51})["error"]["code"], -32602)
+            for bad_call in ({"query": "x" * 501}, {"query": "marker", "limit": 51}):
+                response = self.call("search_archive", bad_call)
+                self.assertTrue(response["result"]["isError"], response)
+                self.assertEqual("InvalidArguments", decode_tool(response)["error_type"])
 
     def test_readiness_is_available_without_creating_index_or_running_research(self):
         self.ready()
@@ -566,7 +641,9 @@ class McpServerTests(unittest.TestCase):
         ]
         for name, arguments in invalid:
             with self.subTest(rejected_tool=name, argument_count=len(next(iter(arguments.values())))):
-                self.assertEqual(self.call(name, arguments)["error"]["code"], -32602)
+                response = self.call(name, arguments)
+                self.assertTrue(response["result"]["isError"], response)
+                self.assertEqual("InvalidArguments", decode_tool(response)["error_type"])
         # Invalid calls fail at the advertised protocol boundary, before a
         # provider can perform network work or return a less useful tool error.
         self.assertEqual(provider.search.call_count, 3)
@@ -726,7 +803,9 @@ class McpServerTests(unittest.TestCase):
         ]
         for name, arguments in invalid:
             with self.subTest(name=name):
-                self.assertEqual(self.call(name, arguments)["error"]["code"], -32602)
+                response = self.call(name, arguments)
+                self.assertTrue(response["result"]["isError"], response)
+                self.assertEqual("InvalidArguments", decode_tool(response)["error_type"])
         self.assertIsNone(self.server._research_sessions)
 
     def test_record_batch_through_mcp_returns_ids_and_replays_without_new_events(self):

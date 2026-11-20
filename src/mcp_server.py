@@ -115,7 +115,7 @@ TOOL_SCHEMAS = {
         "service": {"type": "string", "enum": ["openai", "parallel"]},
         "refresh": {"type": "boolean", "default": False}, "offline": {"type": "boolean", "default": False},
         "test_retrieval": {"type": "boolean", "default": False},
-        "host": {"type": "string", "enum": ["codex", "claude_code", "dsh", "unknown"]},
+        "host": _text_schema(64),
         "observed_tools": _array_schema(_text_schema(300), 1000)}),
     "sync_package": _object_schema({"package_path": _text_schema(4096), "source_id": IDENTIFIER,
         "mode": {"type": "string", "enum": ["snapshot", "live"]},
@@ -438,7 +438,7 @@ WIKI_PAGE = _object_schema({
 TOOL_SCHEMAS.update({
     "research_route": _object_schema({
         "depth": {"type": "string", "enum": ["auto", "quick", "agentic", "deep"]},
-        "host": {"type": "string", "enum": ["codex", "claude_code", "dsh", "unknown"]},
+        "host": _text_schema(64),
         "task_shape": {"type": "string", "enum": ["lookup", "investigation", "batch_research"]},
         "observed_tools": _array_schema(_text_schema(300), 1000),
         "available_commands": _array_schema(_text_schema(300), 1000),
@@ -536,7 +536,7 @@ TOOL_SCHEMAS.update({
         "offset": {"type": "integer", "minimum": 0, "maximum": 10000000, "default": 0},
         "limit": {"type": "integer", "minimum": 1, "maximum": 50000, "default": 12000},
     }),
-    "health": _object_schema({"host": {"type": "string", "enum": ["codex", "claude_code", "dsh", "unknown"]},
+    "health": _object_schema({"host": _text_schema(64),
         "observed_tools": _array_schema(_text_schema(300), 1000)}),
     "read": copy.deepcopy(TOOL_SCHEMAS["get_context"]),
     "walk": copy.deepcopy(TOOL_SCHEMAS["traverse_graph"]),
@@ -581,7 +581,7 @@ TOOL_DESCRIPTIONS.update({
     "ingest": "Fuse host or provider search batches by canonical URL and body SHA-256, preserving provider provenance, failures and coverage. Tag host batches with provider=host:<name> so the channel stays auditable. This is deterministic result ingestion, not Agentic Search planning.",
     "spawn": "Submit work that outlives one tool step. task=deep_research (default) starts a provider-managed Deep Research run and returns an external id; task=fetch/ingest/research enqueues a durable local job and returns job_id, processed by `br job worker`. The host owns iteration and decides when to observe it with job.",
     "job": "Observe or cancel a job. Accepts a local job_id (j-...) or a provider external_id. action=status reads state, result returns the stored result (artifact_path for large output), cancel requests cancellation; no new task is submitted. For local jobs, state=succeeded means the worker finished; read result.status and per_url for the actual fetch outcome.",
-    "health": "Return a compact local health summary for indexed sources and the source watcher; no network fetch. Pass host and observed_tools to confirm whether the host's own search is available (discovery only; merge its results with ingest).",
+    "health": "Return a compact local health summary for indexed sources and the source watcher; no network fetch. Pass host and observed_tools to confirm whether the host's own search is available (discovery only; merge its results with ingest). host accepts any name; names other than codex, claude_code and dsh are treated as unknown.",
     "read": "Read a target Canvas bookmark and its folder ancestors by default; use collection='all' for full section context. Also reads a pinned Wiki revision, archived capture, or saved research evidence. Canvas refs are source-version-bound; Wiki and archive refs preserve revision/capture identity and content state.",
     "walk": "Traverse Canvas edges and memberships through the shared walk primitive, preserving direction, depth, paths and pagination.",
     "save": "Save a reviewed Wiki revision through the shared save primitive. Citation checks, expected_revision and review requirements remain enforced by WikiStore.",
@@ -688,6 +688,7 @@ class StdioMcpServer:
         self.stderr = stderr if stderr is not None else sys.stderr
         self.protocol = None
         self.ready = False
+        self.client_info = {"name": None, "version": None}
         self._index = None
         self._read_index = None
         self._source_manager = None
@@ -1126,7 +1127,8 @@ class StdioMcpServer:
                                 if source.get(key) is not None})
             watcher = self._source_watcher.status() if self._source_watcher else {"running": False}
             result = {"status": "ok" if not source_report.get("errors") else "degraded",
-                      "sources": sources, "watcher": {"running": bool(watcher.get("running"))}}
+                      "sources": sources, "watcher": {"running": bool(watcher.get("running"))},
+                      "client": self.client_info, "storage": self.settings.storage_report()}
             if arguments.get("observed_tools") is not None:
                 from routing import ResearchRouting
                 result["host_search"] = ResearchRouting.host_search(
@@ -1378,6 +1380,16 @@ class StdioMcpServer:
             # No raw arguments, tracebacks, credentials or provider
             # payloads are written to stderr.
             self._log("Tool failed: %s (%s)" % (name, type(exc).__name__))
+            import sqlite3
+            if isinstance(exc, sqlite3.Error) and ("unable to open" in str(exc) or "readonly" in str(exc)):
+                return self._tool_result({
+                    "tool": name,
+                    "error": "Cannot write the data directory %s: %s. Set BOOKMARK_RESEARCH_DATA_DIR "
+                             "to a writable directory (and BOOKMARK_RESEARCH_CONFIG for settings); "
+                             "Agent Plugins clients that provide PLUGIN_DATA are used automatically "
+                             "when the default location is not writable."
+                             % (self.settings.data_directory(), exc),
+                    "error_type": "StorageNotWritable"}, is_error=True)
             return self._tool_result({"tool": name, "error": str(exc)[:4000], "error_type": type(exc).__name__},
                                      is_error=True)
 
@@ -1455,16 +1467,19 @@ class StdioMcpServer:
                     self._log("Ignored request method without an id: " + method)
                 return None
             if method == "initialize":
-                _params(params, ("protocolVersion", "capabilities", "clientInfo"), ("protocolVersion", "capabilities", "clientInfo"))
-                _validate(_text_schema(64), params["protocolVersion"], "protocolVersion")
-                if not isinstance(params["capabilities"], dict) or not isinstance(params["clientInfo"], dict):
-                    raise RpcError(-32602, "capabilities and clientInfo must be objects")
-                for key in ("name", "version"):
-                    _validate(_text_schema(256), params["clientInfo"].get(key), "clientInfo." + key)
+                # Any MCP-conformant client may omit fields or send newer ones;
+                # accept whatever is usable instead of demanding one shape.
+                if not isinstance(params, dict):
+                    raise RpcError(-32602, "params must be an object")
                 if self.protocol is not None:
                     raise RpcError(-32600, "This connection is already initialized")
-                requested = params["protocolVersion"]
+                requested = params.get("protocolVersion")
                 self.protocol = requested if requested in PROTOCOLS else PROTOCOLS[-1]
+                client = params.get("clientInfo")
+                client = client if isinstance(client, dict) else {}
+                self.client_info = {"name": client.get("name") if isinstance(client.get("name"), str) else None,
+                                    "version": client.get("version") if isinstance(client.get("version"), str) else None}
+                self.ready = True
                 # Some hosts prepend initialize.instructions to every tool.
                 # Keep shared guidance in the Skill and specifics on each tool.
                 result = {"protocolVersion": self.protocol, "capabilities": {"tools": {}},
@@ -1474,31 +1489,57 @@ class StdioMcpServer:
                 result = {}
             elif method == "notifications/initialized":
                 raise RpcError(-32600, "notifications/initialized must not have an id")
-            elif method not in ("tools/list", "tools/call"):
+            elif method not in ("tools/list", "tools/call",
+                                "resources/list", "resources/templates/list", "prompts/list"):
                 raise RpcError(-32601, "Method not found: " + method)
             elif not self.ready:
                 raise RpcError(-32002, "Server is not initialized")
             elif method == "tools/list":
                 # All tools fit in one response; no pagination is advertised.
-                _params(params, ("cursor",))
-                if "cursor" in params:
+                if params is not None and not isinstance(params, dict):
+                    raise RpcError(-32602, "params must be an object")
+                if "cursor" in (params or {}):
                     raise RpcError(-32602, "This tool list has no pagination cursor")
                 result = {"tools": [{"name": name, "description": TOOL_DESCRIPTIONS[name],
                                       "inputSchema": TOOL_SCHEMAS[name]}
                                      for name in self._tool_names()]}
-            else:
-                _params(params, ("name", "arguments"), ("name",))
-                name = params["name"]
+            elif method == "tools/call":
+                # Unknown params (e.g. the 2025-11-25 task object) are ignored
+                # and the call executes synchronously as a normal call.
+                if not isinstance(params, dict):
+                    raise RpcError(-32602, "params must be an object")
+                name = params.get("name")
                 _validate(_text_schema(128), name, "name")
                 if name not in TOOL_SCHEMAS:
                     replacement = REPLACED_TOOLS.get(name)
-                    raise RpcError(-32602, "Unknown tool: " + name +
-                                   ("; use " + replacement if replacement else ""))
-                if not self._tool_enabled(name):
-                    raise RpcError(-32602, "Tool is outside this profile's tool_scope: " + name)
-                arguments = params.get("arguments", {})
-                _validate(TOOL_SCHEMAS[name], arguments)
-                result = self._execute(name, arguments)
+                    if replacement is not None:
+                        result = self._tool_result({
+                            "tool": name,
+                            "error": "Tool %s was replaced; use %s" % (name, replacement),
+                            "error_type": "ReplacedTool", "replacement": replacement}, is_error=True)
+                    else:
+                        raise RpcError(-32602, "Unknown tool: " + name)
+                elif not self._tool_enabled(name):
+                    result = self._tool_result({
+                        "tool": name,
+                        "error": "Tool is outside this profile's tool_scope: " + name,
+                        "error_type": "ToolNotEnabled"}, is_error=True)
+                else:
+                    arguments = params.get("arguments")
+                    arguments = {} if arguments is None else arguments
+                    try:
+                        _validate(TOOL_SCHEMAS[name], arguments)
+                    except RpcError as exc:
+                        # Invalid tool arguments are a tool execution error
+                        # (SEP-1303), not a JSON-RPC protocol error.
+                        result = self._tool_result({"tool": name, "error": str(exc),
+                                                    "error_type": "InvalidArguments"}, is_error=True)
+                    else:
+                        result = self._execute(name, arguments)
+            else:
+                result = {"resources/list": {"resources": []},
+                          "resources/templates/list": {"resourceTemplates": []},
+                          "prompts/list": {"prompts": []}}[method]
             return {"jsonrpc": "2.0", "id": request_id, "result": result}
         except RpcError as exc:
             if notification:

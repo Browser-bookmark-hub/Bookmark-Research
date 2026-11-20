@@ -165,6 +165,28 @@ def _verify(client, bundle, receipt):
             "runtime": runtime_check(root, client.timeout)}
 
 
+def _agent_registration(bundle):
+    register = AgentClient.register_commands(bundle)
+    mcp_config = read_json(bundle / "mcp.json") or {}
+    server = mcp_config.get("mcpServers", {}).get("bookmark-research", {})
+    return {
+        "verified_scope": "files_and_stdio",
+        "registration": {
+            "state": "not_performed",
+            "reason": "Agent Plugins clients register plugin directories themselves",
+            "commands": register,
+            "notes": ["Devin: `devin plugins install --local` requires `devin auth login` first"],
+            "fallback": {
+                "mcp_server": {"type": "stdio", "command": server.get("command", "python3"),
+                               "args": [str(bundle / "src/cli.py"), "serve"], "cwd": str(bundle)},
+                "skills_dir": str(bundle / "skills"),
+                "examples": {"devin": {"mcp_config": "~/.config/devin/mcp_config.json",
+                                       "skills_dir": "~/.agents/skills"}},
+            },
+        },
+    }
+
+
 def _manage(action, client, base, source, ref, dry_run):
     bundle, receipt_path = base / "bundle", base / "receipt.json"
     receipt = _load_receipt(receipt_path, client.target)
@@ -172,6 +194,8 @@ def _manage(action, client, base, source, ref, dry_run):
         if not receipt:
             raise ValueError("No managed installation for this host and scope/profile; run install first")
         result = _verify(client, bundle, receipt)
+        if client.host == "agent":
+            result.update(_agent_registration(bundle))
         if receipt.get("state") != "verified":
             receipt["state"] = "verified"
             _write_json(receipt_path, receipt)
@@ -264,10 +288,13 @@ def _manage(action, client, base, source, ref, dry_run):
             _write_json(receipt_path, failed_receipt)
             raise
         if client.host == "agent":
-            register = AgentClient.register_commands(bundle)
-            return {**plan, **checked, "register": register,
+            extras = _agent_registration(bundle)
+            register = extras["registration"]["commands"]
+            return {**plan, **checked, "register": register, **extras,
                     "next_step": "Register " + str(bundle) + " with your Agent Plugins client (Devin: "
-                                 + " ".join(register["devin"]) + "), then start a new session."}
+                                 + " ".join(register["devin"]) + "; needs `devin auth login`). If registration is "
+                                 "unavailable, add registration.fallback.mcp_server to the client's MCP config and "
+                                 "expose registration.fallback.skills_dir as a skills directory, then start a new session."}
         return {**plan, **checked, "next_step": "Restart " + client.host + " to load the installed Skill and tools."}
 
 

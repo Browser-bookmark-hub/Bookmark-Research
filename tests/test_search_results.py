@@ -75,6 +75,23 @@ class FuseResultsTests(unittest.TestCase):
         self.assertEqual(3, results[0]["provider_count"])
         self.assertEqual(set(urls), set(results[0]["raw_urls"]))
 
+    def test_a_single_leading_www_label_is_one_page(self):
+        output = fuse_results({"batches": [
+            batch(results=[hit("https://www.martinfowler.com/a.html")]),
+            batch(provider="parallel", results=[hit("https://martinfowler.com/a.html")]),
+        ]})
+        results = output["targets"][0]["results"]
+        self.assertEqual(1, len(results))
+        self.assertEqual({"exa", "parallel"}, set(results[0]["providers"]))
+        self.assertEqual("https://martinfowler.com/a.html", results[0]["canonical_url"])
+
+        kept = fuse_results({"batches": [batch(results=[
+            hit("https://www.example.com/a"), hit("https://www.com/"),
+            hit("https://www./x"), hit("https://www2.example.com/a")])]})
+        canonical = {row["canonical_url"] for row in kept["targets"][0]["results"]}
+        self.assertEqual({"https://example.com/a", "https://www.com/",
+                          "https://www./x", "https://www2.example.com/a"}, canonical)
+
     def test_duplicate_batches_and_urls_do_not_add_score_or_evidence(self):
         one = batch(results=[hit("https://example.com/p", snippet="evidence")])
         baseline = fuse_results({"batches": [one]})["targets"][0]["results"][0]

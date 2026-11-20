@@ -5,7 +5,7 @@
 [![GitHub Bookmark-Canvas](https://img.shields.io/badge/GitHub-Bookmark--Canvas-181717?logo=github&logoColor=white)](https://github.com/Browser-bookmark-hub/Bookmark-Canvas)
 [![npm version](https://img.shields.io/npm/v/bookmark-research?logo=npm)](https://www.npmjs.com/package/bookmark-research)
 
-带着书签上下文调研，把结论留成可复用知识。读取 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，使用宿主模型或研究 API 调查，再保存带来源的 Wiki 页面。支持 **Codex、Claude Code、DeepSeek Harness (dsh)**。
+带着书签上下文调研，把结论留成可复用知识。读取 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，使用宿主模型或研究 API 调查，再保存带来源的 Wiki 页面。支持 **Codex、Claude Code、DeepSeek Harness (dsh)**。也支持其他能加载 [Agent Plugins 1.0.0](https://agent-plugins.org/specification) 插件包的客户端（如 Devin）。
 
 [安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
@@ -62,21 +62,29 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | Codex | `npx bookmark-research@latest install codex --non-interactive` | `codex plugin add` |
 | Claude Code | `npx bookmark-research@latest install claude --scope user --non-interactive` | `claude plugin install` |
 | DeepSeek Harness (dsh) | `npx bookmark-research@latest install dsh --profile web --non-interactive` | `dsh plugin add` |
+| 其他 Agent Plugins 客户端（Devin 等） | `npx bookmark-research@latest install other --non-interactive` | 导出一个 [Agent Plugins 1.0.0](https://agent-plugins.org/specification) 插件目录，再用客户端自己的命令登记，例如 `devin plugins install --local <目录>` |
 
 一次装多个：`npx bookmark-research@latest install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code）。全部参数见[安装说明](docs/installation.md)。
 
-**让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code 或 DeepSeek Harness (dsh)：
+**让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code、DeepSeek Harness (dsh)，或任何支持 Agent Plugins 1.0.0 的客户端：
 
 ```text
 请把 Bookmark Research 插件安装到你当前运行的这个宿主里。
 
-1. 先确认你自己是哪个宿主：codex、claude 或 dsh。
+1. 先确认你自己是哪个宿主：codex、claude 或 dsh。其他任何能加载
+   Agent Plugins 1.0.0 插件包（https://agent-plugins.org/specification）的客户端，
+   不论叫什么名字，都用 other。
 2. 运行：npx bookmark-research@latest install <宿主> --non-interactive --json
    - Claude Code：加 --scope user（或 --scope project --project <目录>）。
    - DeepSeek Harness (dsh)：加 --profile <名称>；profile 名称请先问我。
+   - other：结果里的 installed_path 是一个 Agent Plugins 1.0.0 插件目录，用你自己的
+     插件命令登记它（结果的 registration 字段列出已知命令和备用方案）。
 3. 命令会输出 JSON。确认 "verified": true，有 "error" 就告诉我。
-4. 不要在对话里向我要 API Key。请让我在终端运行 `bookmark-research setup` 自己输入。
-5. 提醒我新建一个会话，让 Skill 和 MCP 工具生效。
+4. 找出你自己的网页搜索和读页工具：查看你的工具列表，按工具说明里写的功能判断，
+   不看名字（本插件的工具不算）。告诉我找到了哪些，或者没有。Skill 会先用这些工具，
+   再用插件的 search/fetch，并把实际用到的工具记录为 provider "host:<工具名>"。
+5. 不要在对话里向我要 API Key。请让我在终端运行 `bookmark-research setup` 自己输入。
+6. 提醒我新建一个会话，让 Skill 和 MCP 工具生效。
 ```
 
 安装补充说明：

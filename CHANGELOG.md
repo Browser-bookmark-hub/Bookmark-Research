@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `install other` now reports `verified_scope: "files_and_stdio"` and a
+  `registration` object (`state: not_performed`, client commands, and a
+  `fallback` stdio MCP server + skills dir for clients without a register
+  command; Devin's command notes `devin auth login`). `verify` reports the same.
+- `locate(url=...)` falls back to a scheme/www-insensitive lookup when an exact
+  match finds nothing: `github.com/owner/repo` or a `www.`-prefixed query hits,
+  classified `url_normalized` or `url_prefix` in `match_mode`.
+- `locate` text hits now carry `parent_id` and `path` (folder context), and
+  `why.coverage`/`why.phrase`; ranking orders by whole-phrase presence, then
+  direct-field term coverage, then the previous weight/rarity order.
+
+### Changed
+- The MCP server accepts initialize requests with missing `capabilities`, partial `clientInfo` or fields it does not know, treats the connection as ready once initialize succeeds, ignores unknown `tools/call` params such as `task`, and answers `resources/list`, `resources/templates/list` and `prompts/list` with empty lists.
+- Replaced tool names and tools outside `tool_scope` return tool execution errors (`ReplacedTool`, `ToolNotEnabled`) that name the replacement, instead of JSON-RPC errors a client may hide.
+- When the default data or config location is not writable and the client provides `PLUGIN_DATA` (Agent Plugins 1.0.0), the plugin stores its data there; `health` reports `client` (from initialize) and `storage`.
+- `health`, `research_route`, `research_readiness` and the CLI `--host` accept any
+  host name; names other than codex, claude_code and dsh are treated as `unknown`
+  instead of being rejected.
+- Skill, README and AGENTS.md state that any Agent Plugins 1.0.0 client can run
+  the plugin, and ask the agent to identify its own web search and page-reading
+  tools by their descriptions rather than by name, recording the tool used as
+  `provider:"host:<tool name>"`.
+- Invalid tool *arguments* are now tool execution errors (`isError` results
+  with `error_type: "InvalidArguments"`, per MCP 2025-11-25 / SEP-1303);
+  JSON-RPC -32602 remains for malformed params, unknown or replaced tool
+  names, `tool_scope` rejections and `tools/list` cursors.
+- Search fusion canonicalizes a single leading `www.` host label away
+  (`https://www.example.com/a` and `https://example.com/a` fuse into one hit).
+
 ## 0.7.4 — 2026-11-20
 
 Host-native search stays the first discovery channel; the plugin keeps local

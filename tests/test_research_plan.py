@@ -270,9 +270,14 @@ class ResearchPlanTests(unittest.TestCase):
         self.assertIn("preflight_budget", payload)
         # A blank or partial question never reaches the tool: the server's
         # validator rejects it first, so no fetch or index work can happen.
-        self.assertEqual(-32602, call({"source_id": source_id, "question": "   "})["error"]["code"])
-        self.assertEqual(-32602, call({"source_id": source_id})["error"]["code"])
-        self.assertEqual(-32602, call({"source_id": source_id, "question": "alpha", "max_urls": 9})["error"]["code"])
+        for arguments in ({"source_id": source_id, "question": "   "},
+                          {"source_id": source_id},
+                          {"source_id": source_id, "question": "alpha", "max_urls": 9}):
+            with self.subTest(arguments=arguments):
+                response = call(arguments)
+                self.assertTrue(response["result"]["isError"], response)
+                self.assertEqual("InvalidArguments",
+                                 response["result"]["structuredContent"]["error_type"])
 
 
 

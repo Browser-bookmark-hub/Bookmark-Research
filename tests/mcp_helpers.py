@@ -13,7 +13,9 @@ def call_internal(server, name, arguments=None, request_id=1):
     try:
         _validate(schema_for(name), arguments)
     except RpcError as exc:
-        return {"jsonrpc": "2.0", "id": request_id, "error": {"code": exc.code, "message": str(exc)}}
+        return {"jsonrpc": "2.0", "id": request_id,
+                "result": server._tool_result({"tool": name, "error": str(exc),
+                                               "error_type": "InvalidArguments"}, is_error=True)}
     return {"jsonrpc": "2.0", "id": request_id, "result": server._execute(name, arguments)}
 
 

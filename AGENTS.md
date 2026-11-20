@@ -10,14 +10,15 @@ This file has two parts. Section 0 is for an agent a user asked to install this 
 
 When a user gives you this repository or the npm link and asks you to install it, follow these steps in the client you are running in:
 
-1. Identify your client: `codex`, `claude` or `dsh`; otherwise use `other`.
+1. Identify your client: `codex`, `claude` or `dsh`. Any other client that loads [Agent Plugins 1.0.0](https://agent-plugins.org/specification) packages (root `plugin.json`, `mcp.json`, `skills/`), whatever it is called, uses `other`.
 2. Run: `npx bookmark-research@latest install <client> --non-interactive --json`
    - `claude`: add `--scope user` (or `--scope project --project <dir>`).
    - `dsh`: add `--profile <name>`; ask the user for the profile name first. For DeepSeek Harness Desktop use `--dsh "<path to the Desktop's bundled CLI>" --profile desktop`.
    - `other`: `installed_path` in the result is an [Agent Plugins 1.0.0](https://agent-plugins.org/specification) plugin directory (root `plugin.json`, `mcp.json`, `skills/`). Register it with your own plugin command; the result's `register` field lists known commands (Devin: `devin plugins install --local <installed_path>`). If your client loads only MCP servers, add a stdio server `python3 <installed_path>/src/cli.py serve` and use `<installed_path>/skills` as a skills directory, or read `skills/bookmark-research/SKILL.md` there directly.
-3. The command prints JSON. Confirm `"verified": true`; report any `"error"` to the user as it is and do not work around it.
-4. Never ask the user for API keys in chat (all keys are optional). Ask them to run `bookmark-research setup` in a terminal, or to set the corresponding environment variables.
-5. Tell the user to start a new session so the Skill and MCP tools load.
+3. The command prints JSON. Confirm `"verified": true`; report any `"error"` to the user as it is and do not work around it. For `other`, `verified: true` means the exported files and stdio check passed (`verified_scope: "files_and_stdio"`); client registration is a separate step — read `registration`. If the client's register command fails (Devin needs `devin auth login` first), use `registration.fallback` instead.
+4. Find your own web search and page-reading tools: check your tool list and judge by what each tool's description says it does, not by its name (this plugin's tools do not count). Tell the user which tools you found, or that there are none. The Skill uses them before the plugin's `search`/`fetch` and records the tool actually used as `provider:"host:<tool name>"`.
+5. Never ask the user for API keys in chat (all keys are optional). Ask them to run `bookmark-research setup` in a terminal, or to set the corresponding environment variables.
+6. Tell the user to start a new session so the Skill and MCP tools load.
 
 Do not install this Git repository itself as a plugin (for example `devin plugins install Browser-bookmark-hub/Bookmark-Research`): the repository root contains tests and development files, and this file would be loaded as a session rule. Always install with the `npx` command above, which generates a clean host package.
 

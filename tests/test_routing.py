@@ -78,10 +78,20 @@ class RoutingTests(unittest.TestCase):
         result = self.router.route(host="claude_code", task_shape="batch_research", observed_tools=["Workflow", "Agent"])
         self.assertEqual(result["selected"]["route"], "host_subagents")
         self.assertEqual(result["methods"][0]["name"], "wiki_synthesis")
-        for arguments in ({"observed_tools": "workflow"}, {"host": "unresearched-host"},
+        for arguments in ({"observed_tools": "workflow"},
                           {"installed_extensions": [None]}, {"provider": "tavily"}):
             with self.subTest(arguments=arguments), self.assertRaises(ValueError):
                 self.router.route(**arguments)
+
+    def test_unrecognized_host_names_normalize_to_unknown_instead_of_raising(self):
+        for alias in ("devin", "other", "some-client", "unresearched-host", "", None):
+            with self.subTest(host=alias):
+                result = self.router.route(host=alias)
+                self.assertEqual("unknown", result["host"])
+        detected = ResearchRouting.host_search(host="devin", observed_tools=["web_search"])
+        self.assertTrue(detected["available"])
+        self.assertEqual("unknown", detected["host"])
+        self.assertEqual("web_search", detected["tool"])
 
     def test_explicit_deep_service_leads_to_the_real_lifecycle(self):
         self.settings.update({"professional_research": {"enabled": True, "provider": "parallel"}})

@@ -58,6 +58,8 @@ def _canonical_url(raw_url):
             if not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.?", ascii_host):
                 raise ValueError("invalid URL host")
             host = host.lower()
+            if host.startswith("www.") and "." in host[4:]:
+                host = host[4:]
     except (UnicodeError, ValueError) as exc:
         raise ValueError(str(exc)) from exc
     scheme = parts.scheme.lower()

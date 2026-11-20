@@ -74,7 +74,9 @@ If a user gave you (an AI agent) this repository or npm link and asked you to in
 ```text
 Install the Bookmark Research plugin into the client you are running in.
 
-1. Identify your client: codex, claude, dsh, or other (any other client).
+1. Identify your client: codex, claude or dsh. Any other client that loads
+   Agent Plugins 1.0.0 packages (https://agent-plugins.org/specification),
+   whatever it is called, uses other.
 2. Run: npx bookmark-research@latest install <client> --non-interactive --json
    - claude: add --scope user (or --scope project --project <dir>).
    - dsh: add --profile <profile>; ask the user for the profile name.
@@ -86,9 +88,15 @@ Install the Bookmark Research plugin into the client you are running in.
      and use <installed_path>/skills as a skills directory, or read
      skills/bookmark-research/SKILL.md there directly.
 3. The command prints JSON. Confirm "verified": true and report any "error".
-4. Do not ask for API keys in chat. Tell the user to run `bookmark-research setup`
+   For other, "verified" covers the files and the stdio check; read
+   "registration" for client registration and its fallback.
+4. Find your own web search and page-reading tools: check your tool list and
+   judge by each tool's description, not its name (this plugin's tools do not
+   count). Tell the user what you found. The Skill uses them before the
+   plugin's search/fetch and records the tool used as provider "host:<tool name>".
+5. Do not ask for API keys in chat. Tell the user to run `bookmark-research setup`
    in a terminal to enter them.
-5. Tell the user to start a new session so the Skill and MCP tools load.
+6. Tell the user to start a new session so the Skill and MCP tools load.
 
 Do not install this Git repository itself as a plugin: it contains tests and
 development files, and its root AGENTS.md would be loaded as a session rule.

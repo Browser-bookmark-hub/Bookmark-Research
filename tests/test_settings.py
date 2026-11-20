@@ -260,6 +260,76 @@ Settings(config).update(json.loads(patch))
             self.assertEqual(Settings().path, absolute / "bookmark-research/settings.json")
             self.assertEqual(Settings.data_directory(), absolute / "bookmark-research")
 
+    def readonly_home(self):
+        home = self.base / "readonly-home"
+        home.mkdir()
+        home.chmod(0o555)
+        self.addCleanup(home.chmod, 0o755)
+        return home
+
+    def plugin_environment(self, home, plugin_data, **extra):
+        environment = {"XDG_CONFIG_HOME": "", "XDG_DATA_HOME": "",
+                       "BOOKMARK_RESEARCH_CONFIG": "", "BOOKMARK_RESEARCH_DATA_DIR": "",
+                       **extra}
+        if plugin_data is not None:
+            environment["PLUGIN_DATA"] = str(plugin_data)
+        return patch.dict(os.environ, environment), patch.object(Path, "home", return_value=home)
+
+    def test_plugin_data_fallback_when_default_locations_are_unwritable(self):
+        home = self.readonly_home()
+        plugin_data = self.base / "plugin-data"
+        plugin_data.mkdir()
+        env, home_patch = self.plugin_environment(home, plugin_data)
+        with env, home_patch:
+            self.assertEqual(Settings.data_directory(), plugin_data / "data")
+            self.assertEqual(Settings().path, plugin_data / "config" / "settings.json")
+            report = Settings().storage_report()
+            self.assertEqual("plugin_data", report["data_source"])
+            self.assertEqual("plugin_data", report["config_source"])
+            self.assertTrue(report["data_writable"])
+
+    def test_env_override_and_existing_default_settings_win_over_plugin_data(self):
+        home = self.readonly_home()
+        plugin_data = self.base / "plugin-data"
+        plugin_data.mkdir()
+        env, home_patch = self.plugin_environment(
+            home, plugin_data, BOOKMARK_RESEARCH_DATA_DIR=str(self.base / "env-data"))
+        with env, home_patch:
+            self.assertEqual(Settings.data_directory(), self.base / "env-data")
+            self.assertEqual("env", Settings().storage_report()["data_source"])
+
+        writable = self.base / "writable-home"
+        default_config = writable / ".config" / "bookmark-research" / "settings.json"
+        default_config.parent.mkdir(parents=True)
+        default_config.write_text("{}", encoding="utf-8")
+        env, home_patch = self.plugin_environment(writable, plugin_data)
+        with env, home_patch:
+            self.assertEqual(Settings().path, default_config)
+            self.assertEqual("default", Settings().storage_report()["config_source"])
+
+        existing = self.base / "locked-home"
+        locked_config = existing / ".config" / "bookmark-research" / "settings.json"
+        locked_config.parent.mkdir(parents=True)
+        locked_config.write_text("{}", encoding="utf-8")
+        for directory in (locked_config.parent, locked_config.parent.parent, existing):
+            directory.chmod(0o555)
+            self.addCleanup(directory.chmod, 0o755)
+        env, home_patch = self.plugin_environment(existing, plugin_data)
+        with env, home_patch:
+            self.assertEqual(Settings().path, locked_config)
+
+    def test_unwritable_defaults_without_plugin_data_keep_the_default(self):
+        home = self.readonly_home()
+        env, home_patch = self.plugin_environment(home, None)
+        with env, home_patch:
+            default_data = home / ".local/share/bookmark-research"
+            self.assertEqual(Settings.data_directory(), default_data)
+            self.assertEqual(Settings().path, home / ".config/bookmark-research/settings.json")
+            report = Settings().storage_report()
+            self.assertEqual("default", report["data_source"])
+            self.assertEqual("default", report["config_source"])
+            self.assertFalse(report["data_writable"])
+
     def test_invalid_existing_config_is_not_silently_replaced(self):
         self.settings.path.parent.mkdir()
         for original in ('[]', '{"timeout_seconds":30,"timeout_seconds":10}', '{invalid'):

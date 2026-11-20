@@ -65,6 +65,7 @@ def locate_why(item, terms):
         "url": item.get("url") or "",
     }
     fields, matched_terms = [], []
+    matched_fields = {}
     for term in terms:
         term = str(term)
         needle = term.casefold()
@@ -79,6 +80,7 @@ def locate_why(item, terms):
                            if needle in str(value).casefold()]
         if term_fields:
             matched_terms.append(term)
+            matched_fields[term] = term_fields
             for field in term_fields:
                 if field not in fields:
                     fields.append(field)
@@ -86,6 +88,7 @@ def locate_why(item, terms):
     return {
         "terms": matched_terms,
         "fields": fields,
+        "_term_fields": matched_fields,
         "field_weights": {field: LOCATE_FIELD_WEIGHTS[field] for field in fields},
         "weight": weight,
         "match_mode": "literal_boundary" if any(str(term).isascii() for term in terms)
@@ -119,9 +122,43 @@ def locate_match_mode(terms):
     return "literal_boundary" if any(str(term).isascii() for term in terms) else "literal_substring"
 
 
+def _url_lookup_key(url):
+    """Loose URL identity: drop a leading scheme, ``www.`` and trailing slash."""
+    key = re.sub(r"^https?://", "", str(url).strip(), flags=re.I)
+    key = re.sub(r"^www\.", "", key, flags=re.I)
+    return key.rstrip("/")
+
+
+def _locate_phrase_checker(query, terms):
+    """Return a predicate for whole-query contiguity in a direct field, or None.
+
+    A phrase only matters when at least two query terms exist; single-term
+    queries keep the historical weight-first ordering.
+    """
+    if query is None or len(terms) < 2:
+        return None
+    collapsed = " ".join(str(query).split())
+    if not collapsed:
+        return None
+    if collapsed.isascii():
+        pattern = (r"(?<![0-9A-Za-z])" +
+                   r"[\s\-_/.+]+".join(re.escape(part) for part in collapsed.split()) +
+                   r"(?![0-9A-Za-z])")
+        regex = re.compile(pattern, re.I)
+        return lambda value: bool(regex.search(str(value)))
+    needle = re.sub(r"\s+", "", collapsed).casefold()
+    return lambda value: needle in re.sub(r"\s+", "", str(value)).casefold()
+
+
 def _handle_request(arguments):
     """Return the query arguments that define a continuation stream."""
     return {key: value for key, value in arguments.items() if key not in ("handle", "offset")}
+
+
+def _settings_data_directory():
+    """The shared data directory, including the PLUGIN_DATA fallback."""
+    from settings import Settings
+    return Settings.data_directory()
 
 
 def _handle_key_path(database_path=None):
@@ -131,16 +168,7 @@ def _handle_key_path(database_path=None):
         directory = database.parent
         identity = str(database)
     else:
-        selected = os.environ.get("BOOKMARK_RESEARCH_DATA_DIR")
-        if selected:
-            directory = Path(selected).expanduser().resolve()
-        else:
-            xdg_home = os.environ.get("XDG_DATA_HOME")
-            base = (Path(xdg_home).expanduser()
-                    if xdg_home and Path(xdg_home).is_absolute()
-                    else Path.home() / ".local/share")
-            directory = (base / "bookmark-research").resolve()
-        directory = directory / "continuations"
+        directory = _settings_data_directory() / "continuations"
         identity = str(directory / "index.sqlite3")
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
     return directory / (".bookmark-research-locate-" + digest + ".key")
@@ -559,7 +587,9 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
             else:
                 result["next"] = next_message
             return result
+        url_match_mode = "exact"
         if url is not None:
+            url_instances = []
             for identifier in source_ids:
                 if has_filters:
                     found = index.search(identifier, targets=[url], section=section, folder_id=folder_id,
@@ -574,23 +604,46 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
                     if found["total_instances"] > len(found["instances"]):
                         raise ValueError("locate URL result exceeds the bounded page; narrow the URL or use the P0b continuation handle")
                     instances = found["instances"]
-                for item in instances:
-                    key = (identifier, item["section_id"], item["item_id"])
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    version = statuses[identifier].get("version_id")
-                    hit = {"ref": locate_ref(*key, version), "source_kind": "canvas",
-                           "kind": "bookmark",
-                           "source_id": identifier, "evidence_kind": "bookmark_instance",
-                           "section_id": item["section_id"], "item_id": item["item_id"],
-                           "title": item.get("title") or "", "url": item.get("url") or "",
-                           "why": {"terms": [url], "fields": ["url"],
-                                  "field_weights": {"url": LOCATE_FIELD_WEIGHTS["url"]},
-                                  "weight": LOCATE_FIELD_WEIGHTS["url"], "match_mode": "exact"}}
-                    if version is not None:
-                        hit["version_id"] = version
-                    hits.append(hit)
+                url_instances.extend((identifier, item, "exact", 0) for item in instances)
+            if not url_instances and not has_filters:
+                # "github.com/owner/repo" without a scheme still names the same
+                # bookmark; only then widen to scheme/www-insensitive prefixes.
+                loose_key = _url_lookup_key(url)
+                if loose_key:
+                    for identifier in source_ids:
+                        found = index.lookup_url_loose(loose_key, source_id=identifier, limit=1000)
+                        if found["total_instances"] > len(found["instances"]):
+                            raise ValueError("locate URL result exceeds the bounded page; narrow the URL or use the P0b continuation handle")
+                        for item in found["instances"]:
+                            normalized = _url_lookup_key(item.get("url") or "")
+                            mode = "url_normalized" if normalized == loose_key else "url_prefix"
+                            url_instances.append((identifier, item, mode))
+                    url_instances.sort(key=lambda row: row[2] != "url_normalized")
+                    url_instances = [(identifier, item, mode, rank)
+                                     for rank, (identifier, item, mode) in enumerate(url_instances)]
+                    if url_instances:
+                        url_match_mode = ("url_prefix" if any(mode == "url_prefix" for _, _, mode, _ in url_instances)
+                                          else "url_normalized")
+            for identifier, item, match_mode, url_rank in url_instances:
+                key = (identifier, item["section_id"], item["item_id"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                version = statuses[identifier].get("version_id")
+                hit = {"ref": locate_ref(*key, version), "source_kind": "canvas",
+                       "kind": "bookmark",
+                       "source_id": identifier, "evidence_kind": "bookmark_instance",
+                       "section_id": item["section_id"], "item_id": item["item_id"],
+                       "parent_id": item.get("parent_id"),
+                       "title": item.get("title") or "", "url": item.get("url") or "",
+                       "path": list(item.get("path") or []) + ([item["title"]] if item.get("title") else []),
+                       "why": {"terms": [url], "fields": ["url"],
+                              "field_weights": {"url": LOCATE_FIELD_WEIGHTS["url"]},
+                              "weight": LOCATE_FIELD_WEIGHTS["url"], "match_mode": match_mode}}
+                hit["_locate_url_rank"] = url_rank
+                if version is not None:
+                    hit["version_id"] = version
+                hits.append(hit)
         else:
             for identifier in source_ids:
                 scope = index.plan_scope(identifier, query, max_cards=3, max_urls=8)
@@ -598,6 +651,7 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
                 terms_by_source[identifier] = terms
                 if locate_match_mode(terms) == "literal_boundary":
                     text_match_mode = "literal_boundary"
+                phrase_check = _locate_phrase_checker(query, terms)
                 candidates.append({
                     "source_id": identifier,
                     "terms": terms,
@@ -624,19 +678,37 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
                         if key in seen:
                             continue
                         why = locate_why(item, terms)
+                        term_fields = why.pop("_term_fields")
                         why["match_mode"] = text_match_mode
                         if not why["terms"] and not metadata_requested:
                             continue
                         seen.add(key)
                         rarity = sum(1.0 / max(term_cards.get(term, 1), 1)
                                       for term in why["terms"])
+                        tags_value = item.get("tags") or []
+                        if isinstance(tags_value, (list, tuple)):
+                            tags_value = "\n".join(str(value) for value in tags_value)
+                        direct_values = {"title": item.get("title") or "",
+                                         "url": item.get("url") or "",
+                                         "note": item.get("note") or "",
+                                         "tags": tags_value}
+                        why["coverage"] = sum(
+                            1 for term_hits in term_fields.values()
+                            if set(term_hits).intersection(LOCATE_DIRECT_FIELDS))
+                        why["phrase"] = bool(phrase_check and any(
+                            phrase_check(value) for value in direct_values.values()))
                         version = statuses[identifier].get("version_id")
                         hit = {"ref": locate_ref(*key, version), "source_kind": "canvas",
                                "kind": "bookmark",
                                "source_id": identifier, "evidence_kind": "bookmark_instance",
                                "section_id": item["section_id"], "item_id": item["item_id"],
+                               "parent_id": item.get("parent_id"),
                                "title": item.get("title") or "", "url": item.get("url") or "",
+                               "path": list(item.get("path") or []) +
+                                       ([item["title"]] if item.get("title") else []),
                                "why": why}
+                        hit["_locate_phrase"] = why["phrase"]
+                        hit["_locate_coverage"] = why["coverage"]
                         hit["_locate_weight"] = why["weight"]
                         hit["_locate_rarity"] = rarity
                         hit["_locate_card_rank"] = card_ranks.get(item["section_id"], len(card_ranks))
@@ -700,9 +772,12 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
                                 "path": list(folder.get("path") or []) +
                                         ([folder["title"]] if folder.get("title") else []),
                             }
-    hits.sort(key=lambda hit: (-hit.pop("_locate_weight", 0),
+    hits.sort(key=lambda hit: (-hit.pop("_locate_phrase", 0),
+                               -hit.pop("_locate_coverage", 0),
+                               -hit.pop("_locate_weight", 0),
                                -hit.pop("_locate_rarity", 0.0),
-                               hit.pop("_locate_card_rank", 0), hit["source_id"],
+                               hit.pop("_locate_card_rank", 0),
+                               hit.pop("_locate_url_rank", 0), hit["source_id"],
                                hit["section_id"], hit["item_id"]))
     direct_hits, inherited_hits, unclassified_hits = [], [], []
     for hit in hits:
@@ -807,7 +882,7 @@ def locate(index, source_manager, arguments, wiki=None, raw=None):
     if total_hits and not missing_terms:
         hints = []
     result = {"hits": page_hits, "total": total_hits,
-              "in": ["canvas"], "match_mode": "exact" if url is not None else text_match_mode,
+              "in": ["canvas"], "match_mode": url_match_mode if url is not None else text_match_mode,
               "source_ids": source_ids, "candidates": candidates if total_hits == 0 else [],
               "filters": {key: value for key, value in filters.items()
                           if value is not None and not (key == "metadata_match" and value == "all")}}

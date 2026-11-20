@@ -29,8 +29,19 @@ class Settings:
 
     def __init__(self, path=None):
         config_home = self._xdg_home("XDG_CONFIG_HOME", Path.home() / ".config")
-        selected = path or os.environ.get("BOOKMARK_RESEARCH_CONFIG") or config_home / "bookmark-research/settings.json"
-        self.path = Path(selected).expanduser().resolve()
+        selected = path or os.environ.get("BOOKMARK_RESEARCH_CONFIG")
+        if selected:
+            self.path = Path(selected).expanduser().resolve()
+        else:
+            default = config_home / "bookmark-research/settings.json"
+            # An Agent Plugins host that sandboxes $HOME may still offer a
+            # writable PLUGIN_DATA area; use it only when the default cannot be
+            # written and no settings file exists there yet.
+            if not default.exists() and not self._writable(default.parent):
+                plugin_data = self._plugin_data()
+                if plugin_data is not None:
+                    default = plugin_data / "config" / "settings.json"
+            self.path = Path(default).expanduser().resolve()
 
     @staticmethod
     def _xdg_home(variable, fallback):
@@ -40,11 +51,53 @@ class Settings:
         return Path(value) if value and Path(value).is_absolute() else fallback
 
     @staticmethod
+    def _writable(path):
+        """Whether the nearest existing ancestor of ``path`` is writable."""
+        ancestor = Path(path)
+        while not ancestor.exists() and ancestor != ancestor.parent:
+            ancestor = ancestor.parent
+        return os.access(ancestor, os.W_OK)
+
+    @staticmethod
+    def _plugin_data():
+        """The writable PLUGIN_DATA area an Agent Plugins client provides, if any."""
+        value = os.environ.get("PLUGIN_DATA")
+        if value:
+            candidate = Path(value).expanduser()
+            if candidate.is_absolute() and Settings._writable(candidate):
+                return candidate.resolve()
+        return None
+
+    @staticmethod
     def data_directory():
         selected = os.environ.get("BOOKMARK_RESEARCH_DATA_DIR")
         if selected:
             return Path(selected).expanduser().resolve()
-        return (Settings._xdg_home("XDG_DATA_HOME", Path.home() / ".local/share") / "bookmark-research").resolve()
+        default = (Settings._xdg_home("XDG_DATA_HOME", Path.home() / ".local/share") / "bookmark-research").resolve()
+        if not Settings._writable(default):
+            plugin_data = Settings._plugin_data()
+            if plugin_data is not None:
+                return plugin_data / "data"
+        return default
+
+    def storage_report(self):
+        """Where data and configuration actually live and why."""
+        data_directory = self.data_directory()
+        if os.environ.get("BOOKMARK_RESEARCH_DATA_DIR"):
+            data_source = "env"
+        else:
+            default_data = (self._xdg_home("XDG_DATA_HOME", Path.home() / ".local/share")
+                            / "bookmark-research").resolve()
+            data_source = "default" if data_directory == default_data else "plugin_data"
+        if os.environ.get("BOOKMARK_RESEARCH_CONFIG"):
+            config_source = "env"
+        else:
+            default_config = (self._xdg_home("XDG_CONFIG_HOME", Path.home() / ".config")
+                              / "bookmark-research/settings.json").expanduser().resolve()
+            config_source = "default" if self.path == default_config else "plugin_data"
+        return {"data_directory": str(data_directory), "data_source": data_source,
+                "data_writable": self._writable(data_directory),
+                "config_path": str(self.path), "config_source": config_source}
 
     @staticmethod
     def external_path(value, purpose):

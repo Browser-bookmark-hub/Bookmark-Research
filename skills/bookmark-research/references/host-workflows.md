@@ -52,6 +52,10 @@ Run /bookmark-research:bookmark-research with
 
 Manage runs through `/workflows`. Resume works within the same session; restarting may replay completed children, so retain evidence and operation IDs. Claude's separate built-in deep research does not automatically cover this plugin's frozen inventory.
 
+## Agent Plugins clients (Devin and others)
+
+Any client that loads [Agent Plugins 1.0.0](https://agent-plugins.org/specification) packages can run this plugin, whatever the client is called. There is no plugin-specific workflow helper for these clients: use the client's native subagents if it has any, otherwise run the ordinary host loop. Find the client's own search and page-reading tools by their descriptions, as in the Skill's step 2.
+
 ## DSH
 
 The export includes workflow metadata, plain JavaScript and a call-object helper:
