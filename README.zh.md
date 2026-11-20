@@ -5,15 +5,15 @@
 [![GitHub Bookmark-Canvas](https://img.shields.io/badge/GitHub-Bookmark--Canvas-181717?logo=github&logoColor=white)](https://github.com/Browser-bookmark-hub/Bookmark-Canvas)
 [![npm version](https://img.shields.io/npm/v/bookmark-research?logo=npm)](https://www.npmjs.com/package/bookmark-research)
 
-带着书签上下文调研，把结论留成可复用知识。读取 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，使用宿主模型或研究 API 调查，再保存带来源的 Wiki 页面。支持 **Codex、Claude Code、DeepSeek Harness (dsh)**，以及能加载 [Agent Plugins 1.0.0](https://agent-plugins.org/specification) 插件的其他客户端（如 Devin）。
-
-**你是被要求通过链接安装本插件的 AI agent？** 请按[让 agent 帮你装](#让-agent-帮你装)操作。
+带着书签上下文调研，把结论留成可复用知识。读取 [Bookmark Canvas](https://github.com/Browser-bookmark-hub/Bookmark-Canvas) 数据包，使用宿主模型或研究 API 调查，再保存带来源的 Wiki 页面。支持 **Codex、Claude Code、DeepSeek Harness (dsh)**。
 
 [安装说明](docs/installation.md) · [使用指南](docs/user-guide.md) · [详细说明](docs/details.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
-## 0.7.3 正式版
+## 0.7.2 正式版
+## 0.7.4 正式版
 
-0.7.3 修复了 Codex 在自定义向导模式与非交互式启动器安装下的市场来源替换逻辑，确保从不同构建快照覆盖安装或升级时不再因来源哈希差异而报错。本版保留 0.7.0 的 CLI 优先工具面——默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存——以及跨平台 Codex 智能候选目录自动探测、收敛的 40 个真实工具面（`deep`/`all`）、可关闭的 Wiki 层（`wiki.enabled`）与确定性编译计划器（`wiki_compile`）。升级保留已有配置、密钥和研究数据。
+0.7.2 新增跨平台 Codex CLI 智能候选目录自动探测（覆盖多 Node 版本管理器与系统级目录），收敛 `deep`/`all` 工具面为 40 个真实工具（旧名称不再通告），并强化了 Skill 预检与证据链规范。本版保留 0.7.0 的 CLI 优先工具面——默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存——以及可关闭的 Wiki 层（`wiki.enabled`）与确定性编译计划器（`wiki_compile`）。关闭 Wiki 时默认面为 9 个原语；旧名在 0.8.0 之前仍可直接调用或通过显式 tool_scope 指定。升级保留已有配置、密钥和研究数据。
+0.7.4 聚焦于宿主优先检索机制清理与宿主扩展：新增第 4 个宿主目标 `agent`（别名 `other`、`devin`），完全符合 Agent Plugins 1.0.0 规范；移除旧版重名别名与 Tavily/Jina 后端，全面拥抱宿主原生搜索与 Exa、Parallel；去重合并仅在追踪参数上有差异的搜索结果；收紧抓取宽限与超时期限；恢复核心原语在网络工作进程中的调度执行，并实现测试数据完全隔离。本版保留 0.7.0 的 CLI 优先工具面——默认 10 个原语、持久化本地作业队列、卡片导出（JSON 或 Netscape HTML）导入、搜索引擎页跳过与 fetch TTL 缓存——以及跨平台 Codex 智能候选目录自动探测、收敛的 40 个真实工具面（`deep`/`all`）、可关闭的 Wiki 层（`wiki.enabled`）与确定性编译计划器（`wiki_compile`）。升级保留已有配置、密钥和研究数据。
 
 ## 它是怎么工作的
 
@@ -34,7 +34,8 @@
 npx bookmark-research@latest install
 ```
 
-默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.7.3 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
+默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.7.2 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
+默认安装最新正式版。固定安装本版可用 `npx bookmark-research@0.7.4 install`。加 `--lang zh` 可让向导显示中文。想一直能用 `bookmark-research` 命令，运行 `npm install -g bookmark-research@latest`；GitHub 便捷脚本使用同一 npm 发布版（macOS/Linux/WSL）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
@@ -61,31 +62,21 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | Codex | `npx bookmark-research@latest install codex --non-interactive` | `codex plugin add` |
 | Claude Code | `npx bookmark-research@latest install claude --scope user --non-interactive` | `claude plugin install` |
 | DeepSeek Harness (dsh) | `npx bookmark-research@latest install dsh --profile web --non-interactive` | `dsh plugin add` |
-| 其他 Agent Plugins 客户端（Devin 等） | `npx bookmark-research@latest install other --non-interactive` | 生成 [Agent Plugins 1.0.0](https://agent-plugins.org/specification) 目录，再在客户端登记，如 `devin plugins install --local <目录>` |
 
 一次装多个：`npx bookmark-research@latest install claude dsh --profile web --non-interactive`。装到指定项目：`--scope project --project /path/to/project`（Claude Code）。全部参数见[安装说明](docs/installation.md)。
 
-### 让 agent 帮你装
-
-如果用户给了你（AI agent）本仓库或 npm 链接并让你安装，请在你当前运行的客户端里按下面步骤操作。用户也可以把这段直接粘贴给任意客户端。
+**让 agent 帮你装。** 把下面这段粘贴给 Codex、Claude Code 或 DeepSeek Harness (dsh)：
 
 ```text
-请把 Bookmark Research 插件安装到你当前运行的这个客户端里。
+请把 Bookmark Research 插件安装到你当前运行的这个宿主里。
 
-1. 先确认你自己是哪个客户端：codex、claude、dsh；都不是就用 other。
-2. 运行：npx bookmark-research@latest install <客户端> --non-interactive --json
-   - claude：加 --scope user（或 --scope project --project <目录>）。
-   - dsh：加 --profile <名称>；profile 名称请先问用户。
-   - other：结果里的 installed_path 是一个 Agent Plugins 1.0.0 插件目录
-     （https://agent-plugins.org/specification）。用你自己的插件命令登记它；结果的 "register" 字段
-     列出了已知命令（Devin：devin plugins install --local <installed_path>）。
-     如果你只支持 MCP，就添加一个 stdio 服务：python3 <installed_path>/src/cli.py serve，
-     并把 <installed_path>/skills 作为技能目录，或直接阅读其中的 skills/bookmark-research/SKILL.md。
-3. 命令会输出 JSON。确认 "verified": true，有 "error" 就如实告诉用户。
-4. 不要在对话里向用户要 API Key，请让用户在终端运行 `bookmark-research setup` 自己输入。
-5. 提醒用户新建一个会话，让 Skill 和 MCP 工具生效。
-
-不要把这个 Git 仓库本身直接当插件安装：其中包含测试与开发文件，根目录的 AGENTS.md 也会被当作会话规则加载。
+1. 先确认你自己是哪个宿主：codex、claude 或 dsh。
+2. 运行：npx bookmark-research@latest install <宿主> --non-interactive --json
+   - Claude Code：加 --scope user（或 --scope project --project <目录>）。
+   - DeepSeek Harness (dsh)：加 --profile <名称>；profile 名称请先问我。
+3. 命令会输出 JSON。确认 "verified": true，有 "error" 就告诉我。
+4. 不要在对话里向我要 API Key。请让我在终端运行 `bookmark-research setup` 自己输入。
+5. 提醒我新建一个会话，让 Skill 和 MCP 工具生效。
 ```
 
 安装补充说明：
@@ -119,6 +110,8 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | --- | --- | --- |
 | `EXA_API_KEY` | Exa 搜索与网页读取 | 在 Exa 允许的范围内匿名使用 |
 | `PARALLEL_API_KEY` | Parallel 搜索与网页读取 | 免费匿名使用，额度较低 |
+| `TAVILY_API_KEY` | Tavily 备用搜索与提取 | 使用免 Key 模式 |
+| `JINA_API_KEY` | Jina 搜索 | Jina Reader 仍可匿名读取网页 |
 | `DEEPSEEK_API_KEY` | 可选的 DeepSeek Search / Fetch | 不选择即可；其他 provider 仍可用 |
 | `PERPLEXITY_API_KEY` | 可选的 Perplexity 结构化 Search | 只提供搜索来源，不提供网页抓取 |
 | `XAI_API_KEY` | 可选的 Grok Agentic 搜索 | 独立 `agentic_search` 工具，不参与 URL 聚合 |
@@ -159,11 +152,11 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 | --- | --- | --- | --- |
 | Skill | [`bookmark-research`](skills/bookmark-research/SKILL.md) 及 11 份方法参考，每份都有[中文版](skills/bookmark-research/references/zh/skill-guide.md) | 由宿主加载 | 不需要 |
 | 本地 MCP | `bookmark-research`，默认 10 个工具（见下表） | 宿主启动的 Python 进程 | 安装器自动完成 |
-| 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取） | HTTPS，不启动本地进程 | 可选 API Key |
-| 本地 MCP 调用的 HTTP 服务 | [DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/)；[Perplexity Search](https://docs.perplexity.ai/api-reference/search-post)（结构化结果） | HTTPS | 可选 provider Key |
+| 本地 MCP 调用的远程 MCP | [Exa](https://exa.ai)（搜索、网页读取）、[Parallel](https://parallel.ai)（搜索、备用读取）、[Tavily](https://tavily.com)（备用搜索） | HTTPS，不启动本地进程 | 可选 API Key |
+| 本地 MCP 调用的 HTTP 服务 | [Jina Reader](https://jina.ai/reader)（备用读取；有 Key 时可搜索）；[DeepSeek Search / Fetch](https://api-docs.deepseek.com/guides/search/)；[Perplexity Search](https://docs.perplexity.ai/api-reference/search-post)（结构化结果） | HTTPS | 可选 provider Key |
 | 模型搜索 API | [xAI Grok Responses](https://docs.x.ai/developers/tools/web-search)，可选网页与 X 搜索 | HTTPS | 可选 `XAI_API_KEY`；通过独立 `agentic_search` 调用 |
 | 自定义模型 API | 用户配置的 OpenAI 兼容 Chat Completions／Responses 端点 | 用户配置的 HTTP(S) Base URL | `CUSTOM_AGENTIC_API_KEY`；须配置模型与协议，联网由上游决定 |
-| 可选的宿主 MCP | Exa Agent、Parallel Task MCP | 需自行加到宿主里 | `bookmark-research setup` 会给出步骤 |
+| 可选的宿主 MCP | Exa Agent、Parallel Task MCP、Tavily Research | 需自行加到宿主里 | `bookmark-research setup` 会给出步骤 |
 
 本地 MCP 的工具：
 
@@ -179,7 +172,7 @@ curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Resea
 
 长任务或批量任务不会占住工具步：`spawn(task="fetch"|"ingest"|"research", args)` 入队，单例 `bookmark-research job worker` 用有界线程池执行，`job(job_id)` 查看状态与结果；队列由三个宿主与 CLI 共享。
 
-`deep` 预设额外提供 30 个维护工具：来源维护、完整研究记录、选路诊断、Wiki 维护与 `wiki_compile` 增量编译计划。18 个旧工具名（`search_web`、`fetch_web` 等）已移除，调用会被拒绝并提示替代原语。Git 时间上下文由宿主 shell 查询。
+`deep` 预设额外提供 30 个维护工具：来源维护、完整研究记录、选路诊断、Wiki 维护与 `wiki_compile` 增量编译计划。18 个旧名不再出现在任何预设中；显式 `tool_scope` 仍可指定，0.8.0 起拒绝。Git 时间上下文由宿主 shell 查询。
 
 ## 更多
 

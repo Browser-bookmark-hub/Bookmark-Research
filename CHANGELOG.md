@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.4 — 2026-11-20
 
 Host-native search stays the first discovery channel; the plugin keeps local
 context, page reading with archives, fallback search and the Wiki. This build
