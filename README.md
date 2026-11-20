@@ -11,9 +11,9 @@ Research with bookmark context and retain reusable knowledge. Read a [Bookmark C
 
 [Installation guide](docs/installation.en.md) · [User guide](docs/user-guide.en.md) · [Details](docs/details.en.md) · [npm](https://www.npmjs.com/package/bookmark-research)
 
-## Version 0.7.4
+## Version 0.7.5
 
-0.7.4 focuses on host-first retrieval cleanup and extends host support: adds a fourth host target `agent` (aliases `other`, `devin`) conforming to Agent Plugins 1.0.0; removes legacy aliases and Tavily/Jina backends in favor of host-native search, Exa, and Parallel; fuses duplicate search results across tracking parameters; tightens fetch grace/deadlines; restores network worker execution for core primitives; and enforces strict test data isolation. It retains the 0.7.0 CLI-first surface — 10 default primitives, a durable local job queue, card-export imports (JSON or Netscape HTML), search-result page skipping, a TTL fetch cache, the switchable Wiki layer (`wiki.enabled`), and deterministic compile planning (`wiki_compile` plan/status/gap).
+0.7.5 hardens compatibility across any Agent Plugins 1.0.0 client (such as Devin) and sharpens bookmark search: accepts flexible initialize fields and unknown params, reports errors via SEP-1303 isError without dropping connections, adopts `PLUGIN_DATA` when default storage paths are not writable, falls back to scheme/www-insensitive URL matching in `locate`, adds whole-phrase presence and parent folder context to bookmark search, and canonicalizes `www.` prefixes in search fusion. It retains the 0.7.0 CLI-first surface — 10 default primitives, a durable local job queue, card-export imports (JSON or Netscape HTML), search-result page skipping, a TTL fetch cache, the switchable Wiki layer (`wiki.enabled`), and deterministic compile planning (`wiki_compile` plan/status/gap).
 
 The stable release includes bilingual Canvas package support, safer Exa batch reading that isolates ambiguous pages, and concise installation/update summaries. Installation prints the version, actual paths, checks and any required action. Use `--json` for complete structured diagnostics; `--non-interactive` only disables prompts. Existing settings, credentials and research data are retained during upgrades.
 
@@ -36,7 +36,7 @@ The stable release includes bilingual Canvas package support, safer Exa batch re
 npx bookmark-research@latest install
 ```
 
-Installs the latest stable release directly. To pin this release, use `npx bookmark-research@0.7.4 install`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research@latest`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
+Installs the latest stable release directly. To pin this release, use `npx bookmark-research@0.7.5 install`. Add `--lang zh` for the Chinese wizard. For a permanent command, run `npm install -g bookmark-research@latest`; the GitHub convenience script uses the same npm release (macOS/Linux/WSL):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Browser-bookmark-hub/Bookmark-Research/main/install.sh | bash
